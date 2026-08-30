@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cloudflare-runtime:
+        patterns:
+          - "@cloudflare/*"
+          - agents
+          - wrangler
+      development-tooling:
+        dependency-type: development

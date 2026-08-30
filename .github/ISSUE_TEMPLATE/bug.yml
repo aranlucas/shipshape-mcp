@@ -1,0 +1,26 @@
+name: Bug report
+description: Report an incorrect rule, score, or MCP behavior
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Observed outcome
+      description: Include the rule ID and redacted tool result when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected outcome
+      description: Explain which public GitHub evidence supports the expected state.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed access tokens, OAuth codes, private repository names, and other credentials.
+          required: true

@@ -1,0 +1,37 @@
+{
+  "name": "shipshape-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only GitHub portfolio maintenance priorities over MCP",
+  "type": "module",
+  "scripts": {
+    "check": "pnpm types && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
+    "deploy": "wrangler deploy --minify",
+    "dev": "wrangler dev",
+    "dry-run": "wrangler deploy --dry-run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types --env-file .dev.vars.example"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "^0.22.0",
+    "oauth4webapi": "^3.8.7",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.10.1",
+    "eslint": "^10.9.1",
+    "prettier": "^3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1"
+  },
+  "packageManager": "pnpm@11.24.0"
+}

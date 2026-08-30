@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local OAuth testing. Never commit real credentials.
+GITHUB_CLIENT_ID=""
+GITHUB_CLIENT_SECRET=""
+COOKIE_ENCRYPTION_KEY="generate-with-openssl-rand-32"
