@@ -1,0 +1,8 @@
+allowBuilds:
+  core-js-pure: true
+  esbuild: true
+  workerd: true
+overrides:
+  "@cloudflare/workers-types": 5.20260829.1
+  "ignore@7": 7.0.6
+  qs: 6.15.3
