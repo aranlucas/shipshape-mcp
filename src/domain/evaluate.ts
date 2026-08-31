@@ -124,9 +124,7 @@ export const evaluateSecurityPosture = (
   const branchControls: CheckState =
     branch.status !== "available"
       ? "unknown"
-      : branch.protected === true &&
-          branch.requiresPullRequestReviews === true &&
-          (branch.requiredStatusChecks ?? 0) > 0
+      : branch.protected === true
         ? "pass"
         : "fail";
 

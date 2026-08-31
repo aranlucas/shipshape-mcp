@@ -608,7 +608,7 @@ export function buildActionPlan(
         "protect-default-branch",
         "high",
         "Protect the default branch",
-        "Require review and status checks before changes land on the default branch.",
+        "Add the smallest guardrails that fit the project, such as blocking accidental force-pushes and deletions.",
         coordinates,
         "branch_risk",
         branchRisk.evidence,

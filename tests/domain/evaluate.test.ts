@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateDeliveryHygiene,
+  evaluateSecurityPosture,
   evaluateRepositoryReadiness,
 } from "../../src/domain/evaluate";
 import { scoreChecks } from "../../src/domain/scoring";
@@ -123,5 +124,21 @@ describe("provider fact evaluation", () => {
     expect(
       checks.find((check) => check.ruleId === "delivery.ci-present")?.state,
     ).toBe("fail");
+  });
+
+  it("does not require pull-request approvals for branch security controls", () => {
+    const checks = evaluateSecurityPosture(
+      readiness.securityPosture,
+      readiness.repository,
+      {
+        ...readiness.branchRisk,
+        requiresPullRequestReviews: false,
+        requiredApprovingReviews: 0,
+      },
+    );
+
+    expect(
+      checks.find((check) => check.ruleId === "security.branch-protection"),
+    ).toMatchObject({ state: "pass" });
   });
 });

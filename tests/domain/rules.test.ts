@@ -91,6 +91,19 @@ describe("rule catalog", () => {
       }),
     ).toThrowError("Invalid confidence: certain");
   });
+
+  it("does not recommend pull-request approvals as a branch safeguard", () => {
+    const branchRules = RULE_DEFINITIONS.filter(
+      (rule) =>
+        rule.id === "branch.default-protection" ||
+        rule.id === "security.branch-protection",
+    );
+
+    expect(branchRules).toHaveLength(2);
+    expect(
+      branchRules.every((rule) => !/approval|review/i.test(rule.remediation)),
+    ).toBe(true);
+  });
 });
 
 describe("evidence normalization", () => {
