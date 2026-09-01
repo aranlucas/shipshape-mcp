@@ -41,6 +41,9 @@ const repository = {
   has_wiki: false,
   has_pages: false,
   has_discussions: false,
+  allow_merge_commit: true,
+  allow_rebase_merge: false,
+  allow_update_branch: true,
   security_and_analysis: {
     advanced_security: { status: "enabled" },
     secret_scanning: { status: "enabled" },
@@ -194,6 +197,11 @@ describe("GitHub collectors", () => {
     });
 
     expect(result.repository.defaultBranch).toBe("main");
+    expect(result.repository.pullRequestSettings).toEqual({
+      allowMergeCommit: true,
+      allowRebaseMerge: false,
+      allowUpdateBranch: true,
+    });
     expect(result.branchRisk).toMatchObject({
       protectionStatus: "protected",
       requiredStatusChecks: 2,
@@ -213,6 +221,9 @@ describe("GitHub collectors", () => {
     expect(result.status).toBe("needs-attention");
     expect(result.actionPlan.map((item) => item.id)).toContain(
       "triage-critical-security",
+    );
+    expect(result.actionPlan.map((item) => item.id)).toContain(
+      "configure-pull-request-merging",
     );
     expect(
       result.evidence.every((item) =>
