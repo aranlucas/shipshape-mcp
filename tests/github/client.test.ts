@@ -106,7 +106,9 @@ describe("GitHubClient", () => {
 
     await expect(
       client.getRepository({ owner: "octo", repo: "demo" }),
-    ).rejects.toMatchObject({ code: "private_repository" });
+    ).rejects.toMatchObject({
+      code: "private_repository",
+    });
   });
 
   it("uses an ETag on repeat reads and serves a cached 304 representation", async () => {

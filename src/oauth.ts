@@ -169,7 +169,10 @@ async function handleAuthorizeGet(
   for (const cookie of cookies) appendSetCookie(headers, cookie);
   return new Response(
     renderConsentDialog(client, oauthRequest, state, csrfToken),
-    { status: 200, headers },
+    {
+      status: 200,
+      headers,
+    },
   );
 }
 

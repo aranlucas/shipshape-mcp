@@ -172,6 +172,8 @@ describe("provider fact evaluation", () => {
 
     expect(
       checks.find((check) => check.ruleId === "security.branch-protection"),
-    ).toMatchObject({ state: "pass" });
+    ).toMatchObject({
+      state: "pass",
+    });
   });
 });

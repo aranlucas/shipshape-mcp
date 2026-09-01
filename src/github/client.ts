@@ -685,7 +685,10 @@ export class GitHubClient {
     return this.getPaginated(
       `${this.repositoryPath(coordinates)}/commits`,
       GitHubCommitSchema,
-      { ...options, query },
+      {
+        ...options,
+        query,
+      },
     );
   }
 
