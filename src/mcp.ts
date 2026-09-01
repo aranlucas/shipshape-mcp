@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { getMcpAuthContext } from "agents/mcp/server";
+import { Octokit } from "octokit";
 import { z } from "zod";
 
 export { MCP_SCOPE } from "./config";
@@ -22,31 +23,28 @@ import {
   collectRepositoryReadiness,
 } from "./github/collectors";
 import {
-  GitHubApiError,
-  GitHubClient,
-  GitHubClientError,
   GitHubInputError,
+  GitHubPayloadError,
   PrivateRepositoryError,
+  octokitPaginate,
+  type GitHubOctokit,
 } from "./github/client";
+import {
+  GitHubOwnerInputSchema,
+  GitHubRefInputSchema,
+  GitHubRepositorySchema,
+  RepositoryCoordinatesSchema,
+} from "./github/schemas";
 
-const OwnerSchema = z
-  .string()
-  .min(1)
-  .max(39)
-  .regex(/^(?!-)[A-Za-z0-9-]+(?<!-)$/u, "Enter a valid GitHub owner");
-const RepositorySchema = z
-  .string()
-  .min(1)
-  .max(100)
-  .regex(/^[A-Za-z0-9_.-]+$/u, "Enter a valid GitHub repository name");
-const RefSchema = z.string().min(1).max(255);
-const CoordinatesSchema = z.object({
-  owner: OwnerSchema.describe("GitHub user or organization"),
-  repo: RepositorySchema.describe("Public GitHub repository name"),
+const CoordinatesSchema = RepositoryCoordinatesSchema.extend({
+  owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
+  repo: RepositoryCoordinatesSchema.shape.repo.describe(
+    "Public GitHub repository name",
+  ),
 });
 const AuthPropsSchema = z.object({
   accessToken: z.string().min(1).max(4_096),
-  login: OwnerSchema,
+  login: GitHubOwnerInputSchema,
 });
 
 const READ_ONLY_ANNOTATIONS = {
@@ -58,11 +56,15 @@ const READ_ONLY_ANNOTATIONS = {
 
 type ToolPayload = Record<string, unknown>;
 
-function githubClient(): GitHubClient {
+function githubClient(): GitHubOctokit {
   const parsed = AuthPropsSchema.safeParse(getMcpAuthContext()?.props);
   if (!parsed.success)
     throw new GitHubInputError("GitHub authorization is required");
-  return new GitHubClient({ token: parsed.data.accessToken });
+  return new Octokit({
+    auth: parsed.data.accessToken,
+    userAgent: "shipshape-mcp-readiness-engine",
+    request: { timeout: 8_000 },
+  });
 }
 
 function jsonResult(payload: ToolPayload) {
@@ -80,14 +82,18 @@ function toolError(error: unknown) {
     message = "Shipshape only inspects public repositories.";
   } else if (error instanceof GitHubInputError) {
     message = error.message;
-  } else if (error instanceof GitHubApiError) {
+  } else if (
+    error instanceof Error &&
+    "status" in error &&
+    typeof error.status === "number"
+  ) {
     message =
       error.status === 404
         ? "The public repository or requested GitHub feature was not found."
         : error.status === 403
           ? "GitHub denied this read-only request or the feature is unavailable on the repository's plan."
           : `GitHub returned HTTP ${error.status} while inspecting the repository.`;
-  } else if (error instanceof GitHubClientError) {
+  } else if (error instanceof GitHubPayloadError) {
     message = "GitHub returned an invalid or incomplete response.";
   }
 
@@ -128,7 +134,7 @@ export function createShipshapeServer(): McpServer {
       description:
         "Rank a bounded set of recently updated public repositories by maintenance need. Deep-scans at most eight repositories.",
       inputSchema: z.object({
-        owner: OwnerSchema.describe("GitHub user or organization"),
+        owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
         limit: z.number().int().min(1).max(8).default(4),
         includeForks: z.boolean().default(false),
         includeArchived: z.boolean().default(false),
@@ -138,10 +144,13 @@ export function createShipshapeServer(): McpServer {
     async ({ owner, limit, includeForks, includeArchived }) =>
       safely(async () => {
         const client = githubClient();
-        const listed = await client.listRepositories(owner, {
-          maxPages: 1,
-          perPage: 50,
-        });
+        const listed = await octokitPaginate(
+          client,
+          "GET /users/{username}/repos",
+          { username: owner, type: "owner", sort: "updated" },
+          GitHubRepositorySchema,
+          { maxPages: 1, perPage: 50 },
+        );
         const repositories = listed.data
           .filter((repository) => !repository.private)
           .filter((repository) => includeForks || !repository.fork)
@@ -222,7 +231,7 @@ export function createShipshapeServer(): McpServer {
       description:
         "Inspect protection controls for a named branch of a public repository. Unavailable plan- or permission-gated evidence remains unknown.",
       inputSchema: CoordinatesSchema.extend({
-        branch: RefSchema.describe("Branch name"),
+        branch: GitHubRefInputSchema.describe("Branch name"),
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
@@ -249,7 +258,7 @@ export function createShipshapeServer(): McpServer {
       description:
         "Summarize recent commits, open pull requests, and CI health for a public repository branch.",
       inputSchema: CoordinatesSchema.extend({
-        branch: RefSchema.describe("Branch name"),
+        branch: GitHubRefInputSchema.describe("Branch name"),
         recentDays: z.number().int().min(1).max(180).default(30),
       }),
       annotations: READ_ONLY_ANNOTATIONS,

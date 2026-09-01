@@ -1,4 +1,5 @@
 import { makeCheck, RULE_DEFINITIONS, type RuleId } from "./rules";
+import { z } from "zod";
 import {
   CONFIDENCE_LEVELS,
   PRIORITY_LEVELS,
@@ -43,6 +44,11 @@ const STATE_ORDER = new Map<CheckState, number>([
 
 const DEFAULT_MAX_ACTIONS = 20;
 const MAX_ACTIONS = 50;
+const EvidenceSchema = z.object({
+  url: z.string(),
+  label: z.string(),
+  detail: z.string().optional(),
+});
 
 type MutableStateCounts = {
   -readonly [Key in keyof StateCounts]: StateCounts[Key];
@@ -130,7 +136,7 @@ const scoreFor = (
 const canonicalEvidence = (
   evidence: unknown,
 ): readonly Evidence[] | undefined =>
-  Array.isArray(evidence) ? (evidence as readonly Evidence[]) : undefined;
+  z.array(EvidenceSchema).safeParse(evidence).data;
 
 const canonicalCheck = (check: CheckResult): CheckResult => {
   if (!check || typeof check !== "object") {
@@ -266,10 +272,14 @@ export const scoreChecks = (checks: readonly CheckResult[]): ScoreSummary => {
 const actionStateOrder = (state: ActionItem["state"]): number =>
   state === "fail" ? 2 : 1;
 
-const compareActions = (left: CheckResult, right: CheckResult): number => {
+type ActionCandidate = CheckResult & { state: ActionItem["state"] };
+
+const compareActions = (
+  left: ActionCandidate,
+  right: ActionCandidate,
+): number => {
   const stateDifference =
-    actionStateOrder(left.state as ActionItem["state"]) -
-    actionStateOrder(right.state as ActionItem["state"]);
+    actionStateOrder(left.state) - actionStateOrder(right.state);
   if (stateDifference !== 0) {
     return -stateDifference;
   }

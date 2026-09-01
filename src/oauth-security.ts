@@ -2,6 +2,7 @@ import type {
   AuthRequest,
   ClientInfo,
 } from "@cloudflare/workers-oauth-provider";
+import { z } from "zod";
 
 export const BROWSER_COOKIE_NAME = "__Host-shipshape-browser";
 export const CSRF_COOKIE_NAME = "__Host-shipshape-csrf";
@@ -13,6 +14,47 @@ export const APPROVED_CLIENT_TTL_SECONDS = 30 * 24 * 60 * 60;
 const encoder = new TextEncoder();
 const MAX_COOKIE_VALUE_LENGTH = 6_000;
 const MAX_STATE_RECORD_LENGTH = 32_000;
+
+const safeClientStringSchema = z
+  .string()
+  .min(1)
+  .max(2_048)
+  .refine((value) => !/[\u0000-\u001f\u007f]/.test(value));
+const safeScopeSchema = z
+  .string()
+  .max(256)
+  .regex(/^[A-Za-z0-9:._-]+$/);
+const safeScopeStringSchema = z
+  .string()
+  .max(2_048)
+  .refine((value) => value === "" || value.split(" ").every(isSafeScope));
+const base64UrlSchema = z
+  .string()
+  .min(1)
+  .regex(/^[A-Za-z0-9_-]+$/);
+const authRequestSchema = z
+  .object({
+    responseType: z.string(),
+    clientId: safeClientStringSchema,
+    redirectUri: safeClientStringSchema,
+    scope: z.array(safeScopeSchema),
+    state: z.string().max(512),
+  })
+  .passthrough();
+const approvedClientRecordSchema = z.object({
+  clientId: safeClientStringSchema,
+  redirectUri: safeClientStringSchema,
+  scope: safeScopeStringSchema,
+  expiresAt: z.number().int().safe(),
+});
+const oauthStateRecordSchema = z
+  .object({
+    kind: z.enum(["authorization", "github"]),
+    browserBinding: base64UrlSchema,
+    createdAt: z.number().int().safe(),
+    oauthRequest: authRequestSchema,
+  })
+  .passthrough();
 
 export interface AuthorizationStateRecord {
   kind: "authorization";
@@ -348,54 +390,11 @@ function validateApprovedClientRecord(record: ApprovedClientRecord): void {
 }
 
 function isApprovedClientRecord(value: unknown): value is ApprovedClientRecord {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.clientId === "string" &&
-    isSafeClientString(record.clientId) &&
-    typeof record.redirectUri === "string" &&
-    isSafeClientString(record.redirectUri) &&
-    typeof record.scope === "string" &&
-    isSafeScopeString(record.scope) &&
-    typeof record.expiresAt === "number" &&
-    Number.isSafeInteger(record.expiresAt)
-  );
+  return approvedClientRecordSchema.safeParse(value).success;
 }
 
 function isOAuthStateRecord(value: unknown): value is OAuthStateRecord {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  if (record.kind !== "authorization" && record.kind !== "github") return false;
-  if (
-    typeof record.browserBinding !== "string" ||
-    !isBase64Url(record.browserBinding)
-  )
-    return false;
-  if (
-    typeof record.createdAt !== "number" ||
-    !Number.isSafeInteger(record.createdAt)
-  )
-    return false;
-  return isAuthRequest(record.oauthRequest);
-}
-
-function isAuthRequest(value: unknown): value is AuthRequest {
-  if (typeof value !== "object" || value === null) return false;
-  const request = value as Record<string, unknown>;
-  return (
-    typeof request.responseType === "string" &&
-    typeof request.clientId === "string" &&
-    isSafeClientString(request.clientId) &&
-    typeof request.redirectUri === "string" &&
-    isSafeClientString(request.redirectUri) &&
-    Array.isArray(request.scope) &&
-    request.scope.every(
-      (scope): scope is string =>
-        typeof scope === "string" && isSafeScope(scope),
-    ) &&
-    typeof request.state === "string" &&
-    request.state.length <= 512
-  );
+  return oauthStateRecordSchema.safeParse(value).success;
 }
 
 function isSafeClientString(value: string): boolean {

@@ -5,6 +5,7 @@ import {
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
 import * as oauth from "oauth4webapi";
+import { z } from "zod";
 
 import { GITHUB_SCOPE, MCP_SCOPE } from "./config";
 import { landingHandler, methodNotAllowed, notFoundResponse } from "./landing";
@@ -52,6 +53,7 @@ const GITHUB_AUTHORIZATION_SERVER: oauth.AuthorizationServer = {
   token_endpoint: "https://github.com/login/oauth/access_token",
 };
 const GITHUB_CLIENT_USER_ENDPOINT = new URL("https://api.github.com/user");
+const GitHubUserSchema = z.object({ login: z.string() });
 
 export interface OAuthEnv {
   OAUTH_KV: KVNamespace;
@@ -499,20 +501,24 @@ async function fetchAndValidateGitHubUser(
     return null;
   }
   const payload = await readJson(response);
-  if (payload === null || typeof payload !== "object" || payload === null)
-    return null;
-  const login = (payload as Record<string, unknown>).login;
-  return isGitHubLogin(login) ? login : null;
+  const user = GitHubUserSchema.safeParse(payload);
+  return user.success && isGitHubLogin(user.data.login)
+    ? user.data.login
+    : null;
 }
 
 async function boundedOAuthFetch(
   input: string,
   options: oauth.CustomFetchOptions<string, oauth.ProtectedResourceRequestBody>,
 ): Promise<Response> {
+  const body =
+    options.body instanceof Uint8Array
+      ? new Uint8Array(options.body)
+      : options.body;
   const response = await fetchWithTimeout(input, {
     method: options.method,
     headers: options.headers,
-    body: options.body as RequestInit["body"],
+    body,
     signal: options.signal,
   });
   if (await responseBodyExceedsLimit(response)) {
@@ -584,7 +590,7 @@ async function readJson(response: Response): Promise<unknown> {
     }
     body += decoder.decode();
     if (body.length === 0) return null;
-    return JSON.parse(body) as unknown;
+    return JSON.parse(body);
   } catch {
     return null;
   }
