@@ -166,6 +166,11 @@ function repositoryFact(
     createdAt: value.created_at ?? null,
     updatedAt: value.updated_at ?? null,
     pushedAt: value.pushed_at ?? null,
+    pullRequestSettings: {
+      allowMergeCommit: value.allow_merge_commit ?? null,
+      allowRebaseMerge: value.allow_rebase_merge ?? null,
+      allowUpdateBranch: value.allow_update_branch ?? null,
+    },
     securitySettings: {
       advancedSecurity: security?.advanced_security?.status ?? null,
       secretScanning: security?.secret_scanning?.status ?? null,
@@ -602,6 +607,31 @@ export function buildActionPlan(
       ),
     );
   }
+  const pullRequestSettings = repository.pullRequestSettings;
+  const noncompliantPullRequestSettings = [
+    pullRequestSettings.allowMergeCommit === true
+      ? "Allow merge commits is enabled"
+      : null,
+    pullRequestSettings.allowRebaseMerge === true
+      ? "Allow rebase merging is enabled"
+      : null,
+    pullRequestSettings.allowUpdateBranch === false
+      ? "Always suggest updating pull request branches is disabled"
+      : null,
+  ].filter((setting): setting is string => setting !== null);
+  if (noncompliantPullRequestSettings.length > 0) {
+    actions.push(
+      action(
+        "configure-pull-request-merging",
+        "medium",
+        "Align pull request merge settings",
+        noncompliantPullRequestSettings.join("; ") + ".",
+        coordinates,
+        "repo_readiness",
+        repository.evidence,
+      ),
+    );
+  }
   if (branchRisk.protectionStatus === "unprotected") {
     actions.push(
       action(
@@ -727,10 +757,16 @@ export async function collectRepositoryReadiness(
     deliveryHygiene,
     securityPosture,
   );
+  const pullRequestSettingsStatus: CollectionStatus = Object.values(
+    fact.pullRequestSettings,
+  ).every((value) => value !== null)
+    ? "available"
+    : "unknown";
   const components = [
     branchRisk.status,
     deliveryHygiene.status,
     securityPostureStatus(securityPosture),
+    pullRequestSettingsStatus,
   ];
   const hasKnownAttention = actionPlan.some(
     (item) => item.priority === "critical" || item.priority === "high",

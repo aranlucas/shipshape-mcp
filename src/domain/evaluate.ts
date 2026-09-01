@@ -224,11 +224,30 @@ export const evaluateRepositoryReadiness = (
       evidence,
     }),
   ];
+  const pullRequestSettings = repository.pullRequestSettings;
+  const pullRequestChecks: readonly CheckResult[] = [
+    makeCheck({
+      ruleId: "delivery.merge-commits-disabled",
+      state: observedBoolean(pullRequestSettings.allowMergeCommit, false),
+      evidence,
+    }),
+    makeCheck({
+      ruleId: "delivery.rebase-merging-disabled",
+      state: observedBoolean(pullRequestSettings.allowRebaseMerge, false),
+      evidence,
+    }),
+    makeCheck({
+      ruleId: "delivery.update-branches-suggested",
+      state: observedBoolean(pullRequestSettings.allowUpdateBranch, true),
+      evidence,
+    }),
+  ];
 
   return [
     ...publicChecks,
     ...evaluateBranchRisk(readiness.branchRisk),
     ...evaluateDeliveryHygiene(readiness.deliveryHygiene),
+    ...pullRequestChecks,
     ...evaluateSecurityPosture(
       readiness.securityPosture,
       readiness.repository,

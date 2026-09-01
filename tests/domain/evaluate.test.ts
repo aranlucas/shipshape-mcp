@@ -36,6 +36,11 @@ const readiness: RepositoryReadiness = {
     createdAt: collectedAt,
     updatedAt: collectedAt,
     pushedAt: collectedAt,
+    pullRequestSettings: {
+      allowMergeCommit: true,
+      allowRebaseMerge: false,
+      allowUpdateBranch: true,
+    },
     securitySettings: {
       advancedSecurity: null,
       secretScanning: "enabled",
@@ -111,7 +116,35 @@ describe("provider fact evaluation", () => {
     expect(byId.get("security.secret-scanning")?.state).toBe("pass");
     expect(byId.get("security.push-protection")?.state).toBe("fail");
     expect(byId.get("security.dependabot")?.state).toBe("unknown");
+    expect(byId.get("delivery.merge-commits-disabled")?.state).toBe("fail");
+    expect(byId.get("delivery.rebase-merging-disabled")?.state).toBe("pass");
+    expect(byId.get("delivery.update-branches-suggested")?.state).toBe("pass");
     expect(scoreChecks(checks).confidence).not.toBe("high");
+  });
+
+  it("keeps unavailable pull request settings unknown", () => {
+    const checks = evaluateRepositoryReadiness({
+      ...readiness,
+      repository: {
+        ...readiness.repository,
+        pullRequestSettings: {
+          allowMergeCommit: null,
+          allowRebaseMerge: null,
+          allowUpdateBranch: null,
+        },
+      },
+    });
+
+    expect(
+      checks
+        .filter((check) => check.ruleId.startsWith("delivery."))
+        .filter(
+          (check) =>
+            check.ruleId.includes("merg") ||
+            check.ruleId.includes("update-branches"),
+        )
+        .map((check) => check.state),
+    ).toEqual(["unknown", "unknown", "unknown"]);
   });
 
   it("does not claim CI is present when no workflow runs were observed", () => {

@@ -69,6 +69,9 @@ export const GitHubRepositorySchema = z
     has_wiki: z.boolean().optional(),
     has_pages: z.boolean().optional(),
     has_discussions: z.boolean().optional(),
+    allow_merge_commit: z.boolean().optional(),
+    allow_rebase_merge: z.boolean().optional(),
+    allow_update_branch: z.boolean().optional(),
     security_and_analysis: GitHubSecurityAnalysisSchema.nullable().optional(),
     owner: GitHubOwnerSchema.optional(),
   })
@@ -402,6 +405,11 @@ export interface RepositoryFact {
   createdAt: string | null;
   updatedAt: string | null;
   pushedAt: string | null;
+  pullRequestSettings: {
+    allowMergeCommit: boolean | null;
+    allowRebaseMerge: boolean | null;
+    allowUpdateBranch: boolean | null;
+  };
   securitySettings: {
     advancedSecurity: string | null;
     secretScanning: string | null;
