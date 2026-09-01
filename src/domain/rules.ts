@@ -406,10 +406,10 @@ export const requireRuleDefinition = (ruleId: string): RuleDefinition => {
 };
 
 const isCheckState = (value: string): value is CheckResult["state"] =>
-  (CHECK_STATES as readonly string[]).includes(value);
+  CHECK_STATES.some((state) => state === value);
 
 const isConfidence = (value: string): value is Confidence =>
-  (CONFIDENCE_LEVELS as readonly string[]).includes(value);
+  CONFIDENCE_LEVELS.some((confidence) => confidence === value);
 
 const defaultConfidence = (state: CheckResult["state"]): Confidence =>
   state === "unknown" ? "low" : "high";

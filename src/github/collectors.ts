@@ -1,37 +1,46 @@
+import pLimit from "p-limit";
+
 import {
-  GitHubApiError,
-  GitHubClientError,
+  GitHubInputError,
+  MAX_ALLOWED_CONCURRENCY,
   PrivateRepositoryError,
-  mapWithConcurrency,
-  validateOwner,
-  validateRef,
-  validateRepositoryCoordinates,
-  type GitHubClient,
-  type GitHubGetOptions,
+  octokitGet,
+  octokitPaginate,
+  type GitHubOctokit,
 } from "./client";
-import type {
-  ActionPlanItem,
-  ActionPriority,
-  BranchRiskFact,
-  CollectionStatus,
-  DeliveryHygieneFact,
-  Evidence,
-  FeatureResult,
-  GitHubBranchProtection,
-  GitHubCodeScanningAlert,
-  GitHubCommit,
-  GitHubDependabotAlert,
-  GitHubPullRequest,
-  GitHubRepository,
-  GitHubResponseMetadata,
-  GitHubSecretScanningAlert,
-  GitHubWorkflowRun,
-  PortfolioSnapshot,
-  RepoReadinessFact,
-  RepositoryCoordinates,
-  RepositoryFact,
-  RepositoryReadiness,
-  SecurityPostureFact,
+import {
+  GitHubBranchProtectionSchema,
+  GitHubBranchSchema,
+  GitHubCodeScanningAlertSchema,
+  GitHubCommitSchema,
+  GitHubDependabotAlertSchema,
+  GitHubPullRequestSchema,
+  GitHubRepositorySchema,
+  GitHubSecretScanningAlertSchema,
+  GitHubWorkflowRunSchema,
+  GitHubOwnerInputSchema,
+  GitHubRefInputSchema,
+  RepositoryCoordinatesSchema,
+  type ActionPlanItem,
+  type ActionPriority,
+  type BranchRiskFact,
+  type CollectionStatus,
+  type DeliveryHygieneFact,
+  type Evidence,
+  type FeatureResult,
+  type GitHubBranchProtection,
+  type GitHubCodeScanningAlert,
+  type GitHubDependabotAlert,
+  type GitHubRepository,
+  type GitHubResponseMetadata,
+  type GitHubSecretScanningAlert,
+  type GitHubWorkflowRun,
+  type PortfolioSnapshot,
+  type RepoReadinessFact,
+  type RepositoryCoordinates,
+  type RepositoryFact,
+  type RepositoryReadiness,
+  type SecurityPostureFact,
 } from "./schemas";
 
 export interface CollectorOptions {
@@ -55,6 +64,14 @@ type EndpointResult<T> = {
 };
 
 const DEFAULT_RECENT_DAYS = 30;
+
+function concurrencyLimit(value: number | undefined, fallback: number) {
+  const concurrency = value ?? fallback;
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new GitHubInputError("concurrency must be a positive integer");
+  }
+  return pLimit(Math.min(concurrency, MAX_ALLOWED_CONCURRENCY));
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -84,18 +101,22 @@ function featureEvidence(
   return { url, label, collectedAt };
 }
 
-function endpointMetadata(error: unknown): GitHubResponseMetadata | null {
-  return error instanceof GitHubApiError ? error.metadata : null;
+function endpointMetadata(_error: unknown): GitHubResponseMetadata | null {
+  return null;
 }
 
 function errorReason(error: unknown): string {
-  if (error instanceof GitHubApiError) {
-    if (error.status === 403 || error.status === 404) {
-      return `GitHub feature unavailable or permission-limited (HTTP ${error.status})`;
+  if (
+    error instanceof Error &&
+    "status" in error &&
+    typeof error.status === "number"
+  ) {
+    const status = error.status;
+    if (status === 403 || status === 404) {
+      return `GitHub feature unavailable or permission-limited (HTTP ${status})`;
     }
-    return `GitHub request failed (HTTP ${error.status})`;
+    return `GitHub request failed (HTTP ${status})`;
   }
-  if (error instanceof GitHubClientError) return error.message;
   if (error instanceof Error) return error.message;
   return "GitHub feature could not be collected";
 }
@@ -149,7 +170,7 @@ function repositoryFact(
     fullName: value.full_name,
     name: value.name,
     description: value.description ?? null,
-    defaultBranch: validateRef(value.default_branch),
+    defaultBranch: GitHubRefInputSchema.parse(value.default_branch),
     visibility: value.visibility ?? (value.private ? "private" : "public"),
     archived: value.archived,
     fork: value.fork,
@@ -205,17 +226,22 @@ function branchProtectionEvidence(
 }
 
 export async function collectBranchRisk(
-  client: GitHubClient,
+  client: GitHubOctokit,
   repository: RepositoryCoordinates,
   branch: string,
   options: CollectorOptions = {},
 ): Promise<BranchRiskFact> {
-  const coordinates = validateRepositoryCoordinates(repository);
-  const ref = validateRef(branch);
+  const coordinates = RepositoryCoordinatesSchema.parse(repository);
+  const ref = GitHubRefInputSchema.parse(branch);
   const collectedAt = nowIso();
   const evidence = [branchEvidence(coordinates, ref, collectedAt)];
   const branchResult = await endpoint(() =>
-    client.getBranch(coordinates, ref, requestOptions(options)),
+    octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/branches/{branch}",
+      { ...coordinates, branch: ref, ...requestOptions(options) },
+      GitHubBranchSchema,
+    ),
   );
 
   if (!branchResult.value) {
@@ -236,7 +262,12 @@ export async function collectBranchRisk(
   }
 
   const protectionResult = await endpoint(() =>
-    client.getBranchProtection(coordinates, ref, requestOptions(options)),
+    octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/branches/{branch}/protection",
+      { ...coordinates, branch: ref, ...requestOptions(options) },
+      GitHubBranchProtectionSchema,
+    ),
   );
   if (!protectionResult.value) {
     return {
@@ -287,51 +318,61 @@ function recentSince(options: CollectorOptions): string {
 }
 
 export async function collectDeliveryHygiene(
-  client: GitHubClient,
+  client: GitHubOctokit,
   repository: RepositoryCoordinates,
   branch: string,
   options: CollectorOptions = {},
 ): Promise<DeliveryHygieneFact> {
-  const coordinates = validateRepositoryCoordinates(repository);
-  const ref = validateRef(branch);
+  const coordinates = RepositoryCoordinatesSchema.parse(repository);
+  const ref = GitHubRefInputSchema.parse(branch);
   const collectedAt = nowIso();
   const request = requestOptions(options);
-  const tasks: Array<
-    () => Promise<{ data: unknown; metadata: GitHubResponseMetadata }>
-  > = [
-    () =>
-      client.listCommits(coordinates, {
-        ...request,
-        ref,
-        since: recentSince(options),
-        until: options.until,
-        maxPages: options.maxPages,
-        perPage: options.perPage,
-      }),
-    () =>
-      client.listPullRequests(coordinates, {
-        ...request,
-        state: "open",
-        maxPages: options.maxPages,
-        perPage: options.perPage,
-      }),
-    () =>
-      client.listWorkflowRuns(coordinates, {
-        ...request,
-        ref,
-        maxPages: options.maxPages,
-        perPage: options.perPage,
-      }),
-  ];
-  const [commits, pullRequests, workflowRuns] = (await mapWithConcurrency(
-    tasks,
-    options.concurrency ?? 3,
-    (task) => endpoint(task),
-  )) as [
-    EndpointResult<GitHubCommit[]>,
-    EndpointResult<GitHubPullRequest[]>,
-    EndpointResult<GitHubWorkflowRun[]>,
-  ];
+  const limit = concurrencyLimit(options.concurrency, 3);
+  const [commits, pullRequests, workflowRuns] = await Promise.all([
+    limit(() =>
+      endpoint(() =>
+        octokitPaginate(
+          client,
+          "GET /repos/{owner}/{repo}/commits",
+          {
+            ...coordinates,
+            ...request,
+            sha: ref,
+            since: recentSince(options),
+            until: options.until,
+          },
+          GitHubCommitSchema,
+          paginationOptions(options),
+        ),
+      ),
+    ),
+    limit(() =>
+      endpoint(() =>
+        octokitPaginate(
+          client,
+          "GET /repos/{owner}/{repo}/pulls",
+          { ...coordinates, ...request, state: "open" },
+          GitHubPullRequestSchema,
+          paginationOptions(options),
+        ),
+      ),
+    ),
+    limit(() =>
+      endpoint(() =>
+        octokitPaginate(
+          client,
+          "GET /repos/{owner}/{repo}/actions/runs",
+          {
+            ...coordinates,
+            ...request,
+            branch: ref,
+          },
+          GitHubWorkflowRunSchema,
+          paginationOptions(options),
+        ),
+      ),
+    ),
+  ]);
 
   const evidence: Evidence[] = [
     featureEvidence(
@@ -445,7 +486,7 @@ export async function collectDeliveryHygiene(
       ? "degraded"
       : "healthy";
   const status: CollectionStatus =
-    availableCount === tasks.length
+    availableCount === 3
       ? "available"
       : availableCount === 0
         ? "unknown"
@@ -490,7 +531,7 @@ function securityFeatureEvidence(
 }
 
 async function collectCodeScanning(
-  client: GitHubClient,
+  client: GitHubOctokit,
   repository: RepositoryCoordinates,
   options: CollectorOptions,
   collectedAt: string,
@@ -501,7 +542,13 @@ async function collectCodeScanning(
     collectedAt,
   );
   const result = await endpoint(() =>
-    client.listCodeScanningAlerts(repository, paginationOptions(options)),
+    octokitPaginate(
+      client,
+      "GET /repos/{owner}/{repo}/code-scanning/alerts",
+      repository,
+      GitHubCodeScanningAlertSchema,
+      paginationOptions(options),
+    ),
   );
   if (!result.value) return featureFailure(result.error, evidence);
   const open = result.value.filter(
@@ -522,7 +569,7 @@ async function collectCodeScanning(
 }
 
 async function collectDependabot(
-  client: GitHubClient,
+  client: GitHubOctokit,
   repository: RepositoryCoordinates,
   options: CollectorOptions,
   collectedAt: string,
@@ -533,7 +580,13 @@ async function collectDependabot(
     collectedAt,
   );
   const result = await endpoint(() =>
-    client.listDependabotAlerts(repository, paginationOptions(options)),
+    octokitPaginate(
+      client,
+      "GET /repos/{owner}/{repo}/dependabot/alerts",
+      repository,
+      GitHubDependabotAlertSchema,
+      paginationOptions(options),
+    ),
   );
   if (!result.value) return featureFailure(result.error, evidence);
   const open = result.value.filter(
@@ -550,7 +603,7 @@ async function collectDependabot(
 }
 
 async function collectSecretScanning(
-  client: GitHubClient,
+  client: GitHubOctokit,
   repository: RepositoryCoordinates,
   options: CollectorOptions,
   collectedAt: string,
@@ -561,7 +614,13 @@ async function collectSecretScanning(
     collectedAt,
   );
   const result = await endpoint(() =>
-    client.listSecretScanningAlerts(repository, paginationOptions(options)),
+    octokitPaginate(
+      client,
+      "GET /repos/{owner}/{repo}/secret-scanning/alerts",
+      repository,
+      GitHubSecretScanningAlertSchema,
+      paginationOptions(options),
+    ),
   );
   if (!result.value) return featureFailure(result.error, evidence);
   const openAlerts = result.value.filter(
@@ -575,27 +634,20 @@ async function collectSecretScanning(
 }
 
 export async function collectSecurityPosture(
-  client: GitHubClient,
+  client: GitHubOctokit,
   repository: RepositoryCoordinates,
   options: CollectorOptions = {},
 ): Promise<SecurityPostureFact> {
-  const coordinates = validateRepositoryCoordinates(repository);
+  const coordinates = RepositoryCoordinatesSchema.parse(repository);
   const collectedAt = nowIso();
-  const tasks: Array<() => Promise<FeatureResult<unknown>>> = [
-    async () => collectCodeScanning(client, coordinates, options, collectedAt),
-    async () => collectDependabot(client, coordinates, options, collectedAt),
-    async () =>
+  const limit = concurrencyLimit(options.concurrency, 3);
+  const [codeScanning, dependabot, secretScanning] = await Promise.all([
+    limit(() => collectCodeScanning(client, coordinates, options, collectedAt)),
+    limit(() => collectDependabot(client, coordinates, options, collectedAt)),
+    limit(() =>
       collectSecretScanning(client, coordinates, options, collectedAt),
-  ];
-  const [codeScanning, dependabot, secretScanning] = (await mapWithConcurrency(
-    tasks,
-    options.concurrency ?? 3,
-    (task) => task(),
-  )) as [
-    FeatureResult<{ openAlerts: number; highSeverityAlerts: number }>,
-    FeatureResult<{ openAlerts: number; criticalAlerts: number }>,
-    FeatureResult<{ openAlerts: number }>,
-  ];
+    ),
+  ]);
   const features = [codeScanning, dependabot, secretScanning];
   const hasOpenAlerts =
     (codeScanning.value?.openAlerts ?? 0) > 0 ||
@@ -795,16 +847,20 @@ export function buildActionPlan(
 }
 
 export async function collectRepositoryReadiness(
-  client: GitHubClient,
+  client: GitHubOctokit,
   repository: RepositoryCoordinates,
   options: CollectorOptions = {},
 ): Promise<RepositoryReadiness> {
-  const coordinates = validateRepositoryCoordinates(repository);
+  const coordinates = RepositoryCoordinatesSchema.parse(repository);
   const collectedAt = nowIso();
-  const repositoryResponse = await client.getRepository(
-    coordinates,
-    requestOptions(options),
+  const repositoryResponse = await octokitGet(
+    client,
+    "GET /repos/{owner}/{repo}",
+    { ...coordinates, ...requestOptions(options) },
+    GitHubRepositorySchema,
   );
+  if (repositoryResponse.data.private)
+    throw new PrivateRepositoryError(coordinates);
   const fact = repositoryFact(
     coordinates,
     repositoryResponse.data,
@@ -862,11 +918,11 @@ export async function collectRepositoryReadiness(
 export const collectRepoReadiness = collectRepositoryReadiness;
 
 export async function collectPortfolioSnapshot(
-  client: GitHubClient,
+  client: GitHubOctokit,
   owner: string,
   options: PortfolioSnapshotOptions = {},
 ): Promise<PortfolioSnapshot> {
-  const validatedOwner = validateOwner(owner);
+  const validatedOwner = GitHubOwnerInputSchema.parse(owner);
   const collectedAt = nowIso();
   let repositories: RepositoryCoordinates[];
   let listingEvidence = [
@@ -879,17 +935,26 @@ export async function collectPortfolioSnapshot(
   try {
     if (options.repositories) {
       repositories = options.repositories.map((repository) =>
-        validateRepositoryCoordinates(repository),
+        RepositoryCoordinatesSchema.parse(repository),
       );
     } else {
-      const response = await client.listRepositories(
-        validatedOwner,
+      const response = await octokitPaginate(
+        client,
+        "GET /users/{username}/repos",
+        {
+          username: validatedOwner,
+          type: "owner",
+          sort: "updated",
+          direction: "desc",
+          ...requestOptions(options),
+        },
+        GitHubRepositorySchema,
         paginationOptions(options),
       );
       repositories = response.data.map((repository) => {
         const [repositoryOwner, repositoryName] =
           repository.full_name.split("/");
-        return validateRepositoryCoordinates({
+        return RepositoryCoordinatesSchema.parse({
           owner: repositoryOwner ?? validatedOwner,
           repo: repositoryName ?? repository.name,
         });
@@ -928,25 +993,22 @@ export async function collectPortfolioSnapshot(
     };
   }
 
-  const results = await mapWithConcurrency(
-    repositories,
-    options.concurrency ?? 3,
-    async (repository) => {
-      try {
-        return {
-          readiness: await collectRepositoryReadiness(
-            client,
-            repository,
-            options,
-          ),
-          error: null as unknown,
-        };
-      } catch (error) {
-        if (error instanceof PrivateRepositoryError) throw error;
-        return { readiness: null as RepositoryReadiness | null, error };
-      }
-    },
-  );
+  const limit = concurrencyLimit(options.concurrency, 3);
+  const results = await limit.map(repositories, async (repository) => {
+    try {
+      return {
+        readiness: await collectRepositoryReadiness(
+          client,
+          repository,
+          options,
+        ),
+        error: null,
+      };
+    } catch (error) {
+      if (error instanceof PrivateRepositoryError) throw error;
+      return { readiness: null, error };
+    }
+  });
   const readiness = results.flatMap((result) =>
     result.readiness ? [result.readiness] : [],
   );
@@ -1003,15 +1065,15 @@ export async function collectPortfolioSnapshot(
 
 export const collectPortfolio = collectPortfolioSnapshot;
 
-function requestOptions(options: CollectorOptions): GitHubGetOptions {
-  return options.signal ? { signal: options.signal } : {};
+function requestOptions(options: CollectorOptions): Record<string, unknown> {
+  return options.signal ? { request: { signal: options.signal } } : {};
 }
 
-function paginationOptions(
-  options: CollectorOptions,
-): GitHubGetOptions & { maxPages?: number; perPage?: number } {
+function paginationOptions(options: CollectorOptions): {
+  maxPages?: number;
+  perPage?: number;
+} {
   return {
-    ...requestOptions(options),
     maxPages: options.maxPages,
     perPage: options.perPage,
   };
@@ -1039,7 +1101,16 @@ function securityFeatureUnavailable(posture: SecurityPostureFact): boolean {
 }
 
 function errorUrl(error: unknown): string {
-  if (error instanceof GitHubApiError) return error.url;
+  if (error instanceof Error && "response" in error) {
+    const response = error.response;
+    if (
+      response &&
+      typeof response === "object" &&
+      "url" in response &&
+      typeof response.url === "string"
+    )
+      return response.url;
+  }
   return "https://docs.github.com/en/rest";
 }
 

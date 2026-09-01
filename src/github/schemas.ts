@@ -1,9 +1,44 @@
 import { z } from "zod";
 
 /** The API version used by every request made by the GitHub client. */
-export const GITHUB_API_VERSION = "2026-03-10" as const;
+export const GitHubOwnerInputSchema = z
+  .string()
+  .min(1)
+  .max(39)
+  .regex(/^(?!-)[A-Za-z0-9-]+(?<!-)$/u, "Enter a valid GitHub owner");
 
-export const GITHUB_API_ROOT = "https://api.github.com" as const;
+export const GitHubRepositoryNameSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, "Enter a valid repository name")
+  .refine((value) => value !== "." && value !== "..", {
+    message: "Enter a valid repository name",
+  });
+
+export const GitHubRefInputSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(
+    (ref) =>
+      !/[\u0000-\u0020\u007f~^:?*[\\]/u.test(ref) &&
+      !ref.includes("..") &&
+      !ref.includes("@{") &&
+      !ref.startsWith("/") &&
+      !ref.endsWith("/") &&
+      !ref.startsWith(".") &&
+      !ref.endsWith(".") &&
+      !ref.endsWith(".lock") &&
+      !ref.includes("//") &&
+      ref.split("/").every((part) => part && !part.startsWith(".")),
+    { message: "Enter a valid Git ref" },
+  );
+
+export const RepositoryCoordinatesSchema = z.object({
+  owner: GitHubOwnerInputSchema,
+  repo: GitHubRepositoryNameSchema,
+});
 
 export const GitHubOwnerSchema = z
   .object({
@@ -208,13 +243,6 @@ export const GitHubWorkflowRunSchema = z
   })
   .passthrough();
 
-export const GitHubWorkflowRunsResponseSchema = z
-  .object({
-    total_count: z.number(),
-    workflow_runs: z.array(GitHubWorkflowRunSchema),
-  })
-  .passthrough();
-
 export const GitHubCodeScanningAlertSchema = z
   .object({
     number: z.number(),
@@ -320,35 +348,7 @@ export const GitHubSecretScanningAlertSchema = z
   })
   .passthrough();
 
-export const GitHubRateLimitResponseSchema = z
-  .object({
-    resources: z.record(
-      z.string(),
-      z
-        .object({
-          limit: z.number(),
-          remaining: z.number(),
-          reset: z.number(),
-          used: z.number().optional(),
-        })
-        .passthrough(),
-    ),
-    rate: z
-      .object({
-        limit: z.number(),
-        remaining: z.number(),
-        reset: z.number(),
-        used: z.number().optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
-
-export type RepositoryCoordinates = {
-  owner: string;
-  repo: string;
-};
+export type RepositoryCoordinates = z.infer<typeof RepositoryCoordinatesSchema>;
 
 export type CollectionStatus = "available" | "partial" | "unknown";
 
@@ -529,16 +529,10 @@ export type GitHubBranchProtection = z.infer<
 export type GitHubCommit = z.infer<typeof GitHubCommitSchema>;
 export type GitHubPullRequest = z.infer<typeof GitHubPullRequestSchema>;
 export type GitHubWorkflowRun = z.infer<typeof GitHubWorkflowRunSchema>;
-export type GitHubWorkflowRunsResponse = z.infer<
-  typeof GitHubWorkflowRunsResponseSchema
->;
 export type GitHubCodeScanningAlert = z.infer<
   typeof GitHubCodeScanningAlertSchema
 >;
 export type GitHubDependabotAlert = z.infer<typeof GitHubDependabotAlertSchema>;
 export type GitHubSecretScanningAlert = z.infer<
   typeof GitHubSecretScanningAlertSchema
->;
-export type GitHubRateLimitResponse = z.infer<
-  typeof GitHubRateLimitResponseSchema
 >;

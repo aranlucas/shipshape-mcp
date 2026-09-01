@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { Octokit } from "octokit";
 
-import { GitHubClient, PrivateRepositoryError } from "../../src/github/client";
+import { PrivateRepositoryError } from "../../src/github/client";
 import {
   collectBranchRisk,
   collectDeliveryHygiene,
@@ -129,19 +130,21 @@ function jsonResponse(value: unknown, status = 200): Response {
 
 type Route = (url: URL, init?: RequestInit) => Response;
 
-function clientFor(route: Route): { client: GitHubClient; calls: URL[] } {
+function clientFor(route: Route): { client: Octokit; calls: URL[] } {
   const calls: URL[] = [];
   const fetcher = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = new URL(String(input));
       calls.push(url);
-      return route(url, init);
+      const response = route(url, init);
+      Object.defineProperty(response, "url", { value: url.toString() });
+      return response;
     },
   );
   return {
-    client: new GitHubClient({
-      token: "token",
-      fetch: fetcher as typeof fetch,
+    client: new Octokit({
+      auth: "token",
+      request: { fetch: fetcher },
     }),
     calls,
   };
