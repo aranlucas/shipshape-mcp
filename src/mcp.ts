@@ -201,7 +201,11 @@ export function createShipshapeServer(): McpServer {
         const readiness = await collectRepositoryReadiness(
           githubClient(),
           repository,
-          { maxPages: 2, perPage: 25, concurrency: 3 },
+          {
+            maxPages: 2,
+            perPage: 25,
+            concurrency: 3,
+          },
         );
         const checks = evaluateRepositoryReadiness(readiness);
         return {
