@@ -23,14 +23,15 @@ Stateless MCP handler ---- GitHub REST API 2026-03-10
 - Cloudflare's `workers-oauth-provider` owns the MCP authorization server;
   `oauth4webapi` handles the upstream GitHub authorization-code exchange and
   bearer request with standards-checked responses.
+- Public MCP clients use authorization code flow with S256 PKCE. Plain PKCE and
+  implicit flow are disabled explicitly.
 - GitHub authenticates the user with only `read:user`. Repository tools reject
   private repositories even if an upstream credential could see one.
 - The Worker performs only `GET` and `HEAD` requests to `api.github.com`.
 - Repository responses are bounded by page limits, timeouts, concurrency caps,
   and response-size checks. A repository is never cloned or executed.
 - OAuth state is one-time, browser-bound, and short-lived. Dynamic client
-  metadata is escaped before it reaches HTML, and the consent page uses a
-  restrictive Content Security Policy.
+  metadata is escaped before it reaches HTML.
 - GitHub feature endpoints may answer `403` or `404` when a plan or permission
   is missing. Those signals become `unknown`, never a passing result.
 

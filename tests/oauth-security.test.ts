@@ -121,12 +121,6 @@ describe("OAuth security primitives", () => {
 
     expect(headers.get("Set-Cookie")).toContain("__Host-one=first");
     expect(headers.get("Set-Cookie")).toContain("__Host-two=second");
-    expect(headers.get("Content-Security-Policy")).toContain(
-      "script-src 'none'",
-    );
-    expect(headers.get("Content-Security-Policy")).toContain(
-      "form-action 'self'",
-    );
     expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 });

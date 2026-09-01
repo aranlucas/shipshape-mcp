@@ -23,6 +23,8 @@ export default new OAuthProvider<OAuthEnv>({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/oauth/token",
   clientRegistrationEndpoint: "/oauth/register",
+  allowPlainPKCE: false,
+  allowImplicitFlow: false,
   scopesSupported: [MCP_SCOPE],
   resourceMetadata: {
     resource: MCP_RESOURCE,
