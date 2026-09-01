@@ -441,11 +441,27 @@ export interface DeliveryHygieneFact {
   workflowRuns: number | null;
   successfulWorkflowRuns: number | null;
   failedWorkflowRuns: number | null;
+  cancelledWorkflowRuns: number | null;
   inProgressWorkflowRuns: number | null;
+  latestWorkflowRun: WorkflowRunSummary | null;
+  failingWorkflowRuns: WorkflowRunSummary[] | null;
   ciStatus: "healthy" | "degraded" | "unknown";
   status: CollectionStatus;
   reason: string | null;
   evidence: Evidence[];
+}
+
+export interface WorkflowRunSummary {
+  id: number;
+  name: string | null;
+  event: string | null;
+  headBranch: string | null;
+  headSha: string | null;
+  status: string | null;
+  conclusion: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  url: string;
 }
 
 export interface SecurityPostureFact {
