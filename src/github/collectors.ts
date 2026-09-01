@@ -359,8 +359,19 @@ export async function collectDeliveryHygiene(
   const commitItems = commits.value ?? [];
   const pullItems = pullRequests.value ?? [];
   const runItems = workflowRuns.value ?? [];
+  const failedConclusions = new Set([
+    "action_required",
+    "failure",
+    "startup_failure",
+    "timed_out",
+  ]);
   const failedWorkflowRuns = runItems.filter(
-    (run) => run.conclusion === "failure" || run.conclusion === "cancelled",
+    (run) =>
+      typeof run.conclusion === "string" &&
+      failedConclusions.has(run.conclusion),
+  ).length;
+  const cancelledWorkflowRuns = runItems.filter(
+    (run) => run.conclusion === "cancelled",
   ).length;
   const inProgressWorkflowRuns = runItems.filter(
     (run) => run.status !== null && run.status !== "completed",
@@ -378,18 +389,61 @@ export async function collectDeliveryHygiene(
       .sort()
       .at(-1) ?? null;
   const latestRun = runItems[0];
+  const summarizeRun = (run: GitHubWorkflowRun) => ({
+    id: run.id,
+    name: run.name ?? null,
+    event: run.event ?? null,
+    headBranch: run.head_branch ?? null,
+    headSha: run.head_sha ?? null,
+    status: run.status ?? null,
+    conclusion: run.conclusion ?? null,
+    createdAt: run.created_at ?? null,
+    updatedAt: run.updated_at ?? null,
+    url: run.html_url,
+  });
+  const latestWorkflowRun = latestRun ? summarizeRun(latestRun) : null;
+  const latestCompletedByWorkflow = new Map<string, GitHubWorkflowRun>();
+  for (const run of runItems) {
+    if (run.status !== "completed" || run.conclusion === "cancelled") continue;
+    const workflow = run.name ?? run.html_url;
+    if (!latestCompletedByWorkflow.has(workflow))
+      latestCompletedByWorkflow.set(workflow, run);
+  }
+  const failingWorkflowRuns = [...latestCompletedByWorkflow.values()]
+    .filter(
+      (run) =>
+        typeof run.conclusion === "string" &&
+        failedConclusions.has(run.conclusion),
+    )
+    .slice(0, 5)
+    .map(summarizeRun);
   if (latestRun?.html_url)
     evidence.push(
       featureEvidence(latestRun.html_url, "Latest workflow run", collectedAt),
     );
+  for (const run of failingWorkflowRuns) {
+    evidence.push(
+      featureEvidence(
+        run.url,
+        `${run.name ?? "Workflow"} ${run.conclusion ?? "failed"} on ${run.event ?? "unknown event"} at ${run.createdAt ?? "unknown time"}`,
+        collectedAt,
+      ),
+    );
+  }
   if (commitItems[0]?.html_url)
     evidence.push(
       featureEvidence(commitItems[0].html_url, "Latest commit", collectedAt),
     );
 
   let ciStatus: DeliveryHygieneFact["ciStatus"] = "unknown";
-  if (workflowRuns.value)
-    ciStatus = failedWorkflowRuns > 0 ? "degraded" : "healthy";
+  if (workflowRuns.value && latestCompletedByWorkflow.size > 0)
+    ciStatus = [...latestCompletedByWorkflow.values()].some(
+      (run) =>
+        typeof run.conclusion === "string" &&
+        failedConclusions.has(run.conclusion),
+    )
+      ? "degraded"
+      : "healthy";
   const status: CollectionStatus =
     availableCount === tasks.length
       ? "available"
@@ -406,7 +460,10 @@ export async function collectDeliveryHygiene(
     workflowRuns: workflowRuns.value ? runItems.length : null,
     successfulWorkflowRuns: workflowRuns.value ? successfulWorkflowRuns : null,
     failedWorkflowRuns: workflowRuns.value ? failedWorkflowRuns : null,
+    cancelledWorkflowRuns: workflowRuns.value ? cancelledWorkflowRuns : null,
     inProgressWorkflowRuns: workflowRuns.value ? inProgressWorkflowRuns : null,
+    latestWorkflowRun: workflowRuns.value ? latestWorkflowRun : null,
+    failingWorkflowRuns: workflowRuns.value ? failingWorkflowRuns : null,
     ciStatus,
     status,
     reason: reasons.length > 0 ? reasons.join("; ") : null,
@@ -659,12 +716,19 @@ export function buildActionPlan(
     );
   }
   if (deliveryHygiene.ciStatus === "degraded") {
+    const failedRuns = deliveryHygiene.failingWorkflowRuns ?? [];
+    const details = failedRuns
+      .map(
+        (run) =>
+          `${run.name ?? "Workflow"} ${run.conclusion ?? "failed"} on ${run.event ?? "unknown event"} at ${run.createdAt ?? "unknown time"}: ${run.url}`,
+      )
+      .join("; ");
     actions.push(
       action(
         "repair-ci",
         "high",
         "Repair failing automation",
-        "Recent workflow runs include failures or cancellations.",
+        details || "The latest completed result for a workflow is failing.",
         coordinates,
         "delivery_hygiene",
         deliveryHygiene.evidence,

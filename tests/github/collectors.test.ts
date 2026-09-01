@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GitHubClient, PrivateRepositoryError } from "../../src/github/client";
 import {
   collectBranchRisk,
+  collectDeliveryHygiene,
   collectPortfolioSnapshot,
   collectRepositoryReadiness,
   collectSecurityPosture,
@@ -189,6 +190,59 @@ function fullRoute(url: URL): Response {
 }
 
 describe("GitHub collectors", () => {
+  it("does not treat cancellations as failures and reports failing run details", async () => {
+    const cancelledRun = {
+      ...workflowRun,
+      id: 9,
+      conclusion: "cancelled",
+      created_at: "2026-08-30T00:00:00Z",
+      html_url: "https://github.com/octo/demo/actions/runs/9",
+    };
+    const failedRun = {
+      ...workflowRun,
+      id: 8,
+      name: "E2E",
+      conclusion: "failure",
+      event: "repository_dispatch",
+      created_at: "2026-08-29T12:00:00Z",
+      html_url: "https://github.com/octo/demo/actions/runs/8",
+    };
+    const { client } = clientFor((url) => {
+      if (url.pathname === "/repos/octo/demo/commits")
+        return jsonResponse([commit]);
+      if (url.pathname === "/repos/octo/demo/pulls") return jsonResponse([]);
+      if (url.pathname === "/repos/octo/demo/actions/runs")
+        return jsonResponse({
+          total_count: 3,
+          workflow_runs: [cancelledRun, failedRun, workflowRun],
+        });
+      throw new Error(`unhandled route: ${url}`);
+    });
+
+    const result = await collectDeliveryHygiene(client, coordinates, "main");
+
+    expect(result).toMatchObject({
+      failedWorkflowRuns: 1,
+      cancelledWorkflowRuns: 1,
+      ciStatus: "degraded",
+      latestWorkflowRun: { id: 9, conclusion: "cancelled" },
+      failingWorkflowRuns: [
+        {
+          id: 8,
+          name: "E2E",
+          conclusion: "failure",
+          event: "repository_dispatch",
+        },
+      ],
+    });
+    expect(result.evidence).toContainEqual(
+      expect.objectContaining({
+        url: "https://github.com/octo/demo/actions/runs/8",
+        label: "E2E failure on repository_dispatch at 2026-08-29T12:00:00Z",
+      }),
+    );
+  });
+
   it("normalizes repository readiness and produces evidence-backed actions", async () => {
     const { client, calls } = clientFor(fullRoute);
 
@@ -212,6 +266,14 @@ describe("GitHub collectors", () => {
       openPullRequests: 1,
       draftPullRequests: 1,
       ciStatus: "healthy",
+      cancelledWorkflowRuns: 0,
+      latestWorkflowRun: {
+        id: 7,
+        name: "CI",
+        conclusion: "success",
+        event: "push",
+      },
+      failingWorkflowRuns: [],
     });
     expect(result.securityPosture).toMatchObject({
       overallStatus: "needs-attention",
