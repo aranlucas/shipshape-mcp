@@ -298,10 +298,6 @@ export function sanitizeClientMetadata(
 
 export function securityHeaders(): Headers {
   const headers = new Headers();
-  headers.set(
-    "Content-Security-Policy",
-    "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; script-src 'none'; style-src 'self'; object-src 'none'; connect-src 'none'",
-  );
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "no-referrer");

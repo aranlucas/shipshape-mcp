@@ -6,18 +6,12 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("public landing handlers", () => {
-  it("serves a static landing page with a script-free CSP", async () => {
+  it("serves a static, script-free landing page", async () => {
     const response = landingHandler(new Request("https://shipshape.example/"));
     const body = await response.text();
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/html");
-    expect(response.headers.get("Content-Security-Policy")).toContain(
-      "script-src 'none'",
-    );
-    expect(response.headers.get("Content-Security-Policy")).toContain(
-      "style-src 'self'",
-    );
     expect(body).not.toContain("<script");
     expect(body).toContain("Know what to fix next");
   });
@@ -49,9 +43,7 @@ describe("public landing handlers", () => {
       new Request("https://shipshape.example/nope"),
     );
     expect(missing.status).toBe(404);
-    expect(missing.headers.get("Content-Security-Policy")).toContain(
-      "default-src 'none'",
-    );
+    expect(missing.headers.get("X-Content-Type-Options")).toBe("nosniff");
 
     const post = landingHandler(
       new Request("https://shipshape.example/", { method: "POST" }),
