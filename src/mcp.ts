@@ -1,3 +1,4 @@
+import { collectStandards } from "./standards/collect";
 import { McpServer } from "@modelcontextprotocol/server";
 import { getMcpAuthContext } from "agents/mcp/server";
 import { Octokit } from "octokit";
@@ -318,6 +319,21 @@ export function createShipshapeServer(): McpServer {
   );
 
   server.registerTool(
+    "standards_audit",
+    {
+      title: "Shared engineering standards",
+      description:
+        "Audit a public repository against a versioned shared baseline, with Node, Go, and Python package discovery and static configuration evidence. Commands are never executed.",
+      inputSchema: CoordinatesSchema,
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async (repository) =>
+      safely(async () => ({
+        ...(await collectStandards(githubClient(), repository)),
+      })),
+  );
+
+  server.registerTool(
     "action_plan",
     {
       title: "Maintenance action plan",
@@ -335,9 +351,17 @@ export function createShipshapeServer(): McpServer {
           { owner, repo },
           { maxPages: 2, perPage: 25, concurrency: 3 },
         );
-        const checks = evaluateRepositoryReadiness(readiness);
+        const standards = await collectStandards(githubClient(), {
+          owner,
+          repo,
+        });
+        const checks = [
+          ...evaluateRepositoryReadiness(readiness),
+          ...standards.audit.checks,
+        ];
         return {
           repository: readiness.repository,
+          standards,
           score: scoreChecks(checks),
           plan: buildDomainActionPlan(checks, { maxItems: limit }),
         };

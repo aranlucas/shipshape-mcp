@@ -42,13 +42,14 @@ and remediation. Category totals are reproducible; no language model decides a
 score. `action_plan` deduplicates failures and sorts by severity, recoverable
 points, confidence, and rule ID so identical evidence yields identical output.
 
-The six MCP tools intentionally sit above GitHub's generic API surface:
+The seven MCP tools intentionally sit above GitHub's generic API surface:
 
 - `portfolio_snapshot`
 - `repo_readiness`
 - `branch_risk`
 - `delivery_hygiene`
 - `security_posture`
+- `standards_audit`
 - `action_plan`
 
 ## Operations
@@ -57,3 +58,7 @@ The six MCP tools intentionally sit above GitHub's generic API surface:
 `wrangler types` generates `worker-configuration.d.ts`; bindings are not
 hand-written. Logs and traces are enabled, but tokens, OAuth props, and GitHub
 response bodies are never logged.
+
+The standards collector reads bounded Git trees and blobs at an immutable commit,
+then evaluates shared policy and package configuration without executing code.
+See [Shared standards](standards.md) for limits and evidence semantics.
