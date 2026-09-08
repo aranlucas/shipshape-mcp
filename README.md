@@ -12,7 +12,7 @@ codex mcp add shipshape \
   --oauth-client-registration auto
 ```
 
-Available tools include `portfolio_snapshot`, `repo_readiness`, `branch_risk`, `delivery_hygiene`, `security_posture`, and `action_plan`. Shipshape accepts public repositories only and has no mutation or code-execution capability.
+Available tools include `portfolio_snapshot`, `repo_readiness`, `branch_risk`, `delivery_hygiene`, `security_posture`, `standards_audit`, and `action_plan`. Shipshape accepts public repositories only and has no mutation or code-execution capability.
 
 ## Develop
 
@@ -25,3 +25,10 @@ pnpm dev
 ```
 
 See [`SECURITY.md`](SECURITY.md) for the security boundary and report vulnerabilities privately.
+
+## Shared standards
+
+Use `standards_audit` to check Node, Go, and Python packages against a pinned
+engineering baseline. Commit `.shipshape.yml` with
+`baseline: shipshape/recommended@1` to adopt it. Shared policies, dated
+exceptions, and evidence semantics are documented in [Shared standards](docs/standards.md).

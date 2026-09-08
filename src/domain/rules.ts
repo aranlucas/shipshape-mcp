@@ -14,6 +14,16 @@ import {
  * already-triaged recommendation.
  */
 export const RULE_IDS = [
+  "standards.baseline",
+  "standards.format",
+  "standards.lint",
+  "standards.test",
+  "standards.typecheck",
+  "standards.lockfile",
+  "standards.strict",
+  "standards.ci-pr",
+  "standards.ci-gates",
+  "standards.updates",
   "public.description",
   "public.readme",
   "public.license",
@@ -64,12 +74,103 @@ const DEFINITION = (
 });
 
 /**
- * The four category budgets each total 100 points.  Scores can therefore be
+ * The category budgets each total 100 points.  Scores can therefore be
  * compared within a category even when a caller supplies only that category's
  * checks.  Unknown observations retain their weight but never incur a
  * penalty; the summary confidence communicates the resulting uncertainty.
  */
 export const RULE_DEFINITIONS: readonly RuleDefinition[] = [
+  DEFINITION(
+    "standards.baseline",
+    "engineering_standards",
+    "Shared baseline",
+    "Shared baseline.",
+    "Pin a supported shared baseline in .shipshape.yml.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.format",
+    "engineering_standards",
+    "Formatting command",
+    "Formatting command.",
+    "Declare a formatting check command for this package.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.lint",
+    "engineering_standards",
+    "Lint command",
+    "Lint command.",
+    "Declare a lint or static analysis command for this package.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.test",
+    "engineering_standards",
+    "Test command",
+    "Test command.",
+    "Declare a command that runs this package tests.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.typecheck",
+    "engineering_standards",
+    "Type checking command",
+    "Type checking command.",
+    "Declare a type checking command for this package.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.lockfile",
+    "engineering_standards",
+    "Dependency lockfile",
+    "Dependency lockfile.",
+    "Commit a lockfile appropriate for this package ecosystem.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.strict",
+    "engineering_standards",
+    "Strict TypeScript configuration",
+    "Strict TypeScript configuration.",
+    "Enable compilerOptions.strict, or inspect inherited compiler options.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.ci-pr",
+    "engineering_standards",
+    "Pull request workflow",
+    "Pull request workflow.",
+    "Configure a GitHub Actions workflow for pull_request events.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.ci-gates",
+    "engineering_standards",
+    "Quality commands in CI",
+    "Quality commands in CI.",
+    "Invoke each declared quality command in a pull request workflow.",
+    10,
+    "medium",
+  ),
+  DEFINITION(
+    "standards.updates",
+    "engineering_standards",
+    "Dependency update configuration",
+    "Dependency update configuration.",
+    "Configure Dependabot or Renovate for dependency maintenance.",
+    10,
+    "medium",
+  ),
+
   DEFINITION(
     "public.description",
     "public_readiness",
