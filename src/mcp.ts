@@ -11,11 +11,7 @@ import {
   evaluateRepositoryReadiness,
   evaluateSecurityPosture,
 } from "./domain/evaluate";
-import {
-  buildActionPlan,
-  categoryRollup,
-  scoreChecks,
-} from "./domain/scoring";
+import { buildActionPlan, categoryRollup, scoreChecks } from "./domain/scoring";
 import type { RuleCategory } from "./domain/types";
 import {
   collectBranchRisk,
