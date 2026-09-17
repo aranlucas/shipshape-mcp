@@ -111,7 +111,7 @@ async function handleAuthorize(
 ): Promise<Response> {
   if (request.method === "GET") return handleAuthorizeGet(request, env);
   if (request.method === "POST") return handleAuthorizePost(request, env);
-  return methodNotAllowed();
+  return methodNotAllowed("GET, POST");
 }
 
 async function handleAuthorizeGet(
@@ -164,7 +164,7 @@ async function handleAuthorizeGet(
   };
   await putBrowserBoundState(env.OAUTH_KV, state, stateRecord, browserToken);
 
-  const headers = securityHeaders();
+  const headers = securityHeaders({ allowFormRedirects: true });
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   appendSetCookie(headers, makeCookie(CSRF_COOKIE_NAME, csrfToken));
@@ -322,7 +322,11 @@ async function handleCallback(
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
-  const login = await fetchAndValidateGitHubUser(accessToken, env);
+  const login = await fetchAndValidateGitHubUser(
+    accessToken,
+    env,
+    request.signal,
+  );
   if (login === null) {
     reportOAuthFailure("github_user_validation");
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
@@ -453,7 +457,7 @@ async function exchangeGitHubCode(
       callbackParameters,
       callback.toString(),
       oauth.nopkce,
-      { [oauth.customFetch]: boundedOAuthFetch },
+      { [oauth.customFetch]: boundedOAuthFetch, signal: request.signal },
     );
     const payload = await oauth.processAuthorizationCodeResponse(
       GITHUB_AUTHORIZATION_SERVER,
@@ -472,6 +476,7 @@ async function exchangeGitHubCode(
 async function fetchAndValidateGitHubUser(
   accessToken: string,
   env: OAuthEnv,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   let response: Response;
   try {
@@ -485,7 +490,7 @@ async function fetchAndValidateGitHubUser(
         "X-GitHub-Api-Version": env.GITHUB_API_VERSION ?? GITHUB_API_VERSION,
       }),
       undefined,
-      { [oauth.customFetch]: boundedOAuthFetch },
+      { [oauth.customFetch]: boundedOAuthFetch, signal },
     );
   } catch {
     reportOAuthFailure("github_user_validation");
@@ -596,14 +601,18 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
   input: string,
   init: RequestInit,
 ): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const signal =
+    init.signal === undefined || init.signal === null
+      ? controller.signal
+      : AbortSignal.any([init.signal, controller.signal]);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetch(input, { ...init, signal });
   } finally {
     clearTimeout(timeout);
   }
