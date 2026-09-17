@@ -8,6 +8,7 @@ import * as oauth from "oauth4webapi";
 import { z } from "zod";
 
 import { GITHUB_API_VERSION, GITHUB_SCOPE, MCP_SCOPE } from "./config";
+import { GitHubOwnerInputSchema } from "./github/schemas";
 import { landingHandler, methodNotAllowed, notFoundResponse } from "./landing";
 import {
   APPROVED_CLIENT_COOKIE_NAME,
@@ -21,6 +22,7 @@ import {
   approvalMatches,
   canonicalScope,
   clearCookie,
+  constantTimeEqual,
   consumeBrowserBoundState,
   createSignedApprovalCookie,
   escapeHtml,
@@ -35,7 +37,6 @@ import {
 } from "./oauth-security";
 import { STYLES_PATH } from "./styles";
 
-export { GITHUB_SCOPE } from "./config";
 export const AUTHORIZE_PATH = "/authorize" as const;
 export const CALLBACK_PATH = "/callback" as const;
 
@@ -53,7 +54,7 @@ const GITHUB_AUTHORIZATION_SERVER: oauth.AuthorizationServer = {
   token_endpoint: "https://github.com/login/oauth/access_token",
 };
 const GITHUB_CLIENT_USER_ENDPOINT = new URL("https://api.github.com/user");
-const GitHubUserSchema = z.object({ login: z.string() });
+const GitHubUserSchema = z.object({ login: GitHubOwnerInputSchema });
 
 export interface OAuthEnv {
   OAUTH_KV: KVNamespace;
@@ -81,8 +82,6 @@ export const defaultHandler: ExportedHandler<OAuthEnv> = {
     }
   },
 };
-
-export const oauthHandler = defaultHandler;
 
 export default defaultHandler;
 
@@ -199,7 +198,7 @@ async function handleAuthorizePost(
     submittedCsrf === null ||
     decision === null ||
     csrfCookie === null ||
-    !(await secureEqual(submittedCsrf, csrfCookie))
+    !(await constantTimeEqual(submittedCsrf, csrfCookie))
   ) {
     return withCookies(genericErrorResponse(400), [clearCsrf]);
   }
@@ -507,9 +506,7 @@ async function fetchAndValidateGitHubUser(
   }
   const payload = await readJson(response);
   const user = GitHubUserSchema.safeParse(payload);
-  return user.success && isGitHubLogin(user.data.login)
-    ? user.data.login
-    : null;
+  return user.success ? user.data.login : null;
 }
 
 async function boundedOAuthFetch(
@@ -753,26 +750,4 @@ function isSafeUpstreamValue(value: unknown): value is string {
     value.length <= MAX_OAUTH_VALUE_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(value)
   );
-}
-
-function isGitHubLogin(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= 39 &&
-    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value)
-  );
-}
-
-async function secureEqual(left: string, right: string): Promise<boolean> {
-  const [leftHash, rightHash] = await Promise.all([
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(left)),
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(right)),
-  ]);
-  const leftBytes = new Uint8Array(leftHash);
-  const rightBytes = new Uint8Array(rightHash);
-  let difference = 0;
-  for (let index = 0; index < leftBytes.length; index += 1)
-    difference |= leftBytes[index] ^ rightBytes[index];
-  return difference === 0;
 }

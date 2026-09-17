@@ -35,7 +35,6 @@ import {
   type GitHubSecretScanningAlert,
   type GitHubWorkflowRun,
   type PortfolioSnapshot,
-  type RepoReadinessFact,
   type RepositoryCoordinates,
   type RepositoryFact,
   type RepositoryReadiness,
@@ -100,10 +99,6 @@ function featureEvidence(
   return { url, label, collectedAt };
 }
 
-function endpointMetadata(_error: unknown): GitHubResponseMetadata | null {
-  return null;
-}
-
 function errorReason(error: unknown): string {
   if (
     error instanceof Error &&
@@ -129,7 +124,7 @@ function featureFailure<T>(
     value: null,
     reason: errorReason(error),
     evidence,
-    metadata: endpointMetadata(error),
+    metadata: null,
   };
 }
 
@@ -154,7 +149,7 @@ async function endpoint<T>(
     const response = await worker();
     return { value: response.data, metadata: response.metadata, error: null };
   } catch (error) {
-    return { value: null, metadata: endpointMetadata(error), error };
+    return { value: null, metadata: null, error };
   }
 }
 
@@ -718,8 +713,6 @@ export async function collectRepositoryReadiness(
   };
 }
 
-export const collectRepoReadiness = collectRepositoryReadiness;
-
 export async function collectPortfolioSnapshot(
   client: GitHubOctokit,
   owner: string,
@@ -863,8 +856,6 @@ export async function collectPortfolioSnapshot(
   };
 }
 
-export const collectPortfolio = collectPortfolioSnapshot;
-
 function requestOptions(options: CollectorOptions): Record<string, unknown> {
   return options.signal ? { request: { signal: options.signal } } : {};
 }
@@ -900,5 +891,3 @@ function errorUrl(error: unknown): string {
   }
   return "https://docs.github.com/en/rest";
 }
-
-export type { RepoReadinessFact };

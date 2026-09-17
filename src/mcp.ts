@@ -3,7 +3,6 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { getMcpAuthContext } from "agents/mcp/server";
 import { z } from "zod";
 
-export { MCP_SCOPE } from "./config";
 import {
   evaluateBranchRisk,
   evaluateDeliveryHygiene,

@@ -495,10 +495,6 @@ export interface PortfolioSnapshot {
   evidence: Evidence[];
 }
 
-export type PortfolioSnapshotFact = PortfolioSnapshot;
-
-export type RepoReadinessFact = RepositoryReadiness;
-
 export type GitHubRepository = z.infer<typeof GitHubRepositorySchema>;
 export type GitHubBranch = z.infer<typeof GitHubBranchSchema>;
 export type GitHubBranchProtection = z.infer<

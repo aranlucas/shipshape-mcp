@@ -6,7 +6,6 @@ export const SHIPSHAPE_CSS = `
   --ink: #f5f3e9;
   --muted: #a9b8ba;
   --ocean: #07181e;
-  --deck: #0c252d;
   --line: #23434a;
   --foam: #91e7d2;
   --signal: #ffc15c;
@@ -112,7 +111,7 @@ h1 {
 .signal { min-height: 13rem; padding: 1.5rem; }
 .signal-number { display: block; color: var(--signal); font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.78rem; }
 .signal h2, .tool h3 { margin: 2.5rem 0 0.6rem; font-size: 1.08rem; }
-.signal p, .tool p, .fine-print { color: var(--muted); line-height: 1.55; }
+.signal p, .tool p { color: var(--muted); line-height: 1.55; }
 
 .tools { padding: clamp(4rem, 9vw, 7rem) 0; }
 .section-label { margin: 0 0 1.25rem; color: var(--muted); font-size: 0.78rem; letter-spacing: 0.16em; text-transform: uppercase; }

@@ -545,11 +545,3 @@ export const makeCheck = (input: MakeCheckInput): CheckResult => {
     evidence: dedupeEvidence(input.evidence),
   };
 };
-
-export const categoryForRule = (ruleId: string): RuleDefinition["category"] =>
-  requireRuleDefinition(ruleId).category;
-
-export const priorityForRule = (ruleId: string): RuleDefinition["priority"] =>
-  requireRuleDefinition(ruleId).priority;
-
-export { MAX_EVIDENCE };
