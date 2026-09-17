@@ -1,4 +1,4 @@
-import { makeCheck, RULE_DEFINITIONS, type RuleId } from "./rules";
+import { makeCheck } from "./rules";
 import { z } from "zod";
 import {
   CONFIDENCE_LEVELS,
@@ -363,7 +363,3 @@ export const categoryRollup = (
   );
   return rollupFor(category, normalized);
 };
-
-export { CATEGORY_ORDER, MAX_ACTIONS, PRIORITY_ORDER, RULE_DEFINITIONS };
-
-export type { RuleId };

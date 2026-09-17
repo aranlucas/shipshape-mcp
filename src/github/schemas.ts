@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-/** The API version used by every request made by the GitHub client. */
 export const GitHubOwnerInputSchema = z
   .string()
   .min(1)
@@ -495,10 +494,6 @@ export interface PortfolioSnapshot {
   collectedAt: string;
   evidence: Evidence[];
 }
-
-export type PortfolioSnapshotFact = PortfolioSnapshot;
-
-export type RepoReadinessFact = RepositoryReadiness;
 
 export type GitHubRepository = z.infer<typeof GitHubRepositorySchema>;
 export type GitHubBranch = z.infer<typeof GitHubBranchSchema>;

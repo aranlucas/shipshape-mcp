@@ -85,10 +85,6 @@ export function landingHandler(request: Request): Response {
   }
 }
 
-export function landingPageResponse(): Response {
-  return htmlResponse(LANDING_PAGE);
-}
-
 export function privacyPageResponse(): Response {
   return htmlResponse(PRIVACY_PAGE);
 }

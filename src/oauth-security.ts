@@ -82,7 +82,6 @@ export interface ApprovedClientRecord {
 export interface SanitizedClientMetadata {
   clientName: string;
   clientUri?: string;
-  logoUri?: string;
   policyUri?: string;
   tosUri?: string;
   contacts: string[];
@@ -330,7 +329,6 @@ export function sanitizeClientMetadata(
   return {
     clientName,
     clientUri: safeHttpUrl(client.clientUri),
-    logoUri: safeHttpUrl(client.logoUri),
     policyUri: safeHttpUrl(client.policyUri),
     tosUri: safeHttpUrl(client.tosUri),
     contacts,
@@ -489,7 +487,7 @@ async function signingKey(
   );
 }
 
-async function constantTimeEqual(
+export async function constantTimeEqual(
   left: string,
   right: string,
 ): Promise<boolean> {

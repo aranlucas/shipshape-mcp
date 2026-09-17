@@ -4,7 +4,6 @@ import { getMcpAuthContext } from "agents/mcp/server";
 import { Octokit } from "octokit";
 import { z } from "zod";
 
-export { MCP_SCOPE } from "./config";
 import {
   evaluateBranchRisk,
   evaluateDeliveryHygiene,
