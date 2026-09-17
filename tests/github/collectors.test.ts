@@ -6,6 +6,7 @@ import {
   collectBranchRisk,
   collectDeliveryHygiene,
   collectPortfolioSnapshot,
+  collectPublicRepository,
   collectRepositoryReadiness,
   collectSecurityPosture,
 } from "../../src/github/collectors";
@@ -359,8 +360,37 @@ describe("GitHub collectors", () => {
     });
 
     await expect(
-      collectRepositoryReadiness(client, coordinates),
+      collectPublicRepository(client, coordinates),
     ).rejects.toBeInstanceOf(PrivateRepositoryError);
+  });
+
+  it("collects security posture without commits, pull requests, or workflow runs", async () => {
+    const { client, calls } = clientFor((url) => {
+      if (url.pathname === "/repos/octo/demo") return jsonResponse(repository);
+      if (url.pathname === "/repos/octo/demo/branches/main")
+        return jsonResponse(branch);
+      if (url.pathname === "/repos/octo/demo/branches/main/protection")
+        return jsonResponse(protection);
+      if (
+        url.pathname === "/repos/octo/demo/code-scanning/alerts" ||
+        url.pathname === "/repos/octo/demo/dependabot/alerts" ||
+        url.pathname === "/repos/octo/demo/secret-scanning/alerts"
+      )
+        return jsonResponse([]);
+      throw new Error(`unhandled route: ${url}`);
+    });
+
+    const fact = await collectPublicRepository(client, coordinates);
+    await Promise.all([
+      collectBranchRisk(client, coordinates, fact.defaultBranch),
+      collectSecurityPosture(client, coordinates),
+    ]);
+
+    const paths = calls.map((url) => url.pathname);
+    expect(paths).toContain("/repos/octo/demo");
+    expect(paths).not.toContain("/repos/octo/demo/commits");
+    expect(paths).not.toContain("/repos/octo/demo/pulls");
+    expect(paths).not.toContain("/repos/octo/demo/actions/runs");
   });
 
   it("collects an explicit portfolio with bounded repository concurrency", async () => {
