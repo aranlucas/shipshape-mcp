@@ -336,7 +336,10 @@ export function sanitizeClientMetadata(
   };
 }
 
-export function securityHeaders(): Headers {
+const CONTENT_SECURITY_POLICY =
+  "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'";
+
+export function securityHeaders({ allowFormRedirects = false } = {}): Headers {
   const headers = new Headers();
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
@@ -347,6 +350,14 @@ export function securityHeaders(): Headers {
   headers.set(
     "Strict-Transport-Security",
     "max-age=31536000; includeSubDomains",
+  );
+  // Consent POSTs redirect to GitHub on approval or the registered client on denial.
+  // Browsers apply form-action to the entire redirect chain, including custom URI schemes.
+  headers.set(
+    "Content-Security-Policy",
+    allowFormRedirects
+      ? CONTENT_SECURITY_POLICY.replace("form-action 'self'; ", "")
+      : CONTENT_SECURITY_POLICY,
   );
   return headers;
 }

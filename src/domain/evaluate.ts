@@ -41,30 +41,6 @@ export const evaluateBranchRisk = (
       state: protectionState,
       evidence,
     }),
-    makeCheck({
-      ruleId: "branch.stale-branch",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-      remediation:
-        "Inspect the branch's latest commit date before deciding whether it is stale.",
-    }),
-    makeCheck({
-      ruleId: "branch.diverged-default",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-      remediation:
-        "Compare the branch with the latest default branch before starting follow-up work.",
-    }),
-    makeCheck({
-      ruleId: "branch.open-pr-age",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-      remediation:
-        "Review the branch's open pull request and its latest activity before scheduling work.",
-    }),
   ];
 };
 
@@ -88,24 +64,6 @@ export const evaluateDeliveryHygiene = (
   return [
     makeCheck({ ruleId: "delivery.ci-present", state: ciPresent, evidence }),
     makeCheck({ ruleId: "delivery.ci-green", state: ciGreen, evidence }),
-    makeCheck({
-      ruleId: "delivery.workflow-pinning",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
-    makeCheck({
-      ruleId: "delivery.release",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
-    makeCheck({
-      ruleId: "delivery.dependency-updates",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
   ];
 };
 
@@ -157,12 +115,6 @@ export const evaluateSecurityPosture = (
       state: branchControls,
       evidence,
     }),
-    makeCheck({
-      ruleId: "security.security-policy",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
   ];
 };
 
@@ -183,49 +135,13 @@ export const evaluateRepositoryReadiness = (
       evidence,
     }),
     makeCheck({
-      ruleId: "public.readme",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
-    makeCheck({
       ruleId: "public.license",
       state: repository.license ? "pass" : "fail",
       evidence,
     }),
     makeCheck({
-      ruleId: "public.security-policy",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
-    makeCheck({
-      ruleId: "public.contributing",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
-    makeCheck({
-      ruleId: "public.code-of-conduct",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
-    makeCheck({
-      ruleId: "public.homepage",
-      state: "unknown",
-      confidence: "low",
-      evidence,
-    }),
-    makeCheck({
       ruleId: "public.topics",
       state: repository.topics.length >= 3 ? "pass" : "fail",
-      evidence,
-    }),
-    makeCheck({
-      ruleId: "public.release-notes",
-      state: "unknown",
-      confidence: "low",
       evidence,
     }),
   ];
@@ -262,8 +178,9 @@ export const evaluateRepositoryReadiness = (
 };
 
 /**
- * Product status from domain checks over collected facts. Unknown stub rules
- * do not block `ready`; incomplete GitHub collection does.
+ * Product status from domain checks over collected facts. Incomplete GitHub
+ * collection yields `unknown`; unimplemented catalog rules are omitted rather
+ * than emitted as unknown stubs.
  */
 export const repositoryReadinessStatus = (
   readiness: RepositoryAuditInput,

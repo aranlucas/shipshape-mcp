@@ -7,7 +7,24 @@ import {
   repositoryReadinessStatus,
   type RepositoryAuditInput,
 } from "../../src/domain/evaluate";
-import { scoreChecks } from "../../src/domain/scoring";
+import { RULE_IDS } from "../../src/domain/rules";
+import { buildActionPlan, scoreChecks } from "../../src/domain/scoring";
+
+const unimplementedRuleIds = [
+  "public.readme",
+  "public.homepage",
+  "public.contributing",
+  "public.code-of-conduct",
+  "public.security-policy",
+  "public.release-notes",
+  "branch.stale-branch",
+  "branch.diverged-default",
+  "branch.open-pr-age",
+  "delivery.workflow-pinning",
+  "delivery.release",
+  "delivery.dependency-updates",
+  "security.security-policy",
+] as const;
 
 const collectedAt = "2026-08-30T20:00:00.000Z";
 const evidence = [
@@ -113,7 +130,7 @@ describe("provider fact evaluation", () => {
     const byId = new Map(checks.map((check) => [check.ruleId, check]));
 
     expect(byId.get("public.description")?.state).toBe("fail");
-    expect(byId.get("public.readme")?.state).toBe("unknown");
+    expect(byId.get("public.license")?.state).toBe("fail");
     expect(byId.get("security.secret-scanning")?.state).toBe("pass");
     expect(byId.get("security.push-protection")?.state).toBe("fail");
     expect(byId.get("security.dependabot")?.state).toBe("unknown");
@@ -121,6 +138,52 @@ describe("provider fact evaluation", () => {
     expect(byId.get("delivery.rebase-merging-disabled")?.state).toBe("pass");
     expect(byId.get("delivery.update-branches-suggested")?.state).toBe("pass");
     expect(scoreChecks(checks).confidence).not.toBe("high");
+  });
+
+  it("omits unimplemented catalog stubs while reserving their IDs", () => {
+    const checks = evaluateRepositoryReadiness(readiness);
+    const emitted = new Set(checks.map((check) => check.ruleId));
+
+    for (const ruleId of unimplementedRuleIds) {
+      expect(emitted.has(ruleId)).toBe(false);
+      expect(RULE_IDS).toContain(ruleId);
+    }
+
+    expect(emitted.has("security.dependabot")).toBe(true);
+    expect(
+      checks.find((check) => check.ruleId === "security.dependabot")?.state,
+    ).toBe("unknown");
+    expect(scoreChecks(checks)).toMatchObject({
+      totalImpact: 220,
+      counts: { unknown: 1 },
+    });
+  });
+
+  it("does not queue unimplemented stubs in the action plan", () => {
+    const passing = {
+      ...readiness,
+      repository: {
+        ...readiness.repository,
+        description: "Public demo repository",
+        license: "MIT",
+        topics: ["mcp", "github", "maintenance"],
+        pullRequestSettings: {
+          allowMergeCommit: false,
+          allowRebaseMerge: false,
+          allowUpdateBranch: true,
+        },
+        securitySettings: {
+          ...readiness.repository.securitySettings,
+          pushProtection: "enabled",
+        },
+      },
+    };
+    const plan = buildActionPlan(evaluateRepositoryReadiness(passing));
+
+    expect(plan.items.map((item) => item.ruleId)).toEqual([
+      "security.dependabot",
+    ]);
+    expect(plan.items[0]?.state).toBe("unknown");
   });
 
   it("keeps unavailable pull request settings unknown", () => {
