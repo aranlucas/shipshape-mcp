@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
+  GITHUB_API_VERSION,
   GitHubPayloadError,
+  createGitHubOctokit,
+  octokitGet,
   octokitPaginate,
   parseGitHubPayload,
 } from "../../src/github/client";
@@ -54,5 +57,25 @@ describe("GitHub API boundaries", () => {
 
     expect(result.data).toEqual([{ id: 1 }, { id: 2 }]);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends the pinned GitHub REST API version on Octokit requests", async () => {
+    let apiVersion: string | null = null;
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        apiVersion = new Headers(init?.headers).get("x-github-api-version");
+        const url = new URL(String(input));
+        const response = new Response(JSON.stringify({ login: "octo" }), {
+          headers: { "content-type": "application/json" },
+        });
+        Object.defineProperty(response, "url", { value: url.toString() });
+        return response;
+      },
+    );
+    const octokit = createGitHubOctokit("token", fetcher);
+
+    await octokitGet(octokit, "GET /user", {}, z.object({ login: z.string() }));
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(apiVersion).toBe(GITHUB_API_VERSION);
   });
 });

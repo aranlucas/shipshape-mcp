@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-/** The API version used by every request made by the GitHub client. */
 export const GitHubOwnerInputSchema = z
   .string()
   .min(1)
