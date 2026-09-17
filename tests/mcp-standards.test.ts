@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeCheck } from "../src/domain/rules";
 const mocks = vi.hoisted(() => ({
   handlers: new Map<
@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   >(),
   standards: vi.fn(),
   readiness: vi.fn(),
+  publicRepository: vi.fn(),
+  branchRisk: vi.fn(),
+  security: vi.fn(),
 }));
 vi.mock("@modelcontextprotocol/server", () => ({
   McpServer: class {
@@ -27,18 +30,25 @@ vi.mock("../src/standards/collect", () => ({
 }));
 vi.mock("../src/github/collectors", () => ({
   collectRepositoryReadiness: mocks.readiness,
-  collectBranchRisk: vi.fn(),
+  collectPublicRepository: mocks.publicRepository,
+  collectBranchRisk: mocks.branchRisk,
   collectDeliveryHygiene: vi.fn(),
   collectPortfolioSnapshot: vi.fn(),
+  collectSecurityPosture: mocks.security,
 }));
 vi.mock("../src/domain/evaluate", () => ({
   evaluateRepositoryReadiness: () => [],
   evaluateBranchRisk: vi.fn(),
   evaluateDeliveryHygiene: vi.fn(),
-  evaluateSecurityPosture: vi.fn(),
+  evaluateSecurityPosture: () => [],
 }));
 import { createShipshapeServer } from "../src/mcp";
+
 describe("standards MCP integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("registers the read-only standards tool and returns its structured report", async () => {
     mocks.standards.mockResolvedValue({
       baseline: "shipshape/recommended@1",
@@ -74,5 +84,69 @@ describe("standards MCP integration", () => {
     expect(result.structuredContent.plan).toMatchObject({
       items: [{ ruleId: "standards.test", state: "fail" }],
     });
+  });
+
+  it("starts readiness and standards collection together for action_plan", async () => {
+    let releaseReadiness!: () => void;
+    const readinessGate = new Promise<void>((resolve) => {
+      releaseReadiness = resolve;
+    });
+    mocks.readiness.mockImplementation(async () => {
+      await readinessGate;
+      return { repository: { fullName: "octo/demo" } };
+    });
+    mocks.standards.mockImplementation(async () => {
+      releaseReadiness();
+      return {
+        audit: {
+          checks: [makeCheck({ ruleId: "standards.test", state: "fail" })],
+        },
+      };
+    });
+    createShipshapeServer();
+    const result = await mocks.handlers.get("action_plan")!({
+      owner: "octo",
+      repo: "demo",
+      limit: 8,
+    });
+    expect(result.structuredContent.plan).toMatchObject({
+      items: [{ ruleId: "standards.test", state: "fail" }],
+    });
+    expect(mocks.readiness).toHaveBeenCalledOnce();
+    expect(mocks.standards).toHaveBeenCalledOnce();
+  });
+
+  it("inspects security posture without repository readiness collection", async () => {
+    mocks.publicRepository.mockResolvedValue({
+      defaultBranch: "main",
+      evidence: [],
+      securitySettings: {},
+    });
+    mocks.branchRisk.mockResolvedValue({ status: "available", evidence: [] });
+    mocks.security.mockResolvedValue({ evidence: [] });
+    createShipshapeServer();
+    const result = await mocks.handlers.get("security_posture")!({
+      owner: "octo",
+      repo: "demo",
+    });
+    expect(result.structuredContent).toMatchObject({
+      repository: { owner: "octo", repo: "demo" },
+    });
+    expect(mocks.readiness).not.toHaveBeenCalled();
+    expect(mocks.publicRepository).toHaveBeenCalledWith(expect.anything(), {
+      owner: "octo",
+      repo: "demo",
+    });
+    expect(mocks.branchRisk).toHaveBeenCalledWith(
+      expect.anything(),
+      { owner: "octo", repo: "demo" },
+      "main",
+      expect.objectContaining({ maxPages: 1 }),
+    );
+    expect(mocks.security).toHaveBeenCalledWith(
+      expect.anything(),
+      { owner: "octo", repo: "demo" },
+      expect.objectContaining({ maxPages: 1 }),
+    );
   });
 });

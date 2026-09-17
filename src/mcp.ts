@@ -1,7 +1,6 @@
 import { collectStandards } from "./standards/collect";
 import { McpServer } from "@modelcontextprotocol/server";
 import { getMcpAuthContext } from "agents/mcp/server";
-import { Octokit } from "octokit";
 import { z } from "zod";
 
 export { MCP_SCOPE } from "./config";
@@ -17,9 +16,12 @@ import {
   collectBranchRisk,
   collectDeliveryHygiene,
   collectPortfolioSnapshot,
+  collectPublicRepository,
   collectRepositoryReadiness,
+  collectSecurityPosture,
 } from "./github/collectors";
 import {
+  createGitHubOctokit,
   GitHubInputError,
   GitHubPayloadError,
   PrivateRepositoryError,
@@ -57,11 +59,7 @@ function githubClient(): GitHubOctokit {
   const parsed = AuthPropsSchema.safeParse(getMcpAuthContext()?.props);
   if (!parsed.success)
     throw new GitHubInputError("GitHub authorization is required");
-  return new Octokit({
-    auth: parsed.data.accessToken,
-    userAgent: "shipshape-mcp-readiness-engine",
-    request: { timeout: 8_000 },
-  });
+  return createGitHubOctokit(parsed.data.accessToken);
 }
 
 function jsonResult(payload: ToolPayload) {
@@ -295,17 +293,13 @@ export function createShipshapeServer(): McpServer {
     async (repository) =>
       safely(async () => {
         const client = githubClient();
-        const readiness = await collectRepositoryReadiness(client, repository, {
-          maxPages: 1,
-          perPage: 25,
-          concurrency: 3,
-        });
-        const security = readiness.securityPosture;
-        const checks = evaluateSecurityPosture(
-          security,
-          readiness.repository,
-          readiness.branchRisk,
-        );
+        const fact = await collectPublicRepository(client, repository);
+        const options = { maxPages: 1, perPage: 25, concurrency: 3 };
+        const [branchRisk, security] = await Promise.all([
+          collectBranchRisk(client, repository, fact.defaultBranch, options),
+          collectSecurityPosture(client, repository, options),
+        ]);
+        const checks = evaluateSecurityPosture(security, fact, branchRisk);
         return {
           repository,
           security,
@@ -342,15 +336,16 @@ export function createShipshapeServer(): McpServer {
     },
     async ({ owner, repo, limit }) =>
       safely(async () => {
-        const readiness = await collectRepositoryReadiness(
-          githubClient(),
-          { owner, repo },
-          { maxPages: 2, perPage: 25, concurrency: 3 },
-        );
-        const standards = await collectStandards(githubClient(), {
-          owner,
-          repo,
-        });
+        const client = githubClient();
+        const repository = { owner, repo };
+        const [readiness, standards] = await Promise.all([
+          collectRepositoryReadiness(client, repository, {
+            maxPages: 2,
+            perPage: 25,
+            concurrency: 3,
+          }),
+          collectStandards(client, repository),
+        ]);
         const checks = [
           ...evaluateRepositoryReadiness(readiness),
           ...standards.audit.checks,

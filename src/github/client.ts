@@ -1,7 +1,10 @@
-import type { Octokit } from "octokit";
+import { Octokit } from "octokit";
 import { z, type ZodType } from "zod";
 
+import { GITHUB_API_VERSION } from "../config";
 import type { GitHubResponseMetadata } from "./schemas";
+
+export { GITHUB_API_VERSION };
 
 export const DEFAULT_MAX_PAGES = 5;
 export const MAX_ALLOWED_PAGES = 20;
@@ -10,6 +13,30 @@ export const MAX_PER_PAGE = 100;
 export const MAX_ALLOWED_CONCURRENCY = 8;
 
 export type GitHubOctokit = InstanceType<typeof Octokit>;
+
+const GITHUB_USER_AGENT = "shipshape-mcp-readiness-engine";
+const GITHUB_REQUEST_TIMEOUT_MS = 8_000;
+
+export function createGitHubOctokit(
+  auth: string,
+  fetch?: typeof globalThis.fetch,
+): GitHubOctokit {
+  const octokit = new Octokit({
+    auth,
+    userAgent: GITHUB_USER_AGENT,
+    request: {
+      timeout: GITHUB_REQUEST_TIMEOUT_MS,
+      ...(fetch ? { fetch } : {}),
+    },
+  });
+  octokit.hook.before("request", (options) => {
+    options.headers = {
+      ...options.headers,
+      "x-github-api-version": GITHUB_API_VERSION,
+    };
+  });
+  return octokit;
+}
 
 export class GitHubInputError extends Error {
   constructor(message: string) {
