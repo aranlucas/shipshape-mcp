@@ -164,7 +164,7 @@ async function handleAuthorizeGet(
   };
   await putBrowserBoundState(env.OAUTH_KV, state, stateRecord, browserToken);
 
-  const headers = securityHeaders();
+  const headers = securityHeaders({ allowFormRedirects: true });
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   appendSetCookie(headers, makeCookie(CSRF_COOKIE_NAME, csrfToken));

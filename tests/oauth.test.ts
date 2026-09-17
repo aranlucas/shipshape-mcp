@@ -97,7 +97,7 @@ describe("OAuth proxy flow", () => {
     expect(consentHtml).toContain("Test MCP Client");
     expect(csrfField).toBe(csrfCookie);
     expect(consent.headers.get("Content-Security-Policy")).toBe(
-      "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
+      "default-src 'none'; style-src 'self'; frame-ancestors 'none'",
     );
 
     const approve = await handleDefaultRequest(
@@ -159,6 +159,63 @@ describe("OAuth proxy flow", () => {
         },
       }),
     );
+  });
+
+  it.each([
+    "https://client.example/callback",
+    "http://127.0.0.1:49152/callback",
+    "claude://oauth/callback",
+  ])("allows denying consent back to %s", async (redirectUri) => {
+    const env: OAuthEnv = {
+      OAUTH_KV: memoryKv(),
+      OAUTH_PROVIDER: {
+        parseAuthRequest: vi.fn(async () => ({
+          ...requestDetails,
+          redirectUri,
+        })),
+        lookupClient: vi.fn(async () => ({
+          ...client,
+          redirectUris: [redirectUri],
+        })),
+      } as unknown as OAuthHelpers,
+      GITHUB_CLIENT_ID: "github-client-id",
+      GITHUB_CLIENT_SECRET: "github-client-secret",
+      COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
+      PUBLIC_ORIGIN: "https://shipshape.example",
+    };
+    const consent = await handleDefaultRequest(
+      new Request("https://shipshape.example/authorize"),
+      env,
+    );
+    const html = await consent.text();
+    const browser = cookieValue(consent, "__Host-shipshape-browser");
+    const csrf = cookieValue(consent, "__Host-shipshape-csrf");
+    expect(consent.headers.get("Content-Security-Policy")).not.toContain(
+      "form-action",
+    );
+    expect(consent.headers.get("Content-Security-Policy")).toContain(
+      "default-src 'none'",
+    );
+    const denied = await handleDefaultRequest(
+      new Request("https://shipshape.example/authorize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: `__Host-shipshape-browser=${browser}; __Host-shipshape-csrf=${csrf}`,
+        },
+        body: new URLSearchParams({
+          state: hiddenValue(html, "state"),
+          csrf,
+          decision: "deny",
+        }),
+      }),
+      env,
+    );
+    const location = new URL(denied.headers.get("Location") ?? "");
+    expect(denied.status).toBe(302);
+    expect(location.href.split("?")[0]).toBe(redirectUri);
+    expect(location.searchParams.get("error")).toBe("access_denied");
+    expect(location.searchParams.get("state")).toBe(requestDetails.state);
   });
 
   it("rejects an authorization POST with a mismatched CSRF token", async () => {
