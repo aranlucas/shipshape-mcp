@@ -1,5 +1,6 @@
 import pLimit from "p-limit";
 
+import { repositoryReadinessStatus } from "../domain/evaluate";
 import {
   GitHubInputError,
   MAX_ALLOWED_CONCURRENCY,
@@ -21,8 +22,6 @@ import {
   GitHubOwnerInputSchema,
   GitHubRefInputSchema,
   RepositoryCoordinatesSchema,
-  type ActionPlanItem,
-  type ActionPriority,
   type BranchRiskFact,
   type CollectionStatus,
   type DeliveryHygieneFact,
@@ -670,182 +669,6 @@ export async function collectSecurityPosture(
   };
 }
 
-function action(
-  id: string,
-  priority: ActionPriority,
-  title: string,
-  rationale: string,
-  repository: RepositoryCoordinates,
-  source: ActionPlanItem["source"],
-  evidence: Evidence[],
-): ActionPlanItem {
-  return { id, priority, title, rationale, repository, source, evidence };
-}
-
-export function buildActionPlan(
-  repository: RepositoryFact,
-  branchRisk: BranchRiskFact,
-  deliveryHygiene: DeliveryHygieneFact,
-  securityPosture: SecurityPostureFact,
-): ActionPlanItem[] {
-  const actions: ActionPlanItem[] = [];
-  const coordinates = repository.coordinates;
-  if (repository.archived) {
-    actions.push(
-      action(
-        "archived-repository",
-        "low",
-        "Decide whether to archive or retire this repository",
-        "The repository is already archived; document its ownership and sunset path.",
-        coordinates,
-        "repo_readiness",
-        repository.evidence,
-      ),
-    );
-  }
-  if (!repository.license) {
-    actions.push(
-      action(
-        "missing-license",
-        "medium",
-        "Add an explicit open-source license",
-        "A public repository without a license leaves reuse rights unclear.",
-        coordinates,
-        "repo_readiness",
-        repository.evidence,
-      ),
-    );
-  }
-  const pullRequestSettings = repository.pullRequestSettings;
-  const noncompliantPullRequestSettings = [
-    pullRequestSettings.allowMergeCommit === true
-      ? "Allow merge commits is enabled"
-      : null,
-    pullRequestSettings.allowRebaseMerge === true
-      ? "Allow rebase merging is enabled"
-      : null,
-    pullRequestSettings.allowUpdateBranch === false
-      ? "Always suggest updating pull request branches is disabled"
-      : null,
-  ].filter((setting): setting is string => setting !== null);
-  if (noncompliantPullRequestSettings.length > 0) {
-    actions.push(
-      action(
-        "configure-pull-request-merging",
-        "medium",
-        "Align pull request merge settings",
-        noncompliantPullRequestSettings.join("; ") + ".",
-        coordinates,
-        "repo_readiness",
-        repository.evidence,
-      ),
-    );
-  }
-  if (branchRisk.protectionStatus === "unprotected") {
-    actions.push(
-      action(
-        "protect-default-branch",
-        "high",
-        "Protect the default branch",
-        "Add the smallest guardrails that fit the project, such as blocking accidental force-pushes and deletions.",
-        coordinates,
-        "branch_risk",
-        branchRisk.evidence,
-      ),
-    );
-  } else if (branchRisk.status !== "available") {
-    actions.push(
-      action(
-        "review-branch-protection",
-        "medium",
-        "Verify default-branch protection",
-        branchRisk.reason ??
-          "Branch protection could not be confirmed from the available GitHub permissions.",
-        coordinates,
-        "branch_risk",
-        branchRisk.evidence,
-      ),
-    );
-  }
-  if (deliveryHygiene.ciStatus === "degraded") {
-    const failedRuns = deliveryHygiene.failingWorkflowRuns ?? [];
-    const details = failedRuns
-      .map(
-        (run) =>
-          `${run.name ?? "Workflow"} ${run.conclusion ?? "failed"} on ${run.event ?? "unknown event"} at ${run.createdAt ?? "unknown time"}: ${run.url}`,
-      )
-      .join("; ");
-    actions.push(
-      action(
-        "repair-ci",
-        "high",
-        "Repair failing automation",
-        details || "The latest completed result for a workflow is failing.",
-        coordinates,
-        "delivery_hygiene",
-        deliveryHygiene.evidence,
-      ),
-    );
-  } else if (deliveryHygiene.ciStatus === "unknown") {
-    actions.push(
-      action(
-        "verify-ci",
-        "medium",
-        "Verify continuous integration coverage",
-        deliveryHygiene.reason ?? "Workflow status was not available.",
-        coordinates,
-        "delivery_hygiene",
-        deliveryHygiene.evidence,
-      ),
-    );
-  }
-  if (
-    (securityPosture.codeScanning.value?.highSeverityAlerts ?? 0) > 0 ||
-    (securityPosture.dependabot.value?.criticalAlerts ?? 0) > 0
-  ) {
-    actions.push(
-      action(
-        "triage-critical-security",
-        "critical",
-        "Triage critical security findings",
-        "High-severity code scanning or critical dependency findings are open.",
-        coordinates,
-        "security_posture",
-        securityPosture.evidence,
-      ),
-    );
-  } else if (
-    (securityPosture.codeScanning.value?.openAlerts ?? 0) > 0 ||
-    (securityPosture.dependabot.value?.openAlerts ?? 0) > 0 ||
-    (securityPosture.secretScanning.value?.openAlerts ?? 0) > 0
-  ) {
-    actions.push(
-      action(
-        "triage-security",
-        "high",
-        "Triage open security findings",
-        "GitHub reports one or more open security alerts.",
-        coordinates,
-        "security_posture",
-        securityPosture.evidence,
-      ),
-    );
-  } else if (securityPosture.overallStatus === "unknown") {
-    actions.push(
-      action(
-        "verify-security",
-        "medium",
-        "Verify repository security posture",
-        "One or more GitHub security features were unavailable or permission-limited.",
-        coordinates,
-        "security_posture",
-        securityPosture.evidence,
-      ),
-    );
-  }
-  return actions;
-}
-
 export async function collectRepositoryReadiness(
   client: GitHubOctokit,
   repository: RepositoryCoordinates,
@@ -871,41 +694,17 @@ export async function collectRepositoryReadiness(
     collectDeliveryHygiene(client, coordinates, fact.defaultBranch, options),
     collectSecurityPosture(client, coordinates, options),
   ]);
-  const actionPlan = buildActionPlan(
-    fact,
-    branchRisk,
-    deliveryHygiene,
-    securityPosture,
-  );
-  const pullRequestSettingsStatus: CollectionStatus = Object.values(
-    fact.pullRequestSettings,
-  ).every((value) => value !== null)
-    ? "available"
-    : "unknown";
-  const components = [
-    branchRisk.status,
-    deliveryHygiene.status,
-    securityPostureStatus(securityPosture),
-    pullRequestSettingsStatus,
-  ];
-  const hasKnownAttention = actionPlan.some(
-    (item) => item.priority === "critical" || item.priority === "high",
-  );
-  const hasAction = actionPlan.length > 0;
-  const status: RepositoryReadiness["status"] = hasKnownAttention
-    ? "needs-attention"
-    : components.every((value) => value === "available")
-      ? hasAction
-        ? "needs-attention"
-        : "ready"
-      : "unknown";
   return {
     repository: fact,
     branchRisk,
     deliveryHygiene,
     securityPosture,
-    actionPlan,
-    status,
+    status: repositoryReadinessStatus({
+      repository: fact,
+      branchRisk,
+      deliveryHygiene,
+      securityPosture,
+    }),
     evidence: [
       ...fact.evidence,
       ...branchRisk.evidence,
@@ -973,7 +772,6 @@ export async function collectPortfolioSnapshot(
     return {
       owner: validatedOwner,
       repositories: [],
-      actionPlan: [],
       totals: {
         repositories: 0,
         needsAttention: 0,
@@ -1013,7 +811,6 @@ export async function collectPortfolioSnapshot(
     result.readiness ? [result.readiness] : [],
   );
   const failed = results.filter((result) => result.error !== null);
-  const actionPlan = readiness.flatMap((item) => item.actionPlan);
   const anyUnknown =
     failed.length > 0 || readiness.some((item) => item.status === "unknown");
   const anyPartial = readiness.some(
@@ -1042,7 +839,6 @@ export async function collectPortfolioSnapshot(
   return {
     owner: validatedOwner,
     repositories: readiness,
-    actionPlan,
     totals: {
       repositories: repositories.length,
       needsAttention: readiness.filter(
@@ -1077,19 +873,6 @@ function paginationOptions(options: CollectorOptions): {
     maxPages: options.maxPages,
     perPage: options.perPage,
   };
-}
-
-function securityPostureStatus(posture: SecurityPostureFact): CollectionStatus {
-  const features = [
-    posture.codeScanning.status,
-    posture.dependabot.status,
-    posture.secretScanning.status,
-  ];
-  return features.every((status) => status === "available")
-    ? "available"
-    : features.every((status) => status === "unknown")
-      ? "unknown"
-      : "partial";
 }
 
 function securityFeatureUnavailable(posture: SecurityPostureFact): boolean {

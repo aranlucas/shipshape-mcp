@@ -352,8 +352,6 @@ export type RepositoryCoordinates = z.infer<typeof RepositoryCoordinatesSchema>;
 
 export type CollectionStatus = "available" | "partial" | "unknown";
 
-export type ActionPriority = "critical" | "high" | "medium" | "low";
-
 export interface RateLimitMetadata {
   limit: number | null;
   remaining: number | null;
@@ -475,27 +473,11 @@ export interface SecurityPostureFact {
   evidence: Evidence[];
 }
 
-export interface ActionPlanItem {
-  id: string;
-  priority: ActionPriority;
-  title: string;
-  rationale: string;
-  repository: RepositoryCoordinates;
-  source:
-    | "portfolio_snapshot"
-    | "repo_readiness"
-    | "branch_risk"
-    | "delivery_hygiene"
-    | "security_posture";
-  evidence: Evidence[];
-}
-
 export interface RepositoryReadiness {
   repository: RepositoryFact;
   branchRisk: BranchRiskFact;
   deliveryHygiene: DeliveryHygieneFact;
   securityPosture: SecurityPostureFact;
-  actionPlan: ActionPlanItem[];
   status: "ready" | "needs-attention" | "unknown";
   evidence: Evidence[];
 }
@@ -503,7 +485,6 @@ export interface RepositoryReadiness {
 export interface PortfolioSnapshot {
   owner: string;
   repositories: RepositoryReadiness[];
-  actionPlan: ActionPlanItem[];
   totals: {
     repositories: number;
     needsAttention: number;
@@ -518,8 +499,6 @@ export interface PortfolioSnapshot {
 export type PortfolioSnapshotFact = PortfolioSnapshot;
 
 export type RepoReadinessFact = RepositoryReadiness;
-
-export type ActionPlan = ActionPlanItem[];
 
 export type GitHubRepository = z.infer<typeof GitHubRepositorySchema>;
 export type GitHubBranch = z.infer<typeof GitHubBranchSchema>;

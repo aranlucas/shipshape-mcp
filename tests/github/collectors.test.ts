@@ -284,18 +284,35 @@ describe("GitHub collectors", () => {
       dependabot: { value: { openAlerts: 1, criticalAlerts: 1 } },
     });
     expect(result.status).toBe("needs-attention");
-    expect(result.actionPlan.map((item) => item.id)).toContain(
-      "triage-critical-security",
-    );
-    expect(result.actionPlan.map((item) => item.id)).toContain(
-      "configure-pull-request-merging",
-    );
+    expect(result).not.toHaveProperty("actionPlan");
     expect(
       result.evidence.every((item) =>
         item.url.startsWith("https://github.com/"),
       ),
     ).toBe(true);
     expect(calls.every((url) => url.pathname !== "/graphql")).toBe(true);
+  });
+
+  it("does not treat open security alerts as readiness failures when domain checks pass", async () => {
+    const { client } = clientFor((url) => {
+      if (url.pathname === "/repos/octo/demo") {
+        return jsonResponse({
+          ...repository,
+          topics: ["demo", "mcp", "github"],
+          allow_merge_commit: false,
+        });
+      }
+      return fullRoute(url);
+    });
+
+    const result = await collectRepositoryReadiness(client, coordinates);
+
+    expect(result.securityPosture).toMatchObject({
+      overallStatus: "needs-attention",
+      codeScanning: { value: { openAlerts: 1, highSeverityAlerts: 1 } },
+    });
+    expect(result.status).toBe("ready");
+    expect(result).not.toHaveProperty("actionPlan");
   });
 
   it("returns partial and unknown feature states for permission-limited endpoints", async () => {
@@ -374,7 +391,8 @@ describe("GitHub collectors", () => {
     });
 
     expect(result.repositories).toHaveLength(2);
-    expect(result.actionPlan.length).toBeGreaterThan(0);
+    expect(result).not.toHaveProperty("actionPlan");
+    expect(result.totals.needsAttention).toBe(2);
     expect(result.totals.repositories).toBe(2);
     expect(result.status).toBe("available");
     expect(peakRepositoryReads).toBeLessThanOrEqual(1);

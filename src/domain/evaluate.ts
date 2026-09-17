@@ -166,8 +166,13 @@ export const evaluateSecurityPosture = (
   ];
 };
 
+export type RepositoryAuditInput = Pick<
+  RepositoryReadiness,
+  "repository" | "branchRisk" | "deliveryHygiene" | "securityPosture"
+>;
+
 export const evaluateRepositoryReadiness = (
-  readiness: RepositoryReadiness,
+  readiness: RepositoryAuditInput,
 ): readonly CheckResult[] => {
   const repository = readiness.repository;
   const evidence = evidenceFrom(repository.evidence);
@@ -254,4 +259,31 @@ export const evaluateRepositoryReadiness = (
       readiness.branchRisk,
     ),
   ];
+};
+
+/**
+ * Product status from domain checks over collected facts. Unknown stub rules
+ * do not block `ready`; incomplete GitHub collection does.
+ */
+export const repositoryReadinessStatus = (
+  readiness: RepositoryAuditInput,
+): RepositoryReadiness["status"] => {
+  const checks = evaluateRepositoryReadiness(readiness);
+  if (checks.some((check) => check.state === "fail")) {
+    return "needs-attention";
+  }
+  const pullRequestSettingsAvailable = Object.values(
+    readiness.repository.pullRequestSettings,
+  ).every((value) => value !== null);
+  const securityAvailable = [
+    readiness.securityPosture.codeScanning.status,
+    readiness.securityPosture.dependabot.status,
+    readiness.securityPosture.secretScanning.status,
+  ].every((status) => status === "available");
+  const collected =
+    pullRequestSettingsAvailable &&
+    securityAvailable &&
+    readiness.branchRisk.status === "available" &&
+    readiness.deliveryHygiene.status === "available";
+  return collected ? "ready" : "unknown";
 };

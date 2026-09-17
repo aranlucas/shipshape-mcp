@@ -4,9 +4,10 @@ import {
   evaluateDeliveryHygiene,
   evaluateSecurityPosture,
   evaluateRepositoryReadiness,
+  repositoryReadinessStatus,
+  type RepositoryAuditInput,
 } from "../../src/domain/evaluate";
 import { scoreChecks } from "../../src/domain/scoring";
-import type { RepositoryReadiness } from "../../src/github/schemas";
 
 const collectedAt = "2026-08-30T20:00:00.000Z";
 const evidence = [
@@ -17,7 +18,7 @@ const evidence = [
   },
 ];
 
-const readiness: RepositoryReadiness = {
+const readiness: RepositoryAuditInput = {
   repository: {
     coordinates: { owner: "octo", repo: "demo" },
     fullName: "octo/demo",
@@ -104,9 +105,6 @@ const readiness: RepositoryReadiness = {
     overallStatus: "unknown",
     evidence,
   },
-  actionPlan: [],
-  status: "unknown",
-  evidence,
 };
 
 describe("provider fact evaluation", () => {
@@ -160,6 +158,111 @@ describe("provider fact evaluation", () => {
     expect(
       checks.find((check) => check.ruleId === "delivery.ci-present")?.state,
     ).toBe("fail");
+  });
+
+  it("ignores open security alerts when the code-scanning endpoint is available", () => {
+    const checks = evaluateSecurityPosture(
+      {
+        ...readiness.securityPosture,
+        codeScanning: {
+          status: "available",
+          value: { openAlerts: 3, highSeverityAlerts: 2 },
+          reason: null,
+          evidence,
+          metadata: null,
+        },
+        dependabot: {
+          status: "available",
+          value: { openAlerts: 1, criticalAlerts: 1 },
+          reason: null,
+          evidence,
+          metadata: null,
+        },
+        overallStatus: "needs-attention",
+      },
+      readiness.repository,
+      readiness.branchRisk,
+    );
+
+    expect(
+      checks.find((check) => check.ruleId === "security.code-scanning")?.state,
+    ).toBe("pass");
+  });
+
+  it("derives product status from domain failures, not collector heuristics", () => {
+    expect(repositoryReadinessStatus(readiness)).toBe("needs-attention");
+
+    const passing = {
+      ...readiness,
+      repository: {
+        ...readiness.repository,
+        description: "Public demo repository",
+        license: "MIT",
+        topics: ["mcp", "github", "maintenance"],
+        pullRequestSettings: {
+          allowMergeCommit: false,
+          allowRebaseMerge: false,
+          allowUpdateBranch: true,
+        },
+        securitySettings: {
+          ...readiness.repository.securitySettings,
+          pushProtection: "enabled",
+        },
+      },
+      securityPosture: {
+        ...readiness.securityPosture,
+        codeScanning: {
+          status: "available" as const,
+          value: { openAlerts: 4, highSeverityAlerts: 2 },
+          reason: null,
+          evidence,
+          metadata: null,
+        },
+        dependabot: {
+          status: "available" as const,
+          value: { openAlerts: 1, criticalAlerts: 1 },
+          reason: null,
+          evidence,
+          metadata: null,
+        },
+        overallStatus: "needs-attention" as const,
+      },
+    };
+
+    expect(repositoryReadinessStatus(passing)).toBe("ready");
+  });
+
+  it("keeps status unknown when collection is incomplete and nothing failed", () => {
+    const incomplete = {
+      ...readiness,
+      repository: {
+        ...readiness.repository,
+        description: "Public demo repository",
+        license: "MIT",
+        topics: ["mcp", "github", "maintenance"],
+        pullRequestSettings: {
+          allowMergeCommit: false,
+          allowRebaseMerge: false,
+          allowUpdateBranch: true,
+        },
+        securitySettings: {
+          ...readiness.repository.securitySettings,
+          pushProtection: "enabled",
+        },
+      },
+      branchRisk: {
+        ...readiness.branchRisk,
+        status: "partial" as const,
+        reason: "GitHub feature unavailable or permission-limited (HTTP 404)",
+      },
+    };
+
+    expect(
+      evaluateRepositoryReadiness(incomplete).some(
+        (check) => check.state === "fail",
+      ),
+    ).toBe(false);
+    expect(repositoryReadinessStatus(incomplete)).toBe("unknown");
   });
 
   it("does not require pull-request approvals for branch security controls", () => {

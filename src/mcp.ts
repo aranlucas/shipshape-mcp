@@ -11,11 +11,7 @@ import {
   evaluateRepositoryReadiness,
   evaluateSecurityPosture,
 } from "./domain/evaluate";
-import {
-  buildActionPlan as buildDomainActionPlan,
-  categoryRollup,
-  scoreChecks,
-} from "./domain/scoring";
+import { buildActionPlan, categoryRollup, scoreChecks } from "./domain/scoring";
 import type { RuleCategory } from "./domain/types";
 import {
   collectBranchRisk,
@@ -169,7 +165,7 @@ export function createShipshapeServer(): McpServer {
         });
         const results = snapshot.repositories.map((readiness) => {
           const checks = evaluateRepositoryReadiness(readiness);
-          const plan = buildDomainActionPlan(checks, { maxItems: 3 });
+          const plan = buildActionPlan(checks, { maxItems: 3 });
           return {
             repository: readiness.repository.fullName,
             status: readiness.status,
@@ -363,7 +359,7 @@ export function createShipshapeServer(): McpServer {
           repository: readiness.repository,
           standards,
           score: scoreChecks(checks),
-          plan: buildDomainActionPlan(checks, { maxItems: limit }),
+          plan: buildActionPlan(checks, { maxItems: limit }),
         };
       }),
   );
