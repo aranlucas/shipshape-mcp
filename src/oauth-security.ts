@@ -338,6 +338,9 @@ export function sanitizeClientMetadata(
   };
 }
 
+const CONTENT_SECURITY_POLICY =
+  "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'";
+
 export function securityHeaders(): Headers {
   const headers = new Headers();
   headers.set("X-Content-Type-Options", "nosniff");
@@ -350,6 +353,7 @@ export function securityHeaders(): Headers {
     "Strict-Transport-Security",
     "max-age=31536000; includeSubDomains",
   );
+  headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   return headers;
 }
 

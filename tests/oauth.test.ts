@@ -9,7 +9,7 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({
   AuthorizationError: class AuthorizationError extends Error {},
 }));
 
-import { handleDefaultRequest, type OAuthEnv } from "../src/oauth";
+import { fetchWithTimeout, handleDefaultRequest, type OAuthEnv } from "../src/oauth";
 
 function memoryKv(): KVNamespace {
   const values = new Map<string, string>();
@@ -92,6 +92,9 @@ describe("OAuth proxy flow", () => {
     expect(consent.status).toBe(200);
     expect(consentHtml).toContain("Test MCP Client");
     expect(csrfField).toBe(csrfCookie);
+    expect(consent.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
+    );
 
     const approve = await handleDefaultRequest(
       new Request("https://shipshape.example/authorize", {
@@ -194,5 +197,55 @@ describe("OAuth proxy flow", () => {
       "__Host-shipshape-csrf=",
     );
     expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  it("advertises GET and POST on authorize 405 responses", async () => {
+    const env: OAuthEnv = {
+      OAUTH_KV: memoryKv(),
+      OAUTH_PROVIDER: {
+        parseAuthRequest: vi.fn(async () => requestDetails),
+        lookupClient: vi.fn(async () => client),
+      } as unknown as OAuthHelpers,
+      GITHUB_CLIENT_ID: "github-client-id",
+      GITHUB_CLIENT_SECRET: "github-client-secret",
+      COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
+      PUBLIC_ORIGIN: "https://shipshape.example",
+    };
+
+    const authorize = await handleDefaultRequest(
+      new Request("https://shipshape.example/authorize", { method: "PUT" }),
+      env,
+    );
+    expect(authorize.status).toBe(405);
+    expect(authorize.headers.get("Allow")).toBe("GET, POST");
+
+    const callback = await handleDefaultRequest(
+      new Request("https://shipshape.example/callback", { method: "POST" }),
+      env,
+    );
+    expect(callback.status).toBe(405);
+    expect(callback.headers.get("Allow")).toBe("GET");
+  });
+
+  it("keeps the caller AbortSignal when applying the upstream timeout", async () => {
+    const controller = new AbortController();
+    let fetchSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        fetchSignal = init?.signal ?? undefined;
+        return new Response("ok");
+      }),
+    );
+
+    await fetchWithTimeout("https://github.com/login/oauth/access_token", {
+      signal: controller.signal,
+    });
+
+    expect(fetchSignal).toBeDefined();
+    expect(fetchSignal).not.toBe(controller.signal);
+    expect(fetchSignal?.aborted).toBe(false);
+    controller.abort();
+    expect(fetchSignal?.aborted).toBe(true);
   });
 });

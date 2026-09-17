@@ -114,9 +114,9 @@ export function notFoundResponse(): Response {
   return htmlResponse(NOT_FOUND_PAGE, 404);
 }
 
-export function methodNotAllowed(): Response {
+export function methodNotAllowed(allow = "GET"): Response {
   const headers = securityHeaders();
-  headers.set("Allow", "GET");
+  headers.set("Allow", allow);
   headers.set("Content-Type", "text/plain; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   return new Response("Method not allowed", { status: 405, headers });

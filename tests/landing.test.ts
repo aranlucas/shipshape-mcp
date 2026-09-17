@@ -12,6 +12,9 @@ describe("public landing handlers", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/html");
+    expect(response.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
+    );
     expect(body).not.toContain("<script");
     expect(body).toContain("Know what to fix next");
   });
@@ -36,6 +39,9 @@ describe("public landing handlers", () => {
     expect(privacy.status).toBe(200);
     expect(await privacy.text()).toContain("Privacy");
     expect(privacy.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(privacy.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
+    );
   });
 
   it("returns a hardened 404 and rejects non-GET landing requests", async () => {
