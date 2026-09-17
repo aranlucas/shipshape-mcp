@@ -7,7 +7,7 @@ import {
 import * as oauth from "oauth4webapi";
 import { z } from "zod";
 
-import { GITHUB_SCOPE, MCP_SCOPE } from "./config";
+import { GITHUB_API_VERSION, GITHUB_SCOPE, MCP_SCOPE } from "./config";
 import { landingHandler, methodNotAllowed, notFoundResponse } from "./landing";
 import {
   APPROVED_CLIENT_COOKIE_NAME,
@@ -482,7 +482,7 @@ async function fetchAndValidateGitHubUser(
       new Headers({
         Accept: "application/vnd.github+json",
         "User-Agent": "shipshape-mcp",
-        "X-GitHub-Api-Version": env.GITHUB_API_VERSION ?? "2026-03-10",
+        "X-GitHub-Api-Version": env.GITHUB_API_VERSION ?? GITHUB_API_VERSION,
       }),
       undefined,
       { [oauth.customFetch]: boundedOAuthFetch },

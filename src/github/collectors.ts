@@ -669,13 +669,12 @@ export async function collectSecurityPosture(
   };
 }
 
-export async function collectRepositoryReadiness(
+export async function collectPublicRepository(
   client: GitHubOctokit,
   repository: RepositoryCoordinates,
   options: CollectorOptions = {},
-): Promise<RepositoryReadiness> {
+): Promise<RepositoryFact> {
   const coordinates = RepositoryCoordinatesSchema.parse(repository);
-  const collectedAt = nowIso();
   const repositoryResponse = await octokitGet(
     client,
     "GET /repos/{owner}/{repo}",
@@ -684,11 +683,16 @@ export async function collectRepositoryReadiness(
   );
   if (repositoryResponse.data.private)
     throw new PrivateRepositoryError(coordinates);
-  const fact = repositoryFact(
-    coordinates,
-    repositoryResponse.data,
-    collectedAt,
-  );
+  return repositoryFact(coordinates, repositoryResponse.data, nowIso());
+}
+
+export async function collectRepositoryReadiness(
+  client: GitHubOctokit,
+  repository: RepositoryCoordinates,
+  options: CollectorOptions = {},
+): Promise<RepositoryReadiness> {
+  const fact = await collectPublicRepository(client, repository, options);
+  const coordinates = fact.coordinates;
   const [branchRisk, deliveryHygiene, securityPosture] = await Promise.all([
     collectBranchRisk(client, coordinates, fact.defaultBranch, options),
     collectDeliveryHygiene(client, coordinates, fact.defaultBranch, options),
