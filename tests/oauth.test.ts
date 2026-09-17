@@ -9,7 +9,11 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({
   AuthorizationError: class AuthorizationError extends Error {},
 }));
 
-import { fetchWithTimeout, handleDefaultRequest, type OAuthEnv } from "../src/oauth";
+import {
+  fetchWithTimeout,
+  handleDefaultRequest,
+  type OAuthEnv,
+} from "../src/oauth";
 
 function memoryKv(): KVNamespace {
   const values = new Map<string, string>();
