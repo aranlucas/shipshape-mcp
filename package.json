@@ -17,9 +17,9 @@
     "types": "wrangler types --env-file .dev.vars.example"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@cloudflare/workers-oauth-provider": "^1.1.0",
     "@modelcontextprotocol/server": "2.0.0",
-    "agents": "^0.23.0",
+    "agents": "^0.24.0",
     "jsonc-parser": "^3.3.1",
     "oauth4webapi": "^3.8.8",
     "octokit": "^5.0.5",
@@ -34,7 +34,7 @@
     "oxlint-tsgolint": "^7.0.2002",
     "typescript": "7.0.2",
     "vitest": "^5.0.1",
-    "wrangler": "^4.135.0"
+    "wrangler": "^4.139.0"
   },
   "packageManager": "pnpm@12.3.1"
 }
