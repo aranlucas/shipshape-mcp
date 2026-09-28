@@ -12,6 +12,10 @@ portfolio that has more repositories than a person can inspect manually.
 > into a candidate with `repo_readiness`, then ask for `action_plan`. Shipshape
 > turns scattered public signals into a bounded queue of next steps.
 
+<p align="center">
+  <img src="docs/images/readme-overview.svg" alt="Shipshape flow from public GitHub signals through MCP tools to an action plan" width="100%" />
+</p>
+
 Production endpoint: `https://shipshape-mcp.aranlucas.workers.dev/mcp`
 
 ## Connect
