@@ -1,10 +1,16 @@
-# Shipshape MCP
+# Shipshape MCP · Know what to fix next
+
+[![CI](https://github.com/aranlucas/shipshape-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/aranlucas/shipshape-mcp/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/aranlucas/shipshape-mcp)](LICENSE)
 
 Shipshape is a read-only MCP server that turns public GitHub repository,
 branch, delivery, security, release, and standards signals into a ranked,
-evidence-backed maintenance plan. It is useful when a portfolio has more
-repositories than a person can inspect manually and the next task should be
-chosen from observable repository health rather than guesswork.
+evidence-backed maintenance plan. It is the calm second pair of eyes for a
+portfolio that has more repositories than a person can inspect manually.
+
+> **A portfolio check in one conversation:** call `portfolio_snapshot`, drill
+> into a candidate with `repo_readiness`, then ask for `action_plan`. Shipshape
+> turns scattered public signals into a bounded queue of next steps.
 
 Production endpoint: `https://shipshape-mcp.aranlucas.workers.dev/mcp`
 
