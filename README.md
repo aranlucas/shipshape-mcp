@@ -28,15 +28,15 @@ codex mcp add shipshape \
 
 Available tools include `portfolio_snapshot`, `repo_readiness`, `branch_risk`, `delivery_hygiene`, `security_posture`, `standards_audit`, and `action_plan`. Shipshape accepts public repositories only and has no mutation or code-execution capability.
 
-| Tool | Use it to |
-| --- | --- |
-| `portfolio_snapshot` | Find recently active public repositories that need attention. |
-| `repo_readiness` | Combine publication, default-branch, delivery, and security checks. |
-| `branch_risk` | Inspect protections and merge-safety signals for a branch. |
-| `delivery_hygiene` | Review commits, pull requests, workflows, and release evidence. |
-| `security_posture` | Normalize code, dependency, and secret-scanning evidence. |
-| `standards_audit` | Compare Node, Go, and Python packages with a pinned baseline. |
-| `action_plan` | Turn failed and unknown checks into a bounded work queue. |
+| Tool                 | Use it to                                                           |
+| -------------------- | ------------------------------------------------------------------- |
+| `portfolio_snapshot` | Find recently active public repositories that need attention.       |
+| `repo_readiness`     | Combine publication, default-branch, delivery, and security checks. |
+| `branch_risk`        | Inspect protections and merge-safety signals for a branch.          |
+| `delivery_hygiene`   | Review commits, pull requests, workflows, and release evidence.     |
+| `security_posture`   | Normalize code, dependency, and secret-scanning evidence.           |
+| `standards_audit`    | Compare Node, Go, and Python packages with a pinned baseline.       |
+| `action_plan`        | Turn failed and unknown checks into a bounded work queue.           |
 
 The service asks GitHub for public metadata and repository signals through the
 GitHub API. It does not clone or execute repository code, and the MCP scope is
