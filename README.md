@@ -98,7 +98,7 @@ pnpm dev
 
 `pnpm check` runs type generation, typechecking, linting, formatting, unit
 tests, and a Wrangler dry run. Deploy with `pnpm deploy` only after configuring
-the production OAuth secrets and KV binding described in `wrangler.jsonc`.
+the production OAuth secrets and KV binding described in `cloudflare.config.ts`.
 
 ## Status and limits
 
@@ -108,3 +108,5 @@ visible to the GitHub API at collection time; a missing permission or an
 unavailable check is reported as unknown rather than inferred as healthy.
 Repositories must be public, and the server cannot modify settings, open
 issues, merge code, or run project commands.
+
+See [Cloudflare CLI migration](CF_MIGRATION.md) for cf deployment and compatibility details.

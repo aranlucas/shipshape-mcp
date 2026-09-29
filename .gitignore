@@ -7,3 +7,6 @@ coverage/
 .env.*
 !.env.example
 worker-configuration.d.ts
+
+# Cloudflare CLI build output and generated types
+.cloudflare/
