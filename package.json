@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "check": "pnpm types && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
-    "deploy": "wrangler deploy --minify",
-    "dev": "wrangler dev",
-    "dry-run": "wrangler deploy --dry-run",
+    "deploy": "cf deploy",
+    "dev": "cf dev",
+    "dry-run": "cf deploy --dry-run",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "oxlint",
@@ -29,12 +29,13 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
+    "cf": "1.0.0-beta.5",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
     "oxlint-tsgolint": "^7.0.2003",
     "typescript": "7.0.2",
     "vitest": "^5.0.2",
-    "wrangler": "^4.142.0"
+    "wrangler": "^4.143.0"
   },
   "packageManager": "pnpm@12.6.0"
 }

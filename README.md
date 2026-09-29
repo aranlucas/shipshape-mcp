@@ -98,7 +98,7 @@ pnpm dev
 
 `pnpm check` runs type generation, typechecking, linting, formatting, unit
 tests, and a Wrangler dry run. Deploy with `pnpm deploy` only after configuring
-the production OAuth secrets and KV binding described in `wrangler.jsonc`.
+the production OAuth secrets and KV binding described in `cloudflare.config.ts`.
 
 ## Status and limits
 
