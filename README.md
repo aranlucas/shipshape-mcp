@@ -108,5 +108,3 @@ visible to the GitHub API at collection time; a missing permission or an
 unavailable check is reported as unknown rather than inferred as healthy.
 Repositories must be public, and the server cannot modify settings, open
 issues, merge code, or run project commands.
-
-See [Cloudflare CLI migration](CF_MIGRATION.md) for cf deployment and compatibility details.
