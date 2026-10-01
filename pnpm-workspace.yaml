@@ -8,7 +8,11 @@ minimumReleaseAgeExclude:
   - "@cloudflare/codemods@0.2.1"
   - cf@1.0.0-beta.5
 overrides:
+  "fast-uri@3": 3.1.8
+  "hono@4": 4.13.8
+  "ip-address@10": 10.7.1
+  "undici@7": 7.29.1
   "@cloudflare/workers-types": 5.20260829.1
   "ignore@7": 7.0.6
-  qs: 6.15.3
+  qs: 6.16.0
 pmOnFail: ignore
