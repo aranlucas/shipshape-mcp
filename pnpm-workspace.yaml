@@ -6,7 +6,7 @@ minimumReleaseAgeExclude:
   - miniflare@5.20260926.0-alpha
   - wrangler@4.142.0 || 4.143.0
   - "@cloudflare/codemods@0.2.1"
-  - cf@1.0.0-beta.5
+  - cf@1.0.0-beta.10
 overrides:
   "fast-uri@3": 3.1.8
   "hono@4": 4.13.8

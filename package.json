@@ -17,7 +17,7 @@
     "types": "wrangler types --env-file .dev.vars.example"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^1.1.0",
+    "@cloudflare/workers-oauth-provider": "^1.2.1",
     "@modelcontextprotocol/server": "2.1.0",
     "agents": "^0.24.0",
     "jsonc-parser": "^3.3.1",
@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
-    "cf": "1.0.0-beta.5",
+    "cf": "1.0.0-beta.10",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
     "oxlint-tsgolint": "^7.0.2003",

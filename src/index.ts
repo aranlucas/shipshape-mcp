@@ -23,13 +23,13 @@ export default new OAuthProvider<OAuthEnv>({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/oauth/token",
   clientRegistrationEndpoint: "/oauth/register",
-  allowPlainPKCE: false,
-  allowImplicitFlow: false,
+  // Preserve native MCP clients such as Claude alongside HTTPS and loopback callbacks.
+  allowPrivateUseRedirectUris: true,
   scopesSupported: [MCP_SCOPE],
+  requiredScopes: [MCP_SCOPE],
   resourceMetadata: {
     resource: MCP_RESOURCE,
     authorization_servers: [PUBLIC_ORIGIN],
-    scopes_supported: [MCP_SCOPE],
     bearer_methods_supported: ["header"],
     resource_name: "Shipshape MCP",
   },
