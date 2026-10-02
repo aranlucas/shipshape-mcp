@@ -150,13 +150,10 @@ export async function octokitGet<T>(
   };
 }
 
-export async function octokitPaginate<T>(
-  octokit: GitHubOctokit,
-  route: `GET ${string}`,
-  parameters: Record<string, unknown>,
-  itemSchema: ZodType<T>,
+/** Share effective bounds with the observation report, including clamped limits. */
+export function paginationLimits(
   options: { maxPages?: number; perPage?: number } = {},
-): Promise<{ data: T[]; metadata: GitHubResponseMetadata }> {
+): { maxPages: number; perPage: number } {
   const maxPages = boundedInteger(
     options.maxPages,
     DEFAULT_MAX_PAGES,
@@ -169,6 +166,17 @@ export async function octokitPaginate<T>(
     MAX_PER_PAGE,
     "perPage",
   );
+  return { maxPages, perPage };
+}
+
+export async function octokitPaginate<T>(
+  octokit: GitHubOctokit,
+  route: `GET ${string}`,
+  parameters: Record<string, unknown>,
+  itemSchema: ZodType<T>,
+  options: { maxPages?: number; perPage?: number } = {},
+): Promise<{ data: T[]; metadata: GitHubResponseMetadata }> {
+  const { maxPages, perPage } = paginationLimits(options);
   const data: T[] = [];
   let metadata: GitHubResponseMetadata | null = null;
   let page = 0;

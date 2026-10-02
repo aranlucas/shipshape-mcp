@@ -351,6 +351,27 @@ export type RepositoryCoordinates = z.infer<typeof RepositoryCoordinatesSchema>;
 
 export type CollectionStatus = "available" | "partial" | "unknown";
 
+/** Counts describe only the endpoint query and filters that were observed. */
+export interface ObservationScope {
+  status: "complete" | "truncated" | "unavailable";
+  fetchedCount: number | null;
+  countKind: "exact" | "lower_bound" | "unknown";
+  limits: { maxPages: number; perPage: number };
+  nextUrl: string | null;
+}
+
+export interface PortfolioScope {
+  selection: "owner" | "explicit";
+  status: ObservationScope["status"];
+  listing: ObservationScope | null;
+  filters: { includeForks: boolean; includeArchived: boolean } | null;
+  maxRepositories: number | null;
+  eligibleRepositories: number | null;
+  selectedRepositories: number;
+  /** Known eligible repositories excluded by the deep-scan limit. */
+  omittedRepositories: number | null;
+}
+
 export interface RateLimitMetadata {
   limit: number | null;
   remaining: number | null;
@@ -374,6 +395,7 @@ export interface Evidence {
   url: string;
   label: string;
   collectedAt: string;
+  detail?: string;
 }
 
 export interface FeatureResult<T> {
@@ -431,6 +453,14 @@ export interface BranchRiskFact {
 }
 
 export interface DeliveryHygieneFact {
+  coverage: {
+    branch: string;
+    /** The time window applies to commits only, not open PRs or workflow runs. */
+    commitWindow: { since: string; until: string | null };
+    commits: ObservationScope;
+    pullRequests: ObservationScope;
+    workflowRuns: ObservationScope;
+  };
   recentCommits: number | null;
   latestCommitAt: string | null;
   openPullRequests: number | null;
@@ -483,6 +513,7 @@ export interface RepositoryReadiness {
 
 export interface PortfolioSnapshot {
   owner: string;
+  scope: PortfolioScope;
   repositories: RepositoryReadiness[];
   totals: {
     repositories: number;
