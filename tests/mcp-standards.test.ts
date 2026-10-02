@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   publicRepository: vi.fn(),
   branchRisk: vi.fn(),
   security: vi.fn(),
+  portfolio: vi.fn(),
 }));
 vi.mock("@modelcontextprotocol/server", () => ({
   McpServer: class {
@@ -36,6 +37,9 @@ vi.mock("../src/github/collectors", () => ({
   collectPortfolioSnapshot: vi.fn(),
   collectSecurityPosture: mocks.security,
 }));
+vi.mock("../src/github/portfolio", () => ({
+  collectPortfolioReport: mocks.portfolio,
+}));
 vi.mock("../src/domain/evaluate", () => ({
   evaluateRepositoryReadiness: () => [],
   evaluateBranchRisk: vi.fn(),
@@ -47,6 +51,37 @@ import { createShipshapeServer } from "../src/mcp";
 describe("standards MCP integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("preserves portfolio coverage in the tool-visible structured result", async () => {
+    const report = {
+      owner: "octo",
+      status: "partial",
+      availableRepositories: 50,
+      scannedRepositories: 0,
+      results: [],
+      scope: {
+        status: "truncated",
+        listing: {
+          nextUrl: "https://api.github.com/users/octo/repos?page=2",
+          countKind: "lower_bound",
+        },
+      },
+    };
+    mocks.portfolio.mockResolvedValue(report);
+    createShipshapeServer();
+    const result = await mocks.handlers.get("portfolio_snapshot")!({
+      owner: "octo",
+      limit: 4,
+      includeForks: false,
+      includeArchived: false,
+    });
+    expect(result.structuredContent).toEqual(report);
+    expect(mocks.portfolio).toHaveBeenCalledWith(expect.anything(), "octo", {
+      limit: 4,
+      includeForks: false,
+      includeArchived: false,
+    });
   });
 
   it("registers the read-only standards tool and returns its structured report", async () => {

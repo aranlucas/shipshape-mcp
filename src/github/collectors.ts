@@ -7,6 +7,7 @@ import {
   PrivateRepositoryError,
   octokitGet,
   octokitPaginate,
+  paginationLimits,
   type GitHubOctokit,
 } from "./client";
 import {
@@ -35,6 +36,8 @@ import {
   type GitHubSecretScanningAlert,
   type GitHubWorkflowRun,
   type PortfolioSnapshot,
+  type PortfolioScope,
+  type ObservationScope,
   type RepositoryCoordinates,
   type RepositoryFact,
   type RepositoryReadiness,
@@ -53,6 +56,11 @@ export interface CollectorOptions {
 export interface PortfolioSnapshotOptions extends CollectorOptions {
   /** Explicit repositories avoid a second owner listing request. */
   repositories?: readonly RepositoryCoordinates[];
+  /** Owner-listing bounds are separate from each repository's deep scan. */
+  listing?: { maxPages?: number; perPage?: number };
+  limit?: number;
+  includeForks?: boolean;
+  includeArchived?: boolean;
 }
 
 type EndpointResult<T> = {
@@ -60,6 +68,21 @@ type EndpointResult<T> = {
   metadata: GitHubResponseMetadata | null;
   error: unknown;
 };
+
+function observationScope(
+  result: Pick<EndpointResult<readonly unknown[]>, "value" | "metadata">,
+  options: { maxPages?: number; perPage?: number },
+): ObservationScope {
+  const available = result.value !== null;
+  const nextUrl = result.metadata?.nextUrl ?? null;
+  return {
+    status: !available ? "unavailable" : nextUrl ? "truncated" : "complete",
+    fetchedCount: result.value?.length ?? null,
+    countKind: !available ? "unknown" : nextUrl ? "lower_bound" : "exact",
+    limits: paginationLimits(options),
+    nextUrl,
+  };
+}
 
 const DEFAULT_RECENT_DAYS = 30;
 
@@ -322,6 +345,7 @@ export async function collectDeliveryHygiene(
   const collectedAt = nowIso();
   const request = requestOptions(options);
   const limit = concurrencyLimit(options.concurrency, 3);
+  const since = recentSince(options);
   const [commits, pullRequests, workflowRuns] = await Promise.all([
     limit(() =>
       endpoint(() =>
@@ -332,7 +356,7 @@ export async function collectDeliveryHygiene(
             ...coordinates,
             ...request,
             sha: ref,
-            since: recentSince(options),
+            since,
             until: options.until,
           },
           GitHubCommitSchema,
@@ -368,6 +392,13 @@ export async function collectDeliveryHygiene(
     ),
   ]);
 
+  const coverage = {
+    branch: ref,
+    commitWindow: { since, until: options.until ?? null },
+    commits: observationScope(commits, options),
+    pullRequests: observationScope(pullRequests, options),
+    workflowRuns: observationScope(workflowRuns, options),
+  };
   const evidence: Evidence[] = [
     featureEvidence(
       `${webRepositoryUrl(coordinates)}/commits/${encodeURIComponent(ref)}`,
@@ -391,6 +422,14 @@ export async function collectDeliveryHygiene(
   const availableCount = [commits, pullRequests, workflowRuns].filter(
     (result) => result.value !== null,
   ).length;
+  for (const [name, scope] of [
+    ["commits", coverage.commits],
+    ["pull requests", coverage.pullRequests],
+    ["workflow runs", coverage.workflowRuns],
+  ] as const) {
+    if (scope.status === "truncated")
+      reasons.push(`${name} collection truncated; counts are lower bounds`);
+  }
   const commitItems = commits.value ?? [];
   const pullItems = pullRequests.value ?? [];
   const runItems = workflowRuns.value ?? [];
@@ -478,14 +517,22 @@ export async function collectDeliveryHygiene(
         failedConclusions.has(run.conclusion),
     )
       ? "degraded"
-      : "healthy";
+      : coverage.workflowRuns.status === "complete"
+        ? "healthy"
+        : "unknown";
+  const workflowEvidence = evidence[2];
+  if (workflowEvidence) {
+    const scope = coverage.workflowRuns;
+    workflowEvidence.detail = `Workflow run coverage: ${scope.status}; observed ${scope.fetchedCount ?? "unknown"} runs (${scope.countKind}).${scope.status === "truncated" ? " Additional workflows may be unobserved; CI health is unknown unless an observed latest workflow run failed." : ""}`;
+  }
   const status: CollectionStatus =
-    availableCount === 3
+    availableCount === 3 && reasons.length === 0
       ? "available"
       : availableCount === 0
         ? "unknown"
         : "partial";
   return {
+    coverage,
     recentCommits: commits.value ? commitItems.length : null,
     latestCommitAt,
     openPullRequests: pullRequests.value ? pullItems.length : null,
@@ -721,6 +768,28 @@ export async function collectPortfolioSnapshot(
   const validatedOwner = GitHubOwnerInputSchema.parse(owner);
   const collectedAt = nowIso();
   let repositories: RepositoryCoordinates[];
+  const listingOptions = options.listing ?? paginationOptions(options);
+  const filters = {
+    includeForks: options.includeForks ?? true,
+    includeArchived: options.includeArchived ?? true,
+  };
+  if (
+    options.limit !== undefined &&
+    (!Number.isInteger(options.limit) || options.limit <= 0)
+  )
+    throw new GitHubInputError("limit must be a positive integer");
+  let scope: PortfolioScope = {
+    selection: options.repositories ? "explicit" : "owner",
+    status: "unavailable",
+    listing: options.repositories
+      ? null
+      : observationScope({ value: null, metadata: null }, listingOptions),
+    filters: options.repositories ? null : filters,
+    maxRepositories: options.limit ?? null,
+    eligibleRepositories: null,
+    selectedRepositories: 0,
+    omittedRepositories: null,
+  };
   let listingEvidence = [
     featureEvidence(
       `https://github.com/${encodeURIComponent(validatedOwner)}?tab=repositories`,
@@ -733,6 +802,11 @@ export async function collectPortfolioSnapshot(
       repositories = options.repositories.map((repository) =>
         RepositoryCoordinatesSchema.parse(repository),
       );
+      scope = {
+        ...scope,
+        status: "complete",
+        eligibleRepositories: repositories.length,
+      };
     } else {
       const response = await octokitPaginate(
         client,
@@ -745,9 +819,25 @@ export async function collectPortfolioSnapshot(
           ...requestOptions(options),
         },
         GitHubRepositorySchema,
-        paginationOptions(options),
+        listingOptions,
       );
-      repositories = response.data.map((repository) => {
+      const listing = observationScope(
+        { value: response.data, metadata: response.metadata },
+        listingOptions,
+      );
+      const eligible = response.data
+        .filter((repository) => !repository.private)
+        .filter((repository) => filters.includeForks || !repository.fork)
+        .filter(
+          (repository) => filters.includeArchived || !repository.archived,
+        );
+      scope = {
+        ...scope,
+        status: listing.status,
+        listing,
+        eligibleRepositories: eligible.length,
+      };
+      repositories = eligible.map((repository) => {
         const [repositoryOwner, repositoryName] =
           repository.full_name.split("/");
         return RepositoryCoordinatesSchema.parse({
@@ -764,10 +854,16 @@ export async function collectPortfolioSnapshot(
         ),
       ];
     }
+    const selected = repositories.slice(0, options.limit);
+    scope.omittedRepositories = repositories.length - selected.length;
+    scope.selectedRepositories = selected.length;
+    if (scope.omittedRepositories > 0) scope.status = "truncated";
+    repositories = selected;
   } catch (error) {
     if (error instanceof PrivateRepositoryError) throw error;
     return {
       owner: validatedOwner,
+      scope: { ...scope, status: "unavailable" },
       repositories: [],
       totals: {
         repositories: 0,
@@ -810,12 +906,14 @@ export async function collectPortfolioSnapshot(
   const failed = results.filter((result) => result.error !== null);
   const anyUnknown =
     failed.length > 0 || readiness.some((item) => item.status === "unknown");
-  const anyPartial = readiness.some(
-    (item) =>
-      item.branchRisk.status === "partial" ||
-      item.deliveryHygiene.status === "partial" ||
-      item.securityPosture.overallStatus === "unknown",
-  );
+  const anyPartial =
+    scope.status === "truncated" ||
+    readiness.some(
+      (item) =>
+        item.branchRisk.status === "partial" ||
+        item.deliveryHygiene.status === "partial" ||
+        item.securityPosture.overallStatus === "unknown",
+    );
   const openSecurityAlerts = readiness.some((item) =>
     securityFeatureUnavailable(item.securityPosture),
   )
@@ -835,6 +933,7 @@ export async function collectPortfolioSnapshot(
       : "available";
   return {
     owner: validatedOwner,
+    scope,
     repositories: readiness,
     totals: {
       repositories: repositories.length,

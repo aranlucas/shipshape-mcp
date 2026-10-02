@@ -81,6 +81,31 @@ const readiness: RepositoryAuditInput = {
     evidence,
   },
   deliveryHygiene: {
+    coverage: {
+      branch: "main",
+      commitWindow: { since: collectedAt, until: null },
+      commits: {
+        status: "complete",
+        fetchedCount: 2,
+        countKind: "exact",
+        limits: { maxPages: 1, perPage: 20 },
+        nextUrl: null,
+      },
+      pullRequests: {
+        status: "complete",
+        fetchedCount: 0,
+        countKind: "exact",
+        limits: { maxPages: 1, perPage: 20 },
+        nextUrl: null,
+      },
+      workflowRuns: {
+        status: "complete",
+        fetchedCount: 3,
+        countKind: "exact",
+        limits: { maxPages: 1, perPage: 20 },
+        nextUrl: null,
+      },
+    },
     recentCommits: 2,
     latestCommitAt: collectedAt,
     openPullRequests: 0,

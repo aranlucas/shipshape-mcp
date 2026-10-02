@@ -1,3 +1,4 @@
+import { collectPortfolioReport } from "./github/portfolio";
 import { collectStandards } from "./standards/collect";
 import { McpServer } from "@modelcontextprotocol/server";
 import { getMcpAuthContext } from "agents/mcp/server";
@@ -14,7 +15,6 @@ import type { RuleCategory } from "./domain/types";
 import {
   collectBranchRisk,
   collectDeliveryHygiene,
-  collectPortfolioSnapshot,
   collectPublicRepository,
   collectRepositoryReadiness,
   collectSecurityPosture,
@@ -24,13 +24,11 @@ import {
   GitHubInputError,
   GitHubPayloadError,
   PrivateRepositoryError,
-  octokitPaginate,
   type GitHubOctokit,
 } from "./github/client";
 import {
   GitHubOwnerInputSchema,
   GitHubRefInputSchema,
-  GitHubRepositorySchema,
   RepositoryCoordinatesSchema,
 } from "./github/schemas";
 
@@ -136,58 +134,13 @@ export function createShipshapeServer(): McpServer {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async ({ owner, limit, includeForks, includeArchived }) =>
-      safely(async () => {
-        const client = githubClient();
-        const listed = await octokitPaginate(
-          client,
-          "GET /users/{username}/repos",
-          { username: owner, type: "owner", sort: "updated" },
-          GitHubRepositorySchema,
-          { maxPages: 1, perPage: 50 },
-        );
-        const repositories = listed.data
-          .filter((repository) => !repository.private)
-          .filter((repository) => includeForks || !repository.fork)
-          .filter((repository) => includeArchived || !repository.archived)
-          .slice(0, limit)
-          .map((repository) => ({
-            owner: repository.full_name.split("/")[0] ?? owner,
-            repo: repository.name,
-          }));
-        const snapshot = await collectPortfolioSnapshot(client, owner, {
-          repositories,
-          concurrency: Math.min(4, limit),
-          maxPages: 1,
-          perPage: 20,
-        });
-        const results = snapshot.repositories.map((readiness) => {
-          const checks = evaluateRepositoryReadiness(readiness);
-          const plan = buildActionPlan(checks, { maxItems: 3 });
-          return {
-            repository: readiness.repository.fullName,
-            status: readiness.status,
-            score: scoreChecks(checks),
-            nextActions: plan.items,
-          };
-        });
-        results.sort((left, right) => {
-          const leftScore = left.score.score ?? 101;
-          const rightScore = right.score.score ?? 101;
-          return (
-            leftScore - rightScore ||
-            left.repository.localeCompare(right.repository)
-          );
-        });
-
-        return {
-          owner,
-          status: snapshot.status,
-          scannedRepositories: results.length,
-          availableRepositories: listed.data.length,
-          results,
-          collectedAt: snapshot.collectedAt,
-        };
-      }),
+      safely(() =>
+        collectPortfolioReport(githubClient(), owner, {
+          limit,
+          includeForks,
+          includeArchived,
+        }),
+      ),
   );
 
   server.registerTool(

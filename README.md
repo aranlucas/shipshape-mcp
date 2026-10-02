@@ -108,3 +108,20 @@ visible to the GitHub API at collection time; a missing permission or an
 unavailable check is reported as unknown rather than inferred as healthy.
 Repositories must be public, and the server cannot modify settings, open
 issues, merge code, or run project commands.
+
+### Bounded observation coverage
+
+Delivery counts are observations of the requested branch/window and open pull
+requests. `delivery.coverage` records each endpoint's effective page limits,
+`fetchedCount`, `nextUrl`, and `complete`, `truncated`, or `unavailable` status.
+Counts are `exact` only for an exhausted query; truncated counts (including
+subtotals such as failed runs) are lower bounds. Unavailable counts stay null.
+A passing workflow sample with unscanned pages leaves CI health unknown;
+an observed latest workflow failure remains actionable. Check and action-plan
+evidence includes workflow coverage so uncertainty survives summarization.
+
+`portfolio_snapshot.scope` reports the owner-listing coverage, filters, and
+selected/omitted eligible repositories. `availableRepositories` remains the
+number fetched in the listing, not an owner-wide total when that listing is
+truncated. Each ranked result includes its delivery coverage. Explicit collector
+selections identify themselves as `explicit` and do not imply a full owner scan.

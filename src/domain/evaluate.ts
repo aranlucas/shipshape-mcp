@@ -12,6 +12,7 @@ const evidenceFrom = (items: readonly GitHubEvidence[]): readonly Evidence[] =>
   items.map((item) => ({
     url: item.url,
     label: item.label,
+    ...(item.detail ? { detail: item.detail } : {}),
   }));
 
 const observedBoolean = (
@@ -63,7 +64,18 @@ export const evaluateDeliveryHygiene = (
 
   return [
     makeCheck({ ruleId: "delivery.ci-present", state: ciPresent, evidence }),
-    makeCheck({ ruleId: "delivery.ci-green", state: ciGreen, evidence }),
+    makeCheck({
+      ruleId: "delivery.ci-green",
+      state: ciGreen,
+      evidence,
+      ...(ciGreen === "unknown" &&
+      delivery.coverage.workflowRuns.status === "truncated"
+        ? {
+            remediation:
+              "Inspect additional workflow history before concluding CI is healthy; the bounded sample may omit other workflows.",
+          }
+        : {}),
+    }),
   ];
 };
 
