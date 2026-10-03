@@ -1,5 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { Octokit } from "octokit";
+import { describe, expect, it } from "vitest";
 
 import { PrivateRepositoryError } from "../../src/github/client";
 import {
@@ -15,194 +14,19 @@ import { collectPortfolioReport } from "../../src/github/portfolio";
 import { evaluateDeliveryHygiene } from "../../src/domain/evaluate";
 import { buildActionPlan } from "../../src/domain/scoring";
 
-const coordinates = { owner: "octo", repo: "demo" } as const;
-
-const repository = {
-  id: 42,
-  name: "demo",
-  full_name: "octo/demo",
-  private: false,
-  visibility: "public",
-  html_url: "https://github.com/octo/demo",
-  description: "A public demo",
-  default_branch: "main",
-  archived: false,
-  fork: false,
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-08-30T00:00:00Z",
-  pushed_at: "2026-08-29T00:00:00Z",
-  language: "TypeScript",
-  license: {
-    key: "mit",
-    name: "MIT License",
-    spdx_id: "MIT",
-    url: "https://api.github.com/licenses/mit",
-  },
-  topics: ["demo"],
-  stargazers_count: 3,
-  watchers_count: 3,
-  forks_count: 1,
-  open_issues_count: 0,
-  has_issues: true,
-  has_projects: false,
-  has_wiki: false,
-  has_pages: false,
-  has_discussions: false,
-  allow_merge_commit: true,
-  allow_rebase_merge: false,
-  allow_update_branch: true,
-  security_and_analysis: {
-    advanced_security: { status: "enabled" },
-    secret_scanning: { status: "enabled" },
-    secret_scanning_push_protection: { status: "enabled" },
-  },
-};
-
-const branch = {
-  name: "main",
-  protected: true,
-  commit: {
-    sha: "a".repeat(40),
-    url: "https://api.github.com/repos/octo/demo/commits/a",
-  },
-};
-
-const protection = {
-  url: "https://api.github.com/repos/octo/demo/branches/main/protection",
-  required_status_checks: {
-    strict: true,
-    contexts: ["verify", "deploy"],
-    checks: [
-      { context: "verify", app_id: null },
-      { context: "deploy", app_id: null },
-    ],
-  },
-  enforce_admins: { enabled: true },
-  required_pull_request_reviews: {
-    dismiss_stale_reviews: true,
-    require_code_owner_reviews: true,
-    required_approving_review_count: 1,
-  },
-  restrictions: null,
-  required_linear_history: true,
-  allow_force_pushes: false,
-  allow_deletions: false,
-};
-
-const commit = {
-  sha: "b".repeat(40),
-  html_url:
-    "https://github.com/octo/demo/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  commit: {
-    message: "ship it",
-    author: { date: "2026-08-29T00:00:00Z" },
-    committer: { date: "2026-08-29T00:00:00Z" },
-  },
-};
-
-const pullRequest = {
-  number: 1,
-  title: "Improve docs",
-  state: "open",
-  draft: true,
-  html_url: "https://github.com/octo/demo/pull/1",
-  created_at: "2026-08-28T00:00:00Z",
-  updated_at: "2026-08-29T00:00:00Z",
-  closed_at: null,
-  merged_at: null,
-};
-
-const workflowRun = {
-  id: 7,
-  name: "CI",
-  display_title: "CI",
-  status: "completed",
-  conclusion: "success",
-  event: "push",
-  head_branch: "main",
-  head_sha: "b".repeat(40),
-  created_at: "2026-08-29T00:00:00Z",
-  updated_at: "2026-08-29T00:01:00Z",
-  html_url: "https://github.com/octo/demo/actions/runs/7",
-};
-
-function jsonResponse(
-  value: unknown,
-  status = 200,
-  nextUrl?: string,
-): Response {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: {
-      "content-type": "application/json",
-      ...(nextUrl ? { link: `<${nextUrl}>; rel="next"` } : {}),
-    },
-  });
-}
-
-type Route = (url: URL, init?: RequestInit) => Response;
-
-function clientFor(route: Route): { client: Octokit; calls: URL[] } {
-  const calls: URL[] = [];
-  const fetcher = vi.fn(
-    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const url = new URL(String(input));
-      calls.push(url);
-      const response = route(url, init);
-      Object.defineProperty(response, "url", { value: url.toString() });
-      return response;
-    },
-  );
-  return {
-    client: new Octokit({
-      auth: "token",
-      request: { fetch: fetcher },
-    }),
-    calls,
-  };
-}
-
-function fullRoute(url: URL): Response {
-  const path = url.pathname;
-  if (path === "/repos/octo/demo") return jsonResponse(repository);
-  if (path === "/repos/octo/demo/branches/main/protection")
-    return jsonResponse(protection);
-  if (path === "/repos/octo/demo/branches/main") return jsonResponse(branch);
-  if (path === "/repos/octo/demo/commits") return jsonResponse([commit]);
-  if (path === "/repos/octo/demo/pulls") return jsonResponse([pullRequest]);
-  if (path === "/repos/octo/demo/actions/runs")
-    return jsonResponse({ total_count: 1, workflow_runs: [workflowRun] });
-  if (path === "/repos/octo/demo/code-scanning/alerts") {
-    return jsonResponse([
-      {
-        number: 1,
-        state: "open",
-        rule: { security_severity_level: "high" },
-        html_url: "https://github.com/octo/demo/security/code-scanning",
-      },
-    ]);
-  }
-  if (path === "/repos/octo/demo/dependabot/alerts") {
-    return jsonResponse([
-      {
-        number: 2,
-        state: "open",
-        security_advisory: { severity: "critical" },
-        html_url: "https://github.com/octo/demo/security/dependabot",
-      },
-    ]);
-  }
-  if (path === "/repos/octo/demo/secret-scanning/alerts") {
-    return jsonResponse([
-      {
-        number: 3,
-        state: "resolved",
-        html_url: "https://github.com/octo/demo/security/secret-scanning",
-      },
-    ]);
-  }
-  throw new Error(`unhandled route: ${url}`);
-}
+import {
+  type Route,
+  coordinates,
+  repository,
+  branch,
+  protection,
+  commit,
+  pullRequest,
+  workflowRun,
+  jsonResponse,
+  clientFor,
+  fullRoute,
+} from "../helpers/github-fixtures";
 
 describe("GitHub collectors", () => {
   it("does not treat cancellations as failures and reports failing run details", async () => {
@@ -213,6 +37,7 @@ describe("GitHub collectors", () => {
       created_at: "2026-08-30T00:00:00Z",
       html_url: "https://github.com/octo/demo/actions/runs/9",
     };
+
     const failedRun = {
       ...workflowRun,
       id: 8,
@@ -222,10 +47,13 @@ describe("GitHub collectors", () => {
       created_at: "2026-08-29T12:00:00Z",
       html_url: "https://github.com/octo/demo/actions/runs/8",
     };
+
     const { client } = clientFor((url) => {
       if (url.pathname === "/repos/octo/demo/commits")
         return jsonResponse([commit]);
+
       if (url.pathname === "/repos/octo/demo/pulls") return jsonResponse([]);
+
       if (url.pathname === "/repos/octo/demo/actions/runs")
         return jsonResponse({
           total_count: 3,
@@ -314,6 +142,7 @@ describe("GitHub collectors", () => {
           allow_merge_commit: false,
         });
       }
+
       return fullRoute(url);
     });
 
@@ -330,25 +159,33 @@ describe("GitHub collectors", () => {
   it("returns partial and unknown feature states for permission-limited endpoints", async () => {
     const limitedRoute: Route = (url) => {
       if (url.pathname === "/repos/octo/demo") return jsonResponse(repository);
+
       if (url.pathname === "/repos/octo/demo/branches/main")
         return jsonResponse(branch);
+
       if (url.pathname === "/repos/octo/demo/branches/main/protection")
         return jsonResponse({ message: "not found" }, 404);
+
       if (
         url.pathname === "/repos/octo/demo/code-scanning/alerts" ||
         url.pathname === "/repos/octo/demo/dependabot/alerts"
       )
         return jsonResponse({ message: "forbidden" }, 403);
+
       if (url.pathname === "/repos/octo/demo/secret-scanning/alerts")
         return jsonResponse({ message: "not found" }, 404);
+
       if (url.pathname === "/repos/octo/demo/commits")
         return jsonResponse([commit]);
+
       if (url.pathname === "/repos/octo/demo/pulls")
         return jsonResponse([pullRequest]);
+
       if (url.pathname === "/repos/octo/demo/actions/runs")
         return jsonResponse({ total_count: 0, workflow_runs: [] });
       throw new Error(`unhandled route: ${url}`);
     };
+
     const { client } = clientFor(limitedRoute);
 
     const branchRisk = await collectBranchRisk(client, coordinates, "main");
@@ -378,10 +215,13 @@ describe("GitHub collectors", () => {
   it("collects security posture without commits, pull requests, or workflow runs", async () => {
     const { client, calls } = clientFor((url) => {
       if (url.pathname === "/repos/octo/demo") return jsonResponse(repository);
+
       if (url.pathname === "/repos/octo/demo/branches/main")
         return jsonResponse(branch);
+
       if (url.pathname === "/repos/octo/demo/branches/main/protection")
         return jsonResponse(protection);
+
       if (
         url.pathname === "/repos/octo/demo/code-scanning/alerts" ||
         url.pathname === "/repos/octo/demo/dependabot/alerts" ||
@@ -407,6 +247,7 @@ describe("GitHub collectors", () => {
   it("collects an explicit portfolio with bounded repository concurrency", async () => {
     let activeRepositoryReads = 0;
     let peakRepositoryReads = 0;
+
     const route: Route = (url) => {
       if (url.pathname.startsWith("/repos/octo/")) {
         if (url.pathname.split("/").length === 4) {
@@ -417,13 +258,17 @@ describe("GitHub collectors", () => {
           );
           activeRepositoryReads -= 1;
         }
+
         const repoName = url.pathname.split("/")[3];
+
         return fullRoute(
           new URL(url.toString().replace("/" + repoName, "/demo")),
         );
       }
+
       throw new Error(`unhandled route: ${url}`);
     };
+
     const { client } = clientFor(route);
 
     const result = await collectPortfolioSnapshot(client, "octo", {
@@ -458,14 +303,17 @@ describe("observation coverage through collector and report interfaces", () => {
         : url.pathname.endsWith("/pulls")
           ? [pullRequest]
           : { total_count: 2, workflow_runs: [workflowRun] };
+
       return jsonResponse(data, 200, `${url.origin}${url.pathname}?page=2`);
     });
+
     const result = await collectDeliveryHygiene(client, coordinates, "main", {
       maxPages: 1,
       perPage: 1,
       since: "2026-08-01T00:00:00Z",
       until: "2026-08-31T00:00:00Z",
     });
+
     expect(calls).toHaveLength(3);
     expect(result).toMatchObject({
       status: "partial",
@@ -482,6 +330,7 @@ describe("observation coverage through collector and report interfaces", () => {
         },
       },
     });
+
     for (const scope of [
       result.coverage.commits,
       result.coverage.pullRequests,
@@ -495,6 +344,7 @@ describe("observation coverage through collector and report interfaces", () => {
         nextUrl: expect.stringContaining("page=2"),
       });
     }
+
     expect(result.reason).toContain("counts are lower bounds");
     const checks = evaluateDeliveryHygiene(result);
     expect(checks).toContainEqual(
@@ -531,6 +381,7 @@ describe("observation coverage through collector and report interfaces", () => {
   it("finds the previously unobserved failing workflow when the next page is scanned", async () => {
     const { client, calls } = clientFor((url) => {
       if (!url.pathname.endsWith("/actions/runs")) return fullRoute(url);
+
       if (url.searchParams.get("page") === "2")
         return jsonResponse({
           total_count: 2,
@@ -538,16 +389,19 @@ describe("observation coverage through collector and report interfaces", () => {
             { ...workflowRun, id: 8, name: "E2E", conclusion: "failure" },
           ],
         });
+
       return jsonResponse(
         { total_count: 2, workflow_runs: [workflowRun] },
         200,
         "https://api.github.com/repos/octo/demo/actions/runs?page=2",
       );
     });
+
     const result = await collectDeliveryHygiene(client, coordinates, "main", {
       maxPages: 2,
       perPage: 1,
     });
+
     expect(
       calls.filter((url) => url.pathname.endsWith("/actions/runs")),
     ).toHaveLength(2);
@@ -579,9 +433,11 @@ describe("observation coverage through collector and report interfaces", () => {
           )
         : fullRoute(url),
     );
+
     const result = await collectDeliveryHygiene(client, coordinates, "main", {
       maxPages: 1,
     });
+
     expect(result).toMatchObject({ ciStatus: "degraded", status: "partial" });
     expect(evaluateDeliveryHygiene(result)).toContainEqual(
       expect.objectContaining({ ruleId: "delivery.ci-green", state: "fail" }),
@@ -590,10 +446,12 @@ describe("observation coverage through collector and report interfaces", () => {
 
   it("labels exhausted delivery queries complete with effective clamped limits", async () => {
     const { client } = clientFor(fullRoute);
+
     const result = await collectDeliveryHygiene(client, coordinates, "main", {
       maxPages: 100,
       perPage: 200,
     });
+
     expect(result).toMatchObject({
       status: "available",
       ciStatus: "healthy",
@@ -615,9 +473,11 @@ describe("observation coverage through collector and report interfaces", () => {
         ? jsonResponse({ message: "forbidden" }, 403)
         : fullRoute(url),
     );
+
     const result = await collectDeliveryHygiene(client, coordinates, "main", {
       maxPages: 1,
     });
+
     expect(result).toMatchObject({
       status: "partial",
       ciStatus: "unknown",
@@ -639,6 +499,7 @@ describe("observation coverage through collector and report interfaces", () => {
     const { client } = clientFor(() =>
       jsonResponse({ message: "not found" }, 404),
     );
+
     const result = await collectDeliveryHygiene(client, coordinates, "main");
     expect(result).toMatchObject({
       status: "unknown",
@@ -654,14 +515,17 @@ describe("observation coverage through collector and report interfaces", () => {
 
   it("reports the unscanned owner continuation when filters exclude the entire first page", async () => {
     const nextUrl = "https://api.github.com/users/octo/repos?page=2";
+
     const { client, calls } = clientFor(() =>
       jsonResponse([{ ...repository, fork: true }], 200, nextUrl),
     );
+
     const report = await collectPortfolioReport(client, "octo", {
       limit: 4,
       includeForks: false,
       includeArchived: false,
     });
+
     expect(calls).toHaveLength(1);
     expect(report).toMatchObject({
       status: "partial",
@@ -691,11 +555,13 @@ describe("observation coverage through collector and report interfaces", () => {
     const { client, calls } = clientFor(() =>
       jsonResponse([{ ...repository, archived: true }]),
     );
+
     const report = await collectPortfolioReport(client, "octo", {
       limit: 4,
       includeForks: false,
       includeArchived: false,
     });
+
     expect(calls).toHaveLength(1);
     expect(report).toMatchObject({
       status: "available",
@@ -715,19 +581,23 @@ describe("observation coverage through collector and report interfaces", () => {
           repository,
           { ...repository, name: "second", full_name: "octo/second" },
         ]);
+
       if (url.pathname.endsWith("/actions/runs"))
         return jsonResponse(
           { total_count: 2, workflow_runs: [workflowRun] },
           200,
           "https://api.github.com/repos/octo/demo/actions/runs?page=2",
         );
+
       return fullRoute(url);
     });
+
     const report = await collectPortfolioReport(client, "octo", {
       limit: 1,
       includeForks: false,
       includeArchived: false,
     });
+
     expect(calls.some((url) => url.pathname.includes("second"))).toBe(false);
     expect(report).toMatchObject({
       status: "partial",
@@ -762,11 +632,13 @@ describe("observation coverage through collector and report interfaces", () => {
     const { client } = clientFor(() =>
       jsonResponse({ message: "forbidden" }, 403),
     );
+
     const report = await collectPortfolioReport(client, "octo", {
       limit: 4,
       includeForks: false,
       includeArchived: false,
     });
+
     expect(report).toMatchObject({
       status: "unknown",
       availableRepositories: null,
@@ -788,9 +660,11 @@ describe("observation coverage through collector and report interfaces", () => {
     const { client, calls } = clientFor(() => {
       throw new Error("must not list");
     });
+
     const snapshot = await collectPortfolioSnapshot(client, "octo", {
       repositories: [],
     });
+
     expect(calls).toHaveLength(0);
     expect(snapshot.scope).toMatchObject({
       selection: "explicit",

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import pLimit from "p-limit";
 
 import { repositoryReadinessStatus } from "../domain/evaluate";
@@ -75,6 +76,7 @@ function observationScope(
 ): ObservationScope {
   const available = result.value !== null;
   const nextUrl = result.metadata?.nextUrl ?? null;
+
   return {
     status: !available ? "unavailable" : nextUrl ? "truncated" : "complete",
     fetchedCount: result.value?.length ?? null,
@@ -88,9 +90,11 @@ const DEFAULT_RECENT_DAYS = 30;
 
 function concurrencyLimit(value: number | undefined, fallback: number) {
   const concurrency = value ?? fallback;
+
   if (!Number.isInteger(concurrency) || concurrency <= 0) {
     throw new GitHubInputError("concurrency must be a positive integer");
   }
+
   return pLimit(Math.min(concurrency, MAX_ALLOWED_CONCURRENCY));
 }
 
@@ -122,30 +126,31 @@ function featureEvidence(
   return { url, label, collectedAt };
 }
 
-function errorReason(error: unknown): string {
-  if (
-    error instanceof Error &&
-    "status" in error &&
-    typeof error.status === "number"
-  ) {
-    const status = error.status;
+function errorReason(cause: unknown): string {
+  const error = cause;
+  const status = z.object({ status: z.number() }).safeParse(error).data?.status;
+
+  if (error instanceof Error && status !== undefined) {
     if (status === 403 || status === 404) {
       return `GitHub feature unavailable or permission-limited (HTTP ${status})`;
     }
+
     return `GitHub request failed (HTTP ${status})`;
   }
+
   if (error instanceof Error) return error.message;
+
   return "GitHub feature could not be collected";
 }
 
 function featureFailure<T>(
-  error: unknown,
+  cause: unknown,
   evidence: Evidence[],
 ): FeatureResult<T> {
   return {
     status: "unknown",
     value: null,
-    reason: errorReason(error),
+    reason: errorReason(cause),
     evidence,
     metadata: null,
   };
@@ -170,6 +175,7 @@ async function endpoint<T>(
 ): Promise<EndpointResult<T>> {
   try {
     const response = await worker();
+
     return { value: response.data, metadata: response.metadata, error: null };
   } catch (error) {
     return { value: null, metadata: null, error };
@@ -182,6 +188,7 @@ function repositoryFact(
   collectedAt: string,
 ): RepositoryFact {
   const security = value.security_and_analysis;
+
   return {
     coordinates: repository,
     fullName: value.full_name,
@@ -226,7 +233,9 @@ function repositoryFact(
 
 function protectionCheckCount(protection: GitHubBranchProtection): number {
   const checks = protection.required_status_checks;
+
   if (!checks) return 0;
+
   return checks.checks?.length ?? checks.contexts?.length ?? 0;
 }
 
@@ -252,6 +261,7 @@ export async function collectBranchRisk(
   const ref = GitHubRefInputSchema.parse(branch);
   const collectedAt = nowIso();
   const evidence = [branchEvidence(coordinates, ref, collectedAt)];
+
   const branchResult = await endpoint(() =>
     octokitGet(
       client,
@@ -286,6 +296,7 @@ export async function collectBranchRisk(
       GitHubBranchProtectionSchema,
     ),
   );
+
   if (!protectionResult.value) {
     return {
       branch: ref,
@@ -308,6 +319,7 @@ export async function collectBranchRisk(
 
   const protection = protectionResult.value;
   const reviews = protection.required_pull_request_reviews;
+
   return {
     branch: ref,
     protected: branchResult.value.protected ?? true,
@@ -329,6 +341,7 @@ export async function collectBranchRisk(
 
 function recentSince(options: CollectorOptions): string {
   if (options.since) return options.since;
+
   return new Date(
     Date.now() - DEFAULT_RECENT_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
@@ -346,6 +359,7 @@ export async function collectDeliveryHygiene(
   const request = requestOptions(options);
   const limit = concurrencyLimit(options.concurrency, 3);
   const since = recentSince(options);
+
   const [commits, pullRequests, workflowRuns] = await Promise.all([
     limit(() =>
       endpoint(() =>
@@ -399,6 +413,7 @@ export async function collectDeliveryHygiene(
     pullRequests: observationScope(pullRequests, options),
     workflowRuns: observationScope(workflowRuns, options),
   };
+
   const evidence: Evidence[] = [
     featureEvidence(
       `${webRepositoryUrl(coordinates)}/commits/${encodeURIComponent(ref)}`,
@@ -416,12 +431,15 @@ export async function collectDeliveryHygiene(
       collectedAt,
     ),
   ];
-  const reasons = [commits, pullRequests, workflowRuns]
-    .filter((result) => result.error !== null)
-    .map((result) => errorReason(result.error));
+
+  const reasons = [commits, pullRequests, workflowRuns].flatMap((result) =>
+    result.error === null ? [] : [errorReason(result.error)],
+  );
+
   const availableCount = [commits, pullRequests, workflowRuns].filter(
     (result) => result.value !== null,
   ).length;
+
   for (const [name, scope] of [
     ["commits", coverage.commits],
     ["pull requests", coverage.pullRequests],
@@ -430,29 +448,34 @@ export async function collectDeliveryHygiene(
     if (scope.status === "truncated")
       reasons.push(`${name} collection truncated; counts are lower bounds`);
   }
+
   const commitItems = commits.value ?? [];
   const pullItems = pullRequests.value ?? [];
   const runItems = workflowRuns.value ?? [];
+
   const failedConclusions = new Set([
     "action_required",
     "failure",
     "startup_failure",
     "timed_out",
   ]);
+
   const failedWorkflowRuns = runItems.filter(
-    (run) =>
-      typeof run.conclusion === "string" &&
-      failedConclusions.has(run.conclusion),
+    (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
   ).length;
+
   const cancelledWorkflowRuns = runItems.filter(
     (run) => run.conclusion === "cancelled",
   ).length;
+
   const inProgressWorkflowRuns = runItems.filter(
     (run) => run.status !== null && run.status !== "completed",
   ).length;
+
   const successfulWorkflowRuns = runItems.filter(
     (run) => run.conclusion === "success",
   ).length;
+
   const latestCommitAt =
     commitItems
       .map(
@@ -462,7 +485,9 @@ export async function collectDeliveryHygiene(
       .filter((date): date is string => date !== null)
       .sort()
       .at(-1) ?? null;
+
   const latestRun = runItems[0];
+
   const summarizeRun = (run: GitHubWorkflowRun) => ({
     id: run.id,
     name: run.name ?? null,
@@ -475,26 +500,30 @@ export async function collectDeliveryHygiene(
     updatedAt: run.updated_at ?? null,
     url: run.html_url,
   });
+
   const latestWorkflowRun = latestRun ? summarizeRun(latestRun) : null;
   const latestCompletedByWorkflow = new Map<string, GitHubWorkflowRun>();
+
   for (const run of runItems) {
     if (run.status !== "completed" || run.conclusion === "cancelled") continue;
     const workflow = run.name ?? run.html_url;
+
     if (!latestCompletedByWorkflow.has(workflow))
       latestCompletedByWorkflow.set(workflow, run);
   }
+
   const failingWorkflowRuns = [...latestCompletedByWorkflow.values()]
     .filter(
-      (run) =>
-        typeof run.conclusion === "string" &&
-        failedConclusions.has(run.conclusion),
+      (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
     )
     .slice(0, 5)
     .map(summarizeRun);
+
   if (latestRun?.html_url)
     evidence.push(
       featureEvidence(latestRun.html_url, "Latest workflow run", collectedAt),
     );
+
   for (const run of failingWorkflowRuns) {
     evidence.push(
       featureEvidence(
@@ -504,33 +533,36 @@ export async function collectDeliveryHygiene(
       ),
     );
   }
+
   if (commitItems[0]?.html_url)
     evidence.push(
       featureEvidence(commitItems[0].html_url, "Latest commit", collectedAt),
     );
 
   let ciStatus: DeliveryHygieneFact["ciStatus"] = "unknown";
+
   if (workflowRuns.value && latestCompletedByWorkflow.size > 0)
     ciStatus = [...latestCompletedByWorkflow.values()].some(
-      (run) =>
-        typeof run.conclusion === "string" &&
-        failedConclusions.has(run.conclusion),
+      (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
     )
       ? "degraded"
       : coverage.workflowRuns.status === "complete"
         ? "healthy"
         : "unknown";
   const workflowEvidence = evidence[2];
+
   if (workflowEvidence) {
     const scope = coverage.workflowRuns;
     workflowEvidence.detail = `Workflow run coverage: ${scope.status}; observed ${scope.fetchedCount ?? "unknown"} runs (${scope.countKind}).${scope.status === "truncated" ? " Additional workflows may be unobserved; CI health is unknown unless an observed latest workflow run failed." : ""}`;
   }
+
   const status: CollectionStatus =
     availableCount === 3 && reasons.length === 0
       ? "available"
       : availableCount === 0
         ? "unknown"
         : "partial";
+
   return {
     coverage,
     recentCommits: commits.value ? commitItems.length : null,
@@ -559,6 +591,7 @@ function securityFeatureEvidence(
   collectedAt: string,
 ): Evidence[] {
   const root = webRepositoryUrl(repository);
+
   const details = {
     codeScanning: [`${root}/security/code-scanning`, "Code scanning alerts"],
     dependabot: [`${root}/security/dependabot`, "Dependabot alerts"],
@@ -567,7 +600,9 @@ function securityFeatureEvidence(
       "Secret scanning alerts",
     ],
   } as const;
+
   const [url, label] = details[feature];
+
   return [featureEvidence(url, label, collectedAt)];
 }
 
@@ -582,6 +617,7 @@ async function collectCodeScanning(
     "codeScanning",
     collectedAt,
   );
+
   const result = await endpoint(() =>
     octokitPaginate(
       client,
@@ -591,17 +627,22 @@ async function collectCodeScanning(
       paginationOptions(options),
     ),
   );
+
   if (!result.value) return featureFailure(result.error, evidence);
+
   const open = result.value.filter(
     (alert: GitHubCodeScanningAlert) => alert.state.toLowerCase() === "open",
   );
+
   const highSeverityAlerts = open.filter((alert) => {
     const severity =
       alert.rule?.security_severity_level ?? alert.rule?.severity ?? "";
+
     return (
       severity.toLowerCase() === "high" || severity.toLowerCase() === "critical"
     );
   }).length;
+
   return featureSuccess<{ openAlerts: number; highSeverityAlerts: number }>(
     { openAlerts: open.length, highSeverityAlerts },
     result.metadata,
@@ -620,6 +661,7 @@ async function collectDependabot(
     "dependabot",
     collectedAt,
   );
+
   const result = await endpoint(() =>
     octokitPaginate(
       client,
@@ -629,13 +671,17 @@ async function collectDependabot(
       paginationOptions(options),
     ),
   );
+
   if (!result.value) return featureFailure(result.error, evidence);
+
   const open = result.value.filter(
     (alert: GitHubDependabotAlert) => alert.state.toLowerCase() === "open",
   );
+
   const criticalAlerts = open.filter(
     (alert) => alert.security_advisory?.severity?.toLowerCase() === "critical",
   ).length;
+
   return featureSuccess<{ openAlerts: number; criticalAlerts: number }>(
     { openAlerts: open.length, criticalAlerts },
     result.metadata,
@@ -654,6 +700,7 @@ async function collectSecretScanning(
     "secretScanning",
     collectedAt,
   );
+
   const result = await endpoint(() =>
     octokitPaginate(
       client,
@@ -663,10 +710,13 @@ async function collectSecretScanning(
       paginationOptions(options),
     ),
   );
+
   if (!result.value) return featureFailure(result.error, evidence);
+
   const openAlerts = result.value.filter(
     (alert: GitHubSecretScanningAlert) => alert.state.toLowerCase() === "open",
   ).length;
+
   return featureSuccess<{ openAlerts: number }>(
     { openAlerts },
     result.metadata,
@@ -682,6 +732,7 @@ export async function collectSecurityPosture(
   const coordinates = RepositoryCoordinatesSchema.parse(repository);
   const collectedAt = nowIso();
   const limit = concurrencyLimit(options.concurrency, 3);
+
   const [codeScanning, dependabot, secretScanning] = await Promise.all([
     limit(() => collectCodeScanning(client, coordinates, options, collectedAt)),
     limit(() => collectDependabot(client, coordinates, options, collectedAt)),
@@ -689,19 +740,24 @@ export async function collectSecurityPosture(
       collectSecretScanning(client, coordinates, options, collectedAt),
     ),
   ]);
+
   const features = [codeScanning, dependabot, secretScanning];
+
   const hasOpenAlerts =
     (codeScanning.value?.openAlerts ?? 0) > 0 ||
     (dependabot.value?.openAlerts ?? 0) > 0 ||
     (secretScanning.value?.openAlerts ?? 0) > 0;
+
   const allAvailable = features.every(
     (feature) => feature.status === "available",
   );
+
   const overallStatus: SecurityPostureFact["overallStatus"] = hasOpenAlerts
     ? "needs-attention"
     : allAvailable
       ? "healthy"
       : "unknown";
+
   return {
     codeScanning,
     dependabot,
@@ -717,14 +773,17 @@ export async function collectPublicRepository(
   options: CollectorOptions = {},
 ): Promise<RepositoryFact> {
   const coordinates = RepositoryCoordinatesSchema.parse(repository);
+
   const repositoryResponse = await octokitGet(
     client,
     "GET /repos/{owner}/{repo}",
     { ...coordinates, ...requestOptions(options) },
     GitHubRepositorySchema,
   );
+
   if (repositoryResponse.data.private)
     throw new PrivateRepositoryError(coordinates);
+
   return repositoryFact(coordinates, repositoryResponse.data, nowIso());
 }
 
@@ -735,11 +794,13 @@ export async function collectRepositoryReadiness(
 ): Promise<RepositoryReadiness> {
   const coordinates = RepositoryCoordinatesSchema.parse(repository);
   const fact = await collectPublicRepository(client, coordinates, options);
+
   const [branchRisk, deliveryHygiene, securityPosture] = await Promise.all([
     collectBranchRisk(client, coordinates, fact.defaultBranch, options),
     collectDeliveryHygiene(client, coordinates, fact.defaultBranch, options),
     collectSecurityPosture(client, coordinates, options),
   ]);
+
   return {
     repository: fact,
     branchRisk,
@@ -769,15 +830,18 @@ export async function collectPortfolioSnapshot(
   const collectedAt = nowIso();
   let repositories: RepositoryCoordinates[];
   const listingOptions = options.listing ?? paginationOptions(options);
+
   const filters = {
     includeForks: options.includeForks ?? true,
     includeArchived: options.includeArchived ?? true,
   };
+
   if (
     options.limit !== undefined &&
     (!Number.isInteger(options.limit) || options.limit <= 0)
   )
     throw new GitHubInputError("limit must be a positive integer");
+
   let scope: PortfolioScope = {
     selection: options.repositories ? "explicit" : "owner",
     status: "unavailable",
@@ -790,6 +854,7 @@ export async function collectPortfolioSnapshot(
     selectedRepositories: 0,
     omittedRepositories: null,
   };
+
   let listingEvidence = [
     featureEvidence(
       `https://github.com/${encodeURIComponent(validatedOwner)}?tab=repositories`,
@@ -797,6 +862,7 @@ export async function collectPortfolioSnapshot(
       collectedAt,
     ),
   ];
+
   try {
     if (options.repositories) {
       repositories = options.repositories.map((repository) =>
@@ -821,16 +887,19 @@ export async function collectPortfolioSnapshot(
         GitHubRepositorySchema,
         listingOptions,
       );
+
       const listing = observationScope(
         { value: response.data, metadata: response.metadata },
         listingOptions,
       );
+
       const eligible = response.data
         .filter((repository) => !repository.private)
         .filter((repository) => filters.includeForks || !repository.fork)
         .filter(
           (repository) => filters.includeArchived || !repository.archived,
         );
+
       scope = {
         ...scope,
         status: listing.status,
@@ -840,6 +909,7 @@ export async function collectPortfolioSnapshot(
       repositories = eligible.map((repository) => {
         const [repositoryOwner, repositoryName] =
           repository.full_name.split("/");
+
         return RepositoryCoordinatesSchema.parse({
           owner: repositoryOwner ?? validatedOwner,
           repo: repositoryName ?? repository.name,
@@ -854,13 +924,16 @@ export async function collectPortfolioSnapshot(
         ),
       ];
     }
+
     const selected = repositories.slice(0, options.limit);
     scope.omittedRepositories = repositories.length - selected.length;
     scope.selectedRepositories = selected.length;
+
     if (scope.omittedRepositories > 0) scope.status = "truncated";
     repositories = selected;
   } catch (error) {
     if (error instanceof PrivateRepositoryError) throw error;
+
     return {
       owner: validatedOwner,
       scope: { ...scope, status: "unavailable" },
@@ -885,6 +958,7 @@ export async function collectPortfolioSnapshot(
   }
 
   const limit = concurrencyLimit(options.concurrency, 3);
+
   const results = await limit.map(repositories, async (repository) => {
     try {
       return {
@@ -897,15 +971,20 @@ export async function collectPortfolioSnapshot(
       };
     } catch (error) {
       if (error instanceof PrivateRepositoryError) throw error;
+
       return { readiness: null, error };
     }
   });
+
   const readiness = results.flatMap((result) =>
     result.readiness ? [result.readiness] : [],
   );
+
   const failed = results.filter((result) => result.error !== null);
+
   const anyUnknown =
     failed.length > 0 || readiness.some((item) => item.status === "unknown");
+
   const anyPartial =
     scope.status === "truncated" ||
     readiness.some(
@@ -914,6 +993,7 @@ export async function collectPortfolioSnapshot(
         item.deliveryHygiene.status === "partial" ||
         item.securityPosture.overallStatus === "unknown",
     );
+
   const openSecurityAlerts = readiness.some((item) =>
     securityFeatureUnavailable(item.securityPosture),
   )
@@ -926,11 +1006,13 @@ export async function collectPortfolioSnapshot(
           (item.securityPosture.secretScanning.value?.openAlerts ?? 0),
         0,
       );
+
   const status: CollectionStatus = anyUnknown
     ? "unknown"
     : anyPartial
       ? "partial"
       : "available";
+
   return {
     owner: validatedOwner,
     scope,
@@ -955,14 +1037,11 @@ export async function collectPortfolioSnapshot(
   };
 }
 
-function requestOptions(options: CollectorOptions): Record<string, unknown> {
+function requestOptions(options: CollectorOptions) {
   return options.signal ? { request: { signal: options.signal } } : {};
 }
 
-function paginationOptions(options: CollectorOptions): {
-  maxPages?: number;
-  perPage?: number;
-} {
+function paginationOptions(options: CollectorOptions) {
   return {
     maxPages: options.maxPages,
     perPage: options.perPage,
@@ -977,16 +1056,14 @@ function securityFeatureUnavailable(posture: SecurityPostureFact): boolean {
   ].some((feature) => feature.status !== "available");
 }
 
-function errorUrl(error: unknown): string {
-  if (error instanceof Error && "response" in error) {
-    const response = error.response;
-    if (
-      response &&
-      typeof response === "object" &&
-      "url" in response &&
-      typeof response.url === "string"
-    )
-      return response.url;
+function errorUrl(cause: unknown): string {
+  if (cause instanceof Error) {
+    const parsed = z
+      .object({ response: z.object({ url: z.string() }) })
+      .safeParse(cause);
+
+    if (parsed.success) return parsed.data.response.url;
   }
+
   return "https://docs.github.com/en/rest";
 }

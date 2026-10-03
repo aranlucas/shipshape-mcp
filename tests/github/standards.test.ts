@@ -1,8 +1,12 @@
+import type { ConfigValue } from "../../src/standards/config-value";
 import { Octokit } from "octokit";
 import { describe, expect, it, vi } from "vitest";
 import { collectStandards } from "../../src/standards/collect";
+
 const sha = "a".repeat(40);
+
 const fileSha = "b".repeat(40);
+
 const repository = {
   id: 1,
   name: "demo",
@@ -13,6 +17,7 @@ const repository = {
   archived: false,
   fork: false,
 };
+
 function client(
   options: {
     private?: boolean;
@@ -26,9 +31,10 @@ function client(
 ) {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
-    let data: unknown = {};
+    let data: ConfigValue = {};
     let status = 200;
     const shared = url.pathname.startsWith("/repos/octo/policy");
+
     if (/\/repos\/octo\/(demo|policy)$/.test(url.pathname))
       data = {
         ...repository,
@@ -85,19 +91,24 @@ function client(
           : url.pathname.endsWith(sha)
             ? (options.config ?? "")
             : "{}";
+
         data = { encoding: "base64", size: text.length, content: btoa(text) };
       }
     } else {
       status = 404;
       data = { message: "Not found" };
     }
+
     const response = new Response(JSON.stringify(data), {
       status,
       headers: { "content-type": "application/json" },
     });
+
     Object.defineProperty(response, "url", { value: url.toString() });
+
     return response;
   });
+
   return {
     octokit: new Octokit({
       request: { fetch },
@@ -107,8 +118,11 @@ function client(
     fetch,
   };
 }
+
 const coordinates = { owner: "octo", repo: "demo" };
+
 const sharedConfig = `baseline: shipshape/recommended@1\nextends:\n  owner: octo\n  repo: policy\n  ref: ${sha}\n  path: policy.yml`;
+
 describe("standards collection", () => {
   it("pins tree reads and evidence to the resolved commit", async () => {
     const { octokit, fetch } = client();

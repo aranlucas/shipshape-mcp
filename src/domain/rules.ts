@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   CHECK_STATES,
   CONFIDENCE_LEVELS,
@@ -421,8 +422,11 @@ const RULE_INDEX = new Map<string, RuleDefinition>(
 );
 
 const MAX_EVIDENCE = 8;
+
 const MAX_LABEL_LENGTH = 160;
+
 const MAX_DETAIL_LENGTH = 320;
+
 const MAX_REMEDIATION_LENGTH = 500;
 
 const compareStrings = (left: string, right: string): number =>
@@ -436,6 +440,7 @@ const truncate = (value: string, maxLength: number): string =>
 const canonicalHttpUrl = (value: string): string | null => {
   try {
     const url = new URL(value);
+
     return url.protocol === "http:" || url.protocol === "https:"
       ? url.href
       : null;
@@ -445,23 +450,31 @@ const canonicalHttpUrl = (value: string): string | null => {
 };
 
 const normalizedEvidence = (evidence: Evidence): Evidence | null => {
-  if (!evidence || typeof evidence !== "object") {
-    return null;
-  }
-  const rawUrl = typeof evidence.url === "string" ? evidence.url.trim() : "";
+  const parsed = z
+    .object({
+      url: z.string().catch(""),
+      label: z.string().catch(""),
+      detail: z.string().catch(""),
+    })
+    .safeParse(evidence);
+
+  if (!parsed.success) return null;
+  const rawUrl = parsed.data.url.trim();
   const url = canonicalHttpUrl(rawUrl);
+
   if (!url) {
     return null;
   }
 
-  const label = typeof evidence.label === "string" ? evidence.label.trim() : "";
-  const detail =
-    typeof evidence.detail === "string" ? evidence.detail.trim() : "";
-  return {
-    url,
-    label: truncate(label || url, MAX_LABEL_LENGTH),
-    ...(detail ? { detail: truncate(detail, MAX_DETAIL_LENGTH) } : {}),
-  };
+  const label = parsed.data.label.trim();
+
+  const detail = parsed.data.detail.trim();
+
+  const result = { url, label: truncate(label || url, MAX_LABEL_LENGTH) };
+
+  if (detail) return { ...result, detail: truncate(detail, MAX_DETAIL_LENGTH) };
+
+  return result;
 };
 
 /**
@@ -473,12 +486,16 @@ export const dedupeEvidence = (
   evidence: readonly Evidence[] | undefined,
 ): readonly Evidence[] => {
   const byUrl = new Map<string, Evidence>();
+
   for (const item of evidence ?? []) {
     const normalized = normalizedEvidence(item);
+
     if (!normalized) {
       continue;
     }
+
     const existing = byUrl.get(normalized.url);
+
     if (
       !existing ||
       compareStrings(
@@ -500,9 +517,11 @@ export const getRuleDefinition = (ruleId: string): RuleDefinition | undefined =>
 
 export const requireRuleDefinition = (ruleId: string): RuleDefinition => {
   const definition = getRuleDefinition(ruleId);
+
   if (!definition) {
     throw new RangeError(`Unknown rule identifier: ${ruleId}`);
   }
+
   return definition;
 };
 
@@ -521,17 +540,23 @@ const defaultConfidence = (state: CheckResult["state"]): Confidence =>
  */
 export const makeCheck = (input: MakeCheckInput): CheckResult => {
   const definition = requireRuleDefinition(input.ruleId);
+
   if (!isCheckState(input.state)) {
     throw new RangeError(`Invalid check state: ${String(input.state)}`);
   }
+
   if (input.confidence !== undefined && !isConfidence(input.confidence)) {
     throw new RangeError(`Invalid confidence: ${String(input.confidence)}`);
   }
 
-  const remediation =
-    typeof input.remediation === "string" && input.remediation.trim()
-      ? truncate(input.remediation.trim(), MAX_REMEDIATION_LENGTH)
-      : definition.remediation;
+  const suppliedRemediation = z
+    .string()
+    .safeParse(input.remediation)
+    .data?.trim();
+
+  const remediation = suppliedRemediation
+    ? truncate(suppliedRemediation, MAX_REMEDIATION_LENGTH)
+    : definition.remediation;
 
   return {
     ruleId: definition.id,

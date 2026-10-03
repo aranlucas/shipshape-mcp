@@ -15,6 +15,7 @@ import { evaluateStandards, type StandardsSource } from "./evaluate";
 import { parsePolicy, mergePolicy, type Policy } from "./policy";
 
 const SHA = z.string().regex(/^[a-f0-9]{40}$/);
+
 const TreeSchema = z.object({
   truncated: z.boolean(),
   tree: z
@@ -29,14 +30,17 @@ const TreeSchema = z.object({
     )
     .max(100_000),
 });
+
 const BlobSchema = z.object({
   encoding: z.literal("base64"),
   content: z.string().max(180_000),
   size: z.number().int().nonnegative().max(128_000),
 });
+
 const selected = (path: string) =>
   /(^|\/)(package.json|go.mod|pyproject.toml|tsconfig.json)$/.test(path) ||
   /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
+
 function decode(content: string) {
   return new TextDecoder("utf-8", { fatal: true }).decode(
     Uint8Array.from(atob(content.replace(/\s/g, "")), (char) =>
@@ -44,11 +48,13 @@ function decode(content: string) {
     ),
   );
 }
+
 export async function collectStandards(
   client: GitHubOctokit,
   input: RepositoryCoordinates,
 ) {
   const coordinates = RepositoryCoordinatesSchema.parse(input);
+
   const repo = (
     await octokitGet(
       client,
@@ -57,7 +63,9 @@ export async function collectStandards(
       GitHubRepositorySchema,
     )
   ).data;
+
   if (repo.private) throw new PrivateRepositoryError(coordinates);
+
   const commit = (
     await octokitGet(
       client,
@@ -66,9 +74,11 @@ export async function collectStandards(
       z.object({ sha: SHA }),
     )
   ).data.sha;
+
   const source: StandardsSource = {
     repository: repo.full_name,
     commit,
+    // SAFETY: A new null-prototype dictionary is empty; only string/null file contents are added below.
     files: Object.create(null) as Record<string, string | null>,
     complete: false,
     policy: {
@@ -79,7 +89,9 @@ export async function collectStandards(
     policyState: "unknown",
     collectedAt: new Date().toISOString(),
   };
+
   let entries: z.infer<typeof TreeSchema>["tree"] = [];
+
   try {
     const tree = (
       await octokitGet(
@@ -89,20 +101,26 @@ export async function collectStandards(
         TreeSchema,
       )
     ).data;
+
     entries = tree.tree.filter(
       (entry) => entry.type === "blob" && entry.mode !== "120000",
     );
     source.complete = !tree.truncated;
+
     for (const entry of entries) source.files[entry.path] = null;
   } catch {
     return evaluateStandards(source);
   }
+
   const config = entries.find((entry) => entry.path === ".shipshape.yml");
+
   if (!config) source.policyState = source.complete ? "fail" : "unknown";
   else {
     let local: Policy | undefined;
+
     try {
       if ((config.size ?? 0) > 128_000) throw new Error("Too large");
+
       const blob = (
         await octokitGet(
           client,
@@ -111,17 +129,21 @@ export async function collectStandards(
           BlobSchema,
         )
       ).data;
+
       const text = decode(blob.content);
       source.files[config.path] = text;
       local = parsePolicy(text);
     } catch (error) {
       if (error instanceof GitHubInputError) throw error;
     }
+
     if (local) {
       source.policy = local;
       source.policyState = "pass";
+
       if (local.extends) {
         const shared = local.extends;
+
         try {
           const sharedRepo = (
             await octokitGet(
@@ -131,7 +153,9 @@ export async function collectStandards(
               GitHubRepositorySchema,
             )
           ).data;
+
           if (sharedRepo.private) throw new PrivateRepositoryError(shared);
+
           const sharedTree = (
             await octokitGet(
               client,
@@ -145,14 +169,17 @@ export async function collectStandards(
               TreeSchema,
             )
           ).data;
+
           const entry = sharedTree.tree.find(
             (item) =>
               item.path === shared.path &&
               item.type === "blob" &&
               item.mode !== "120000",
           );
+
           if (!entry || (entry.size ?? 0) > 128_000)
             throw new Error("Shared policy unavailable");
+
           const file = (
             await octokitGet(
               client,
@@ -161,6 +188,7 @@ export async function collectStandards(
               BlobSchema,
             )
           ).data;
+
           source.policy = mergePolicy(parsePolicy(decode(file.content)), local);
           source.policyEvidence = `https://github.com/${shared.owner}/${shared.repo}/blob/${shared.ref}/${shared.path}`;
         } catch (error) {
@@ -174,22 +202,28 @@ export async function collectStandards(
       }
     }
   }
+
   const candidates = entries
     .filter((entry) => selected(entry.path))
     .sort((a, b) => a.path.localeCompare(b.path));
+
   // Bound decoded input to 2 MB and 80 requests, with at most four in flight.
   let bytes = 0;
+
   const reads = candidates
     .filter((entry) => {
       bytes += entry.size ?? 128_000;
+
       return bytes <= 2_000_000;
     })
     .slice(0, 80);
+
   const limit = pLimit(4);
   await Promise.all(
     reads.map((entry) =>
       limit(async () => {
         if ((entry.size ?? 0) > 128_000) return;
+
         try {
           const blob = (
             await octokitGet(
@@ -199,6 +233,7 @@ export async function collectStandards(
               BlobSchema,
             )
           ).data;
+
           source.files[entry.path] = decode(blob.content);
         } catch {
           /* Unavailable files retain null contents and yield unknown. */
@@ -206,5 +241,6 @@ export async function collectStandards(
       }),
     ),
   );
+
   return evaluateStandards(source);
 }

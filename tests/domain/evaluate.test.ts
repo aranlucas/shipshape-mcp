@@ -27,6 +27,7 @@ const unimplementedRuleIds = [
 ] as const;
 
 const collectedAt = "2026-08-30T20:00:00.000Z";
+
 const evidence = [
   {
     url: "https://github.com/octo/demo",
@@ -203,6 +204,7 @@ describe("provider fact evaluation", () => {
         },
       },
     };
+
     const plan = buildActionPlan(evaluateRepositoryReadiness(passing));
 
     expect(plan.items.map((item) => item.ruleId)).toEqual([

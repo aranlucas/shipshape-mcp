@@ -8,7 +8,6 @@ import {
   createGitHubOctokit,
   octokitGet,
   octokitPaginate,
-  parseGitHubPayload,
 } from "../../src/github/client";
 import {
   GitHubRefInputSchema,
@@ -26,25 +25,33 @@ describe("GitHub API boundaries", () => {
     expect(() => GitHubRefInputSchema.parse("feature/../main")).toThrow();
   });
 
-  it("turns invalid GitHub payloads into a boundary error", () => {
-    expect(() =>
-      parseGitHubPayload(z.object({ id: z.number() }), { id: "42" }),
-    ).toThrow(GitHubPayloadError);
+  it("turns invalid GitHub payloads into a boundary error", async () => {
+    const client = createGitHubOctokit("test-token", async () =>
+      Response.json({ id: "42" }),
+    );
+
+    await expect(
+      octokitGet(client, "GET /items", {}, z.object({ id: z.number() })),
+    ).rejects.toThrow(GitHubPayloadError);
   });
 
   it("uses Octokit pagination while honoring the page cap", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       const page = Number(url.searchParams.get("page") ?? "1");
+
       const response = new Response(JSON.stringify([{ id: page }]), {
         headers: {
           "content-type": "application/json",
           link: `<https://api.github.com/items?page=${page + 1}>; rel="next"`,
         },
       });
+
       Object.defineProperty(response, "url", { value: url.toString() });
+
       return response;
     });
+
     const octokit = new Octokit({ request: { fetch: fetcher } });
 
     const result = await octokitPaginate(
@@ -61,17 +68,22 @@ describe("GitHub API boundaries", () => {
 
   it("sends the pinned GitHub REST API version on Octokit requests", async () => {
     let apiVersion: string | null = null;
+
     const fetcher = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         apiVersion = new Headers(init?.headers).get("x-github-api-version");
         const url = new URL(String(input));
+
         const response = new Response(JSON.stringify({ login: "octo" }), {
           headers: { "content-type": "application/json" },
         });
+
         Object.defineProperty(response, "url", { value: url.toString() });
+
         return response;
       },
     );
+
     const octokit = createGitHubOctokit("token", fetcher);
 
     await octokitGet(octokit, "GET /user", {}, z.object({ login: z.string() }));

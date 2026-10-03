@@ -7,34 +7,54 @@ import type { GitHubResponseMetadata } from "./schemas";
 export { GITHUB_API_VERSION };
 
 export const DEFAULT_MAX_PAGES = 5;
+
 export const MAX_ALLOWED_PAGES = 20;
+
 export const DEFAULT_PER_PAGE = 50;
+
 export const MAX_PER_PAGE = 100;
+
 export const MAX_ALLOWED_CONCURRENCY = 8;
 
 export type GitHubOctokit = InstanceType<typeof Octokit>;
 
+/** Values accepted by our read-only REST endpoints; transport options remain typed. */
+export interface GitHubReadParameters {
+  [key: string]:
+    | string
+    | number
+    | boolean
+    | undefined
+    | { signal?: AbortSignal };
+}
+
 const GITHUB_USER_AGENT = "shipshape-mcp-readiness-engine";
+
 const GITHUB_REQUEST_TIMEOUT_MS = 8_000;
 
 export function createGitHubOctokit(
   auth: string,
   fetch?: typeof globalThis.fetch,
 ): GitHubOctokit {
+  const request: NonNullable<
+    ConstructorParameters<typeof Octokit>[0]
+  >["request"] = { timeout: GITHUB_REQUEST_TIMEOUT_MS };
+
+  if (fetch) request.fetch = fetch;
+
   const octokit = new Octokit({
     auth,
     userAgent: GITHUB_USER_AGENT,
-    request: {
-      timeout: GITHUB_REQUEST_TIMEOUT_MS,
-      ...(fetch ? { fetch } : {}),
-    },
+    request,
   });
+
   octokit.hook.before("request", (options) => {
     options.headers = {
       ...options.headers,
       "x-github-api-version": GITHUB_API_VERSION,
     };
   });
+
   return octokit;
 }
 
@@ -68,27 +88,35 @@ function boundedInteger(
   name: string,
 ): number {
   const result = value ?? fallback;
+
   if (!Number.isInteger(result) || result <= 0) {
     throw new GitHubInputError(`${name} must be a positive integer`);
   }
+
   return Math.min(result, maximum);
 }
 
 function links(value: string | undefined) {
   let nextUrl: string | null = null;
   let previousUrl: string | null = null;
+
   if (!value) return { nextUrl, previousUrl };
+
   for (const part of value.split(",")) {
     const match = part.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"/u);
+
     if (match?.[2] === "next") nextUrl = match[1] ?? null;
+
     if (match?.[2] === "prev") previousUrl = match[1] ?? null;
   }
+
   return { nextUrl, previousUrl };
 }
 
 const headerNumber = (value: string | undefined): number | null => {
   if (!value || !/^\d+(?:\.\d+)?$/u.test(value.trim())) return null;
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : null;
 };
 
@@ -98,6 +126,7 @@ export function responseMetadata(response: {
   headers: Record<string, string | number | undefined>;
 }): GitHubResponseMetadata {
   const pagination = links(String(response.headers.link ?? "") || undefined);
+
   return {
     url: response.url,
     status: response.status,
@@ -124,8 +153,12 @@ export function responseMetadata(response: {
   };
 }
 
-export function parseGitHubPayload<T>(schema: ZodType<T>, payload: unknown): T {
-  const parsed = schema.safeParse(payload);
+export function parseGitHubResponse<T>(
+  schema: ZodType<T>,
+  response: Awaited<ReturnType<GitHubOctokit["request"]>>,
+): T {
+  const parsed = schema.safeParse(response.data);
+
   if (!parsed.success) {
     throw new GitHubPayloadError(
       parsed.error.issues
@@ -134,18 +167,20 @@ export function parseGitHubPayload<T>(schema: ZodType<T>, payload: unknown): T {
         .join("; "),
     );
   }
+
   return parsed.data;
 }
 
 export async function octokitGet<T>(
   octokit: GitHubOctokit,
   route: `GET ${string}`,
-  parameters: Record<string, unknown>,
+  parameters: GitHubReadParameters,
   schema: ZodType<T>,
 ): Promise<{ data: T; metadata: GitHubResponseMetadata }> {
   const response = await octokit.request(route, parameters);
+
   return {
-    data: parseGitHubPayload(schema, response.data),
+    data: parseGitHubResponse(schema, response),
     metadata: responseMetadata(response),
   };
 }
@@ -153,26 +188,28 @@ export async function octokitGet<T>(
 /** Share effective bounds with the observation report, including clamped limits. */
 export function paginationLimits(
   options: { maxPages?: number; perPage?: number } = {},
-): { maxPages: number; perPage: number } {
+) {
   const maxPages = boundedInteger(
     options.maxPages,
     DEFAULT_MAX_PAGES,
     MAX_ALLOWED_PAGES,
     "maxPages",
   );
+
   const perPage = boundedInteger(
     options.perPage,
     DEFAULT_PER_PAGE,
     MAX_PER_PAGE,
     "perPage",
   );
+
   return { maxPages, perPage };
 }
 
 export async function octokitPaginate<T>(
   octokit: GitHubOctokit,
   route: `GET ${string}`,
-  parameters: Record<string, unknown>,
+  parameters: GitHubReadParameters,
   itemSchema: ZodType<T>,
   options: { maxPages?: number; perPage?: number } = {},
 ): Promise<{ data: T[]; metadata: GitHubResponseMetadata }> {
@@ -180,11 +217,13 @@ export async function octokitPaginate<T>(
   const data: T[] = [];
   let metadata: GitHubResponseMetadata | null = null;
   let page = 0;
+
   for await (const response of octokit.paginate.iterator(route, {
     ...parameters,
     per_page: perPage,
   })) {
     page += 1;
+
     const pageSchema = z
       .union([
         z.array(itemSchema),
@@ -193,10 +232,14 @@ export async function octokitPaginate<T>(
       .transform((value) =>
         Array.isArray(value) ? value : value.workflow_runs,
       );
-    data.push(...parseGitHubPayload(pageSchema, response.data));
+
+    data.push(...parseGitHubResponse(pageSchema, response));
     metadata = responseMetadata(response);
+
     if (page >= maxPages) break;
   }
+
   if (!metadata) throw new GitHubInputError("Pagination produced no request");
+
   return { data, metadata };
 }

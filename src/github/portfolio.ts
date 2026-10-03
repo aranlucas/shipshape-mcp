@@ -17,8 +17,10 @@ export async function collectPortfolioReport(
     maxPages: 1,
     perPage: 20,
   });
+
   const results = snapshot.repositories.map((readiness) => {
     const checks = evaluateRepositoryReadiness(readiness);
+
     return {
       repository: readiness.repository.fullName,
       status: readiness.status,
@@ -27,11 +29,13 @@ export async function collectPortfolioReport(
       nextActions: buildActionPlan(checks, { maxItems: 3 }).items,
     };
   });
+
   results.sort(
     (left, right) =>
       (left.score.score ?? 101) - (right.score.score ?? 101) ||
       left.repository.localeCompare(right.repository),
   );
+
   return {
     owner: snapshot.owner,
     status: snapshot.status,

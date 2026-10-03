@@ -1,8 +1,7 @@
-import {
-  AuthorizationError,
-  type AuthRequest,
-  type ClientInfo,
-  type OAuthHelpers,
+import type {
+  AuthRequest,
+  ClientInfo,
+  OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
 import * as oauth from "oauth4webapi";
 import { z } from "zod";
@@ -18,6 +17,7 @@ import {
   type ApprovedClientRecord,
   type GitHubStateRecord,
   type OAuthStateRecord,
+  type OAuthStateStore,
   appendSetCookie,
   approvalMatches,
   canonicalScope,
@@ -38,14 +38,19 @@ import {
 import { STYLES_PATH } from "./styles";
 
 export const AUTHORIZE_PATH = "/authorize" as const;
+
 export const CALLBACK_PATH = "/callback" as const;
 
 const GENERIC_AUTHORIZATION_ERROR =
   "The authorization request could not be completed.";
+
 const GENERIC_UPSTREAM_ERROR =
   "GitHub authorization is temporarily unavailable.";
+
 const MAX_UPSTREAM_BODY_LENGTH = 32_000;
+
 const MAX_OAUTH_VALUE_LENGTH = 4_096;
+
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
 const GITHUB_AUTHORIZATION_SERVER: oauth.AuthorizationServer = {
@@ -53,12 +58,17 @@ const GITHUB_AUTHORIZATION_SERVER: oauth.AuthorizationServer = {
   authorization_endpoint: "https://github.com/login/oauth/authorize",
   token_endpoint: "https://github.com/login/oauth/access_token",
 };
+
 const GITHUB_CLIENT_USER_ENDPOINT = new URL("https://api.github.com/user");
+
 const GitHubUserSchema = z.object({ login: GitHubOwnerInputSchema });
 
 export interface OAuthEnv {
-  OAUTH_KV: KVNamespace;
-  OAUTH_PROVIDER: OAuthHelpers;
+  OAUTH_KV: OAuthStateStore;
+  OAUTH_PROVIDER: Pick<
+    OAuthHelpers,
+    "parseAuthRequest" | "lookupClient" | "completeAuthorization"
+  >;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
   COOKIE_ENCRYPTION_KEY?: string;
@@ -66,33 +76,56 @@ export interface OAuthEnv {
   PUBLIC_ORIGIN?: string;
 }
 
-export const defaultHandler: ExportedHandler<OAuthEnv> = {
-  async fetch(request, env) {
-    try {
-      return await handleDefaultRequest(request, env);
-    } catch {
-      const response = genericErrorResponse(500);
-      if (
-        request.method === "POST" &&
-        new URL(request.url).pathname === AUTHORIZE_PATH
-      ) {
-        appendSetCookie(response.headers, clearCookie(CSRF_COOKIE_NAME));
+export interface AuthorizationFailure {
+  code: string;
+  redirectUri?: string;
+  state?: string;
+  issuer?: string;
+}
+
+export interface OAuthRuntime {
+  authorizationError(cause: unknown): AuthorizationFailure | null;
+}
+
+export function createOAuthHandler(runtime: OAuthRuntime) {
+  const defaultHandler: ExportedHandler<OAuthEnv> = {
+    async fetch(request, env) {
+      try {
+        return await handleDefaultRequest(request, env, runtime);
+      } catch {
+        const response = genericErrorResponse(500);
+
+        if (
+          request.method === "POST" &&
+          new URL(request.url).pathname === AUTHORIZE_PATH
+        ) {
+          appendSetCookie(response.headers, clearCookie(CSRF_COOKIE_NAME));
+        }
+
+        return response;
       }
-      return response;
-    }
-  },
-};
+    },
+  };
 
-export default defaultHandler;
+  return {
+    defaultHandler,
+    handleDefaultRequest: (request: Request, env: OAuthEnv) =>
+      handleDefaultRequest(request, env, runtime),
+  };
+}
 
-export async function handleDefaultRequest(
+async function handleDefaultRequest(
   request: Request,
   env: OAuthEnv,
+  runtime: OAuthRuntime,
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
 
-  if (pathname === AUTHORIZE_PATH) return handleAuthorize(request, env);
+  if (pathname === AUTHORIZE_PATH)
+    return handleAuthorize(request, env, runtime);
+
   if (pathname === CALLBACK_PATH) return handleCallback(request, env);
+
   if (
     pathname === "/" ||
     pathname === "/health" ||
@@ -101,39 +134,49 @@ export async function handleDefaultRequest(
   ) {
     return landingHandler(request);
   }
+
   return notFoundResponse();
 }
 
 async function handleAuthorize(
   request: Request,
   env: OAuthEnv,
+  runtime: OAuthRuntime,
 ): Promise<Response> {
-  if (request.method === "GET") return handleAuthorizeGet(request, env);
+  if (request.method === "GET")
+    return handleAuthorizeGet(request, env, runtime);
+
   if (request.method === "POST") return handleAuthorizePost(request, env);
+
   return methodNotAllowed("GET, POST");
 }
 
 async function handleAuthorizeGet(
   request: Request,
   env: OAuthEnv,
+  runtime: OAuthRuntime,
 ): Promise<Response> {
   let oauthRequest: AuthRequest;
+
   try {
     oauthRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
   } catch (error) {
-    return authorizationParseError(error);
+    return authorizationParseError(runtime.authorizationError(error));
   }
 
   let client: ClientInfo | null;
+
   try {
     client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
   } catch {
     return genericErrorResponse(500);
   }
+
   if (client === null) return genericErrorResponse(400);
 
   let browserToken = getCookie(request, BROWSER_COOKIE_NAME);
   const cookies: string[] = [];
+
   if (browserToken === null || !isSafeToken(browserToken)) {
     browserToken = randomToken();
     cookies.push(makeCookie(BROWSER_COOKIE_NAME, browserToken));
@@ -143,6 +186,7 @@ async function handleAuthorizeGet(
     getCookie(request, APPROVED_CLIENT_COOKIE_NAME),
     env.COOKIE_ENCRYPTION_KEY ?? "",
   );
+
   if (approvalMatches(approved, oauthRequest)) {
     return beginGitHubAuthorization(
       request,
@@ -155,19 +199,23 @@ async function handleAuthorizeGet(
 
   const state = randomToken();
   const csrfToken = randomToken();
+
   const stateRecord: OAuthStateRecord = {
     kind: "authorization",
     browserBinding: "",
     createdAt: Date.now(),
     oauthRequest,
   };
+
   await putBrowserBoundState(env.OAUTH_KV, state, stateRecord, browserToken);
 
   const headers = securityHeaders({ allowFormRedirects: true });
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   appendSetCookie(headers, makeCookie(CSRF_COOKIE_NAME, csrfToken));
+
   for (const cookie of cookies) appendSetCookie(headers, cookie);
+
   return new Response(
     renderConsentDialog(client, oauthRequest, state, csrfToken),
     {
@@ -183,6 +231,7 @@ async function handleAuthorizePost(
 ): Promise<Response> {
   const clearCsrf = clearCookie(CSRF_COOKIE_NAME);
   let form: FormData;
+
   try {
     form = await request.formData();
   } catch {
@@ -193,6 +242,7 @@ async function handleAuthorizePost(
   const submittedCsrf = formValue(form, "csrf");
   const decision = formValue(form, "decision");
   const csrfCookie = getCookie(request, CSRF_COOKIE_NAME);
+
   if (
     state === null ||
     submittedCsrf === null ||
@@ -204,6 +254,7 @@ async function handleAuthorizePost(
   }
 
   const browserToken = getCookie(request, BROWSER_COOKIE_NAME);
+
   if (browserToken === null || !isSafeToken(browserToken)) {
     return withCookies(genericErrorResponse(400), [clearCsrf]);
   }
@@ -213,6 +264,7 @@ async function handleAuthorizePost(
     state,
     browserToken,
   );
+
   if (stateRecord === null || stateRecord.kind !== "authorization") {
     return withCookies(genericErrorResponse(400), [clearCsrf]);
   }
@@ -243,12 +295,14 @@ async function beginGitHubAuthorization(
   cookies: string[] = [],
 ): Promise<Response> {
   const state = randomToken();
+
   const stateRecord: GitHubStateRecord = {
     kind: "github",
     browserBinding: "",
     createdAt: Date.now(),
     oauthRequest,
   };
+
   await putBrowserBoundState(env.OAUTH_KV, state, stateRecord, browserToken);
 
   const callback = callbackUrl(request, env);
@@ -259,7 +313,9 @@ async function beginGitHubAuthorization(
   githubUrl.searchParams.set("state", state);
 
   const response = redirectResponse(githubUrl.toString());
+
   for (const cookie of cookies) appendSetCookie(response.headers, cookie);
+
   return response;
 }
 
@@ -272,6 +328,7 @@ async function handleCallback(
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
   const browserToken = getCookie(request, BROWSER_COOKIE_NAME);
+
   if (
     state === null ||
     !isSafeToken(state) ||
@@ -286,6 +343,7 @@ async function handleCallback(
     state,
     browserToken,
   );
+
   if (stateRecord === null || stateRecord.kind !== "github") {
     return genericErrorResponse(400);
   }
@@ -295,11 +353,13 @@ async function handleCallback(
   }
 
   const code = url.searchParams.get("code");
+
   if (code === null || !isSafeUpstreamValue(code)) {
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
   let callbackParameters: URLSearchParams;
+
   try {
     callbackParameters = oauth.validateAuthResponse(
       GITHUB_AUTHORIZATION_SERVER,
@@ -309,6 +369,7 @@ async function handleCallback(
     );
   } catch {
     reportOAuthFailure("github_authorization_response");
+
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
@@ -317,6 +378,7 @@ async function handleCallback(
     request,
     env,
   );
+
   if (accessToken === null) {
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
@@ -326,26 +388,33 @@ async function handleCallback(
     env,
     request.signal,
   );
+
   if (login === null) {
     reportOAuthFailure("github_user_validation");
+
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
   let client: ClientInfo | null;
+
   try {
     client = await env.OAUTH_PROVIDER.lookupClient(
       stateRecord.oauthRequest.clientId,
     );
   } catch {
     reportOAuthFailure("client_lookup");
+
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
+
   if (client === null) {
     reportOAuthFailure("client_missing");
+
     return oauthErrorRedirect(stateRecord.oauthRequest, "unauthorized_client");
   }
 
   let redirectTo: string;
+
   try {
     const completed = await env.OAUTH_PROVIDER.completeAuthorization({
       request: stateRecord.oauthRequest,
@@ -356,20 +425,25 @@ async function handleCallback(
       ),
       props: { accessToken, login },
     });
+
     redirectTo = completed.redirectTo;
   } catch {
     reportOAuthFailure("provider_authorization");
+
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
   const response = redirectResponse(redirectTo);
   appendSetCookie(response.headers, clearCookie(CSRF_COOKIE_NAME));
+
   const approvalCookie = await makeApprovalCookie(
     stateRecord.oauthRequest,
     env,
   );
+
   if (approvalCookie !== null)
     appendSetCookie(response.headers, approvalCookie);
+
   return response;
 }
 
@@ -380,26 +454,33 @@ export function renderConsentDialog(
   csrfToken: string,
 ): string {
   const metadata = sanitizeClientMetadata(client);
+
   const scopes = oauthRequest.scope.length
     ? oauthRequest.scope
         .map((scope) => `<li><code>${escapeHtml(scope)}</code></li>`)
         .join("")
     : "<li>No additional MCP scopes requested</li>";
+
   const clientUri = metadata.clientUri
     ? `<p>Website: <a href="${escapeHtml(metadata.clientUri)}" rel="noreferrer">${escapeHtml(metadata.clientUri)}</a></p>`
     : "";
+
   const policy = metadata.policyUri
     ? `<a href="${escapeHtml(metadata.policyUri)}" rel="noreferrer">Privacy policy</a>`
     : "";
+
   const terms = metadata.tosUri
     ? `<a href="${escapeHtml(metadata.tosUri)}" rel="noreferrer">Terms</a>`
     : "";
+
   const legalLinks = [policy, terms]
     .filter((link) => link.length > 0)
     .join(" · ");
+
   const contacts = metadata.contacts.length
     ? `<p>Contact: ${metadata.contacts.map((contact) => escapeHtml(contact)).join(", ")}</p>`
     : "";
+
   const redirects = metadata.redirectUris.length
     ? `<details><summary>Registered redirect URI</summary><ul>${metadata.redirectUris
         .map((uri) => `<li><code>${escapeHtml(uri)}</code></li>`)
@@ -447,8 +528,10 @@ async function exchangeGitHubCode(
   env: OAuthEnv,
 ): Promise<string | null> {
   const callback = callbackUrl(request, env);
+
   try {
     const client: oauth.Client = { client_id: env.GITHUB_CLIENT_ID };
+
     const response = await oauth.authorizationCodeGrantRequest(
       GITHUB_AUTHORIZATION_SERVER,
       client,
@@ -458,16 +541,19 @@ async function exchangeGitHubCode(
       oauth.nopkce,
       { [oauth.customFetch]: boundedOAuthFetch, signal: request.signal },
     );
+
     const payload = await oauth.processAuthorizationCodeResponse(
       GITHUB_AUTHORIZATION_SERVER,
       client,
       response,
     );
+
     return isSafeUpstreamValue(payload.access_token)
       ? payload.access_token
       : null;
   } catch {
     reportOAuthFailure("github_token_exchange");
+
     return null;
   }
 }
@@ -478,6 +564,7 @@ async function fetchAndValidateGitHubUser(
   signal?: AbortSignal,
 ): Promise<string | null> {
   let response: Response;
+
   try {
     response = await oauth.protectedResourceRequest(
       accessToken,
@@ -493,10 +580,12 @@ async function fetchAndValidateGitHubUser(
     );
   } catch {
     reportOAuthFailure("github_user_validation");
+
     return null;
   }
 
   const contentType = response.headers.get("Content-Type");
+
   if (
     !response.ok ||
     (contentType !== null &&
@@ -504,8 +593,10 @@ async function fetchAndValidateGitHubUser(
   ) {
     return null;
   }
+
   const payload = await readJson(response);
   const user = GitHubUserSchema.safeParse(payload);
+
   return user.success ? user.data.login : null;
 }
 
@@ -517,12 +608,14 @@ async function boundedOAuthFetch(
     options.body instanceof Uint8Array
       ? new Uint8Array(options.body)
       : options.body;
+
   const response = await fetchWithTimeout(input, {
     method: options.method,
     headers: options.headers,
     body,
     signal: options.signal,
   });
+
   if (await responseBodyExceedsLimit(response)) {
     return new Response(null, {
       status: response.status,
@@ -530,69 +623,92 @@ async function boundedOAuthFetch(
       headers: response.headers,
     });
   }
+
   return response;
 }
 
 async function responseBodyExceedsLimit(response: Response): Promise<boolean> {
   const declaredLength = Number(response.headers.get("Content-Length"));
+
   if (
     Number.isFinite(declaredLength) &&
     declaredLength > MAX_UPSTREAM_BODY_LENGTH
   ) {
     await response.body?.cancel();
+
     return true;
   }
+
   if (response.body === null) return false;
 
   try {
     const reader = response.clone().body?.getReader();
+
     if (reader === undefined) return false;
     let bytesRead = 0;
+
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) return false;
       bytesRead += value.byteLength;
+
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
         await reader.cancel();
         await response.body.cancel();
+
         return true;
       }
     }
   } catch {
     await response.body?.cancel();
+
     return true;
   }
 }
 
-async function readJson(response: Response): Promise<unknown> {
+async function readJson(
+  response: Response,
+): Promise<z.infer<typeof GitHubUserSchema> | null> {
   try {
     const declaredLength = Number(response.headers.get("Content-Length"));
+
     if (
       Number.isFinite(declaredLength) &&
       declaredLength > MAX_UPSTREAM_BODY_LENGTH
     ) {
       await response.body?.cancel();
+
       return null;
     }
+
     if (response.body === null) return null;
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let bytesRead = 0;
     let body = "";
+
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) break;
       bytesRead += value.byteLength;
+
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
         await reader.cancel();
+
         return null;
       }
+
       body += decoder.decode(value, { stream: true });
     }
+
     body += decoder.decode();
+
     if (body.length === 0) return null;
-    return JSON.parse(body);
+
+    return GitHubUserSchema.safeParse(JSON.parse(body)).data ?? null;
   } catch {
     return null;
   }
@@ -604,10 +720,12 @@ export async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+
   const signal =
     init.signal === undefined || init.signal === null
       ? controller.signal
       : AbortSignal.any([init.signal, controller.signal]);
+
   try {
     return await fetch(input, { ...init, signal });
   } finally {
@@ -619,6 +737,7 @@ function callbackUrl(request: Request, env: OAuthEnv): URL {
   const requestOrigin = new URL(request.url).origin;
   const configuredOrigin = env.PUBLIC_ORIGIN?.trim() || requestOrigin;
   const origin = new URL(configuredOrigin);
+
   if (
     origin.username !== "" ||
     origin.password !== "" ||
@@ -633,6 +752,7 @@ function callbackUrl(request: Request, env: OAuthEnv): URL {
   ) {
     throw new Error("Invalid public origin configuration");
   }
+
   return new URL(CALLBACK_PATH, origin);
 }
 
@@ -649,17 +769,20 @@ async function makeApprovalCookie(
     env.COOKIE_ENCRYPTION_KEY.length === 0
   )
     return null;
+
   const record: ApprovedClientRecord = {
     clientId: request.clientId,
     redirectUri: request.redirectUri,
     scope: canonicalScope(request.scope),
     expiresAt: Date.now() + APPROVED_CLIENT_TTL_SECONDS * 1_000,
   };
+
   try {
     const value = await createSignedApprovalCookie(
       record,
       env.COOKIE_ENCRYPTION_KEY,
     );
+
     return makeCookie(APPROVED_CLIENT_COOKIE_NAME, value, {
       maxAge: APPROVED_CLIENT_TTL_SECONDS,
     });
@@ -668,18 +791,22 @@ async function makeApprovalCookie(
   }
 }
 
-function authorizationParseError(error: unknown): Response {
-  if (!(error instanceof AuthorizationError)) return genericErrorResponse(500);
+function authorizationParseError(error: AuthorizationFailure | null): Response {
+  if (error === null) return genericErrorResponse(500);
+
   if (error.redirectUri === undefined) return genericErrorResponse(400);
 
   try {
     const redirect = new URL(error.redirectUri);
     redirect.searchParams.set("error", error.code);
     redirect.searchParams.set("error_description", GENERIC_AUTHORIZATION_ERROR);
+
     if (error.state !== undefined)
       redirect.searchParams.set("state", error.state);
+
     if (error.issuer !== undefined)
       redirect.searchParams.set("iss", error.issuer);
+
     return redirectResponse(redirect.toString());
   } catch {
     return genericErrorResponse(400);
@@ -699,9 +826,12 @@ function oauthErrorRedirect(
         ? "Authorization was cancelled."
         : GENERIC_UPSTREAM_ERROR,
     );
+
     if (request.state !== "") redirect.searchParams.set("state", request.state);
+
     if (request.issuer !== undefined)
       redirect.searchParams.set("iss", request.issuer);
+
     return redirectResponse(redirect.toString());
   } catch {
     return genericErrorResponse(400);
@@ -712,8 +842,10 @@ function genericErrorResponse(status: 400 | 405 | 500): Response {
   const headers = securityHeaders();
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
+
   const title =
     status >= 500 ? "Service unavailable" : "Request could not be completed";
+
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main><h1>${title}</h1><p>${GENERIC_AUTHORIZATION_ERROR}</p></main></body></html>`,
     { status, headers },
@@ -724,28 +856,32 @@ function redirectResponse(location: string): Response {
   const headers = securityHeaders();
   headers.set("Location", location);
   headers.set("Cache-Control", "no-store");
+
   return new Response(null, { status: 302, headers });
 }
 
 function withCookies(response: Response, cookies: string[]): Response {
   for (const cookie of cookies) appendSetCookie(response.headers, cookie);
+
   return response;
 }
 
 function formValue(form: FormData, key: string): string | null {
   const value = form.get(key);
+
   if (
-    typeof value !== "string" ||
+    value === null ||
+    value instanceof File ||
     value.length === 0 ||
     value.length > MAX_OAUTH_VALUE_LENGTH
   )
     return null;
+
   return value;
 }
 
-function isSafeUpstreamValue(value: unknown): value is string {
+function isSafeUpstreamValue(value: string): boolean {
   return (
-    typeof value === "string" &&
     value.length > 0 &&
     value.length <= MAX_OAUTH_VALUE_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(value)

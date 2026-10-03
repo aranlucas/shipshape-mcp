@@ -15,18 +15,7 @@ import {
   securityHeaders,
 } from "../src/oauth-security";
 
-function memoryKv(): KVNamespace {
-  const values = new Map<string, string>();
-  return {
-    delete: async (key: string) => {
-      values.delete(key);
-    },
-    get: async (key: string) => values.get(key) ?? null,
-    put: async (key: string, value: string) => {
-      values.set(key, value);
-    },
-  } as unknown as KVNamespace;
-}
+import { memoryKv } from "./helpers/oauth-state";
 
 function authRequest(): AuthRequest {
   return {
@@ -43,6 +32,7 @@ function authRequest(): AuthRequest {
 describe("OAuth security primitives", () => {
   it("binds state to the browser and consumes it only once", async () => {
     const kv = memoryKv();
+
     const record: AuthorizationStateRecord = {
       browserBinding: "",
       createdAt: Date.now(),
@@ -73,6 +63,7 @@ describe("OAuth security primitives", () => {
       redirectUri: "https://client.example/callback",
       scope: "portfolio:read",
     };
+
     const cookie = await createSignedApprovalCookie(
       record,
       "test-cookie-secret",
@@ -110,6 +101,7 @@ describe("OAuth security primitives", () => {
       redirectUris: ["javascript:alert(1)", "https://client.example/callback"],
       tokenEndpointAuthMethod: "none",
     });
+
     expect(metadata.clientName).toContain("<script>");
     expect(metadata.redirectUris).toEqual(["https://client.example/callback"]);
   });

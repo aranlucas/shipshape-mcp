@@ -9,24 +9,30 @@ import { makeCheck } from "./rules";
 import type { CheckResult, CheckState, Evidence } from "./types";
 
 const evidenceFrom = (items: readonly GitHubEvidence[]): readonly Evidence[] =>
-  items.map((item) => ({
-    url: item.url,
-    label: item.label,
-    ...(item.detail ? { detail: item.detail } : {}),
-  }));
+  items.map((item) => {
+    const result = { url: item.url, label: item.label };
+
+    if (item.detail) return { ...result, detail: item.detail };
+
+    return result;
+  });
 
 const observedBoolean = (
   value: boolean | null,
   passWhen: boolean,
 ): CheckState => {
   if (value === null) return "unknown";
+
   return value === passWhen ? "pass" : "fail";
 };
 
 const settingState = (value: string | null): CheckState => {
   if (value === null) return "unknown";
+
   if (value === "enabled") return "pass";
+
   if (value === "disabled") return "fail";
+
   return "unknown";
 };
 
@@ -49,12 +55,14 @@ export const evaluateDeliveryHygiene = (
   delivery: DeliveryHygieneFact,
 ): readonly CheckResult[] => {
   const evidence = evidenceFrom(delivery.evidence);
+
   const ciPresent: CheckState =
     delivery.workflowRuns === null
       ? "unknown"
       : delivery.workflowRuns > 0
         ? "pass"
         : "fail";
+
   const ciGreen: CheckState =
     delivery.ciStatus === "healthy"
       ? "pass"
@@ -62,19 +70,19 @@ export const evaluateDeliveryHygiene = (
         ? "fail"
         : "unknown";
 
+  const remediation =
+    ciGreen === "unknown" &&
+    delivery.coverage.workflowRuns.status === "truncated"
+      ? "Inspect additional workflow history before concluding CI is healthy; the bounded sample may omit other workflows."
+      : undefined;
+
   return [
     makeCheck({ ruleId: "delivery.ci-present", state: ciPresent, evidence }),
     makeCheck({
       ruleId: "delivery.ci-green",
       state: ciGreen,
       evidence,
-      ...(ciGreen === "unknown" &&
-      delivery.coverage.workflowRuns.status === "truncated"
-        ? {
-            remediation:
-              "Inspect additional workflow history before concluding CI is healthy; the bounded sample may omit other workflows.",
-          }
-        : {}),
+      remediation,
     }),
   ];
 };
@@ -89,8 +97,10 @@ export const evaluateSecurityPosture = (
     ...repository.evidence,
     ...branch.evidence,
   ]);
+
   const codeScanning: CheckState =
     security.codeScanning.status === "available" ? "pass" : "unknown";
+
   const branchControls: CheckState =
     branch.status !== "available"
       ? "unknown"
@@ -140,6 +150,7 @@ export const evaluateRepositoryReadiness = (
 ): readonly CheckResult[] => {
   const repository = readiness.repository;
   const evidence = evidenceFrom(repository.evidence);
+
   const publicChecks: readonly CheckResult[] = [
     makeCheck({
       ruleId: "public.description",
@@ -157,7 +168,9 @@ export const evaluateRepositoryReadiness = (
       evidence,
     }),
   ];
+
   const pullRequestSettings = repository.pullRequestSettings;
+
   const pullRequestChecks: readonly CheckResult[] = [
     makeCheck({
       ruleId: "delivery.merge-commits-disabled",
@@ -198,21 +211,26 @@ export const repositoryReadinessStatus = (
   readiness: RepositoryAuditInput,
 ): RepositoryReadiness["status"] => {
   const checks = evaluateRepositoryReadiness(readiness);
+
   if (checks.some((check) => check.state === "fail")) {
     return "needs-attention";
   }
+
   const pullRequestSettingsAvailable = Object.values(
     readiness.repository.pullRequestSettings,
   ).every((value) => value !== null);
+
   const securityAvailable = [
     readiness.securityPosture.codeScanning.status,
     readiness.securityPosture.dependabot.status,
     readiness.securityPosture.secretScanning.status,
   ].every((status) => status === "available");
+
   const collected =
     pullRequestSettingsAvailable &&
     securityAvailable &&
     readiness.branchRisk.status === "available" &&
     readiness.deliveryHygiene.status === "available";
+
   return collected ? "ready" : "unknown";
 };

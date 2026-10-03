@@ -527,17 +527,25 @@ export interface PortfolioSnapshot {
 }
 
 export type GitHubRepository = z.infer<typeof GitHubRepositorySchema>;
+
 export type GitHubBranch = z.infer<typeof GitHubBranchSchema>;
+
 export type GitHubBranchProtection = z.infer<
   typeof GitHubBranchProtectionSchema
 >;
+
 export type GitHubCommit = z.infer<typeof GitHubCommitSchema>;
+
 export type GitHubPullRequest = z.infer<typeof GitHubPullRequestSchema>;
+
 export type GitHubWorkflowRun = z.infer<typeof GitHubWorkflowRunSchema>;
+
 export type GitHubCodeScanningAlert = z.infer<
   typeof GitHubCodeScanningAlertSchema
 >;
+
 export type GitHubDependabotAlert = z.infer<typeof GitHubDependabotAlertSchema>;
+
 export type GitHubSecretScanningAlert = z.infer<
   typeof GitHubSecretScanningAlertSchema
 >;

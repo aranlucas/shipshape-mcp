@@ -48,12 +48,14 @@ describe("public landing handlers", () => {
     const missing = landingHandler(
       new Request("https://shipshape.example/nope"),
     );
+
     expect(missing.status).toBe(404);
     expect(missing.headers.get("X-Content-Type-Options")).toBe("nosniff");
 
     const post = landingHandler(
       new Request("https://shipshape.example/", { method: "POST" }),
     );
+
     expect(post.status).toBe(405);
     expect(post.headers.get("Allow")).toBe("GET");
   });
