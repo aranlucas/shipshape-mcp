@@ -5,14 +5,19 @@ import type {
 import { z } from "zod";
 
 export const BROWSER_COOKIE_NAME = "__Host-shipshape-browser";
+
 export const CSRF_COOKIE_NAME = "__Host-shipshape-csrf";
+
 export const APPROVED_CLIENT_COOKIE_NAME = "__Host-shipshape-approved";
 
 export const AUTHORIZATION_STATE_TTL_SECONDS = 10 * 60;
+
 export const APPROVED_CLIENT_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const encoder = new TextEncoder();
+
 const MAX_COOKIE_VALUE_LENGTH = 6_000;
+
 const MAX_STATE_RECORD_LENGTH = 32_000;
 
 const safeClientStringSchema = z
@@ -20,18 +25,22 @@ const safeClientStringSchema = z
   .min(1)
   .max(2_048)
   .refine((value) => !/[\u0000-\u001f\u007f]/.test(value));
+
 const safeScopeSchema = z
   .string()
   .max(256)
   .regex(/^[A-Za-z0-9:._-]+$/);
+
 const safeScopeStringSchema = z
   .string()
   .max(2_048)
   .refine((value) => value === "" || value.split(" ").every(isSafeScope));
+
 const base64UrlSchema = z
   .string()
   .min(1)
   .regex(/^[A-Za-z0-9_-]+$/);
+
 const authRequestSchema = z
   .object({
     responseType: z.string(),
@@ -41,12 +50,14 @@ const authRequestSchema = z
     state: z.string().max(512),
   })
   .passthrough();
+
 const approvedClientRecordSchema = z.object({
   clientId: safeClientStringSchema,
   redirectUri: safeClientStringSchema,
   scope: safeScopeStringSchema,
   expiresAt: z.number().int().safe(),
 });
+
 const oauthStateRecordSchema = z
   .object({
     kind: z.enum(["authorization", "github"]),
@@ -55,6 +66,16 @@ const oauthStateRecordSchema = z
     oauthRequest: authRequestSchema,
   })
   .passthrough();
+
+export interface OAuthStateStore {
+  get(key: string): Promise<string | null>;
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void>;
+  delete(key: string): Promise<void>;
+}
 
 export interface AuthorizationStateRecord {
   kind: "authorization";
@@ -95,6 +116,7 @@ export function randomToken(byteLength = 32): string {
 
   const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
+
   return encodeBase64Url(bytes);
 }
 
@@ -105,18 +127,21 @@ export async function browserBinding(browserToken: string): Promise<string> {
 }
 
 export async function putBrowserBoundState(
-  kv: KVNamespace,
+  kv: OAuthStateStore,
   state: string,
   record: OAuthStateRecord,
   browserToken: string,
   expirationTtl = AUTHORIZATION_STATE_TTL_SECONDS,
 ): Promise<void> {
   if (!isSafeToken(state)) throw new Error("Invalid OAuth state");
+
   const value: OAuthStateRecord = {
     ...record,
     browserBinding: await browserBinding(browserToken),
   };
+
   const serialized = JSON.stringify(value);
+
   if (serialized.length > MAX_STATE_RECORD_LENGTH) {
     throw new Error("OAuth state record is too large");
   }
@@ -130,17 +155,19 @@ export async function putBrowserBoundState(
  * and is invalidated before any external operation begins.
  */
 export async function consumeBrowserBoundState(
-  kv: KVNamespace,
+  kv: OAuthStateStore,
   state: string,
   browserToken: string,
 ): Promise<OAuthStateRecord | null> {
   if (!isSafeToken(state)) return null;
 
   const serialized = await kv.get(stateKey(state));
+
   if (serialized === null || serialized.length > MAX_STATE_RECORD_LENGTH)
     return null;
 
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(serialized);
   } catch {
@@ -148,13 +175,16 @@ export async function consumeBrowserBoundState(
   }
 
   if (!isOAuthStateRecord(parsed)) return null;
+
   if (parsed.createdAt + AUTHORIZATION_STATE_TTL_SECONDS * 1_000 < Date.now())
     return null;
   const expectedBinding = await browserBinding(browserToken);
+
   if (!(await constantTimeEqual(parsed.browserBinding, expectedBinding)))
     return null;
 
   await kv.delete(stateKey(state));
+
   return parsed;
 }
 
@@ -166,9 +196,11 @@ export async function createSignedApprovalCookie(
   const payload = encodeBase64Url(encoder.encode(JSON.stringify(record)));
   const signature = await sign(payload, secret);
   const cookieValue = `${payload}.${signature}`;
+
   if (cookieValue.length > MAX_COOKIE_VALUE_LENGTH) {
     throw new Error("Approved-client cookie is too large");
   }
+
   return cookieValue;
 }
 
@@ -186,13 +218,17 @@ export async function parseSignedApprovalCookie(
   }
 
   const separator = cookieValue.indexOf(".");
+
   if (separator <= 0 || separator !== cookieValue.lastIndexOf(".")) return null;
   const payload = cookieValue.slice(0, separator);
   const signature = cookieValue.slice(separator + 1);
+
   if (!isBase64Url(payload) || !isBase64Url(signature)) return null;
+
   if (!(await verify(payload, signature, secret))) return null;
 
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(new TextDecoder().decode(decodeBase64Url(payload)));
   } catch {
@@ -200,6 +236,7 @@ export async function parseSignedApprovalCookie(
   }
 
   if (!isApprovedClientRecord(parsed) || parsed.expiresAt <= now) return null;
+
   return parsed;
 }
 
@@ -209,6 +246,7 @@ export function approvalMatches(
   now = Date.now(),
 ): boolean {
   if (record === null || record.expiresAt <= now) return false;
+
   return (
     record.clientId === request.clientId &&
     record.redirectUri === request.redirectUri &&
@@ -222,17 +260,22 @@ export function canonicalScope(scope: readonly string[]): string {
 
 export function getCookie(request: Request, name: string): string | null {
   const header = request.headers.get("Cookie");
+
   if (header === null) return null;
 
   for (const part of header.split(";")) {
     const separator = part.indexOf("=");
+
     if (separator < 0) continue;
     const cookieName = part.slice(0, separator).trim();
+
     if (cookieName === name) {
       const value = part.slice(separator + 1).trim();
+
       return value.length <= MAX_COOKIE_VALUE_LENGTH ? value : null;
     }
   }
+
   return null;
 }
 
@@ -251,8 +294,10 @@ export function makeCookie(
     "Secure",
     `SameSite=${options.sameSite ?? "Lax"}`,
   ];
+
   if (options.maxAge !== undefined)
     attributes.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`);
+
   return `${name}=${value}; ${attributes.join("; ")}`;
 }
 
@@ -271,18 +316,16 @@ export function escapeHtml(value: string): string {
 }
 
 export function safeHttpUrl(
-  value: unknown,
+  value: string | undefined,
   maxLength = 2_048,
 ): string | undefined {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > maxLength
-  )
-    return undefined;
+  const parsedText = z.string().min(1).max(maxLength).safeParse(value);
+
+  if (!parsedText.success) return undefined;
 
   try {
-    const parsed = new URL(value);
+    const parsed = new URL(parsedText.data);
+
     if (
       (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
       parsed.username ||
@@ -290,6 +333,7 @@ export function safeHttpUrl(
     ) {
       return undefined;
     }
+
     return parsed.href;
   } catch {
     return undefined;
@@ -312,13 +356,18 @@ export function sanitizeClientMetadata(
     "Unknown application",
     256,
   );
+
   const contacts = Array.isArray(client.contacts)
     ? client.contacts
-        .filter((contact): contact is string => typeof contact === "string")
-        .map((contact) => sanitizeText(contact, "", 320))
+        .flatMap((contact) => {
+          const parsed = z.string().safeParse(contact);
+
+          return parsed.success ? [sanitizeText(parsed.data, "", 320)] : [];
+        })
         .filter((contact) => contact.length > 0)
         .slice(0, 10)
     : [];
+
   const redirectUris = Array.isArray(client.redirectUris)
     ? client.redirectUris
         .map((uri) => safeHttpUrl(uri))
@@ -359,16 +408,12 @@ export function securityHeaders({ allowFormRedirects = false } = {}): Headers {
       ? CONTENT_SECURITY_POLICY.replace("form-action 'self'; ", "")
       : CONTENT_SECURITY_POLICY,
   );
+
   return headers;
 }
 
-export function isSafeToken(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 16 &&
-    value.length <= 512 &&
-    isBase64Url(value)
-  );
+export function isSafeToken(value: string): boolean {
+  return value.length >= 16 && value.length <= 512 && isBase64Url(value);
 }
 
 function stateKey(state: string): string {
@@ -376,12 +421,18 @@ function stateKey(state: string): string {
 }
 
 function sanitizeText(
-  value: unknown,
+  value: string | undefined,
   fallback: string,
   maxLength: number,
 ): string {
-  if (typeof value !== "string" || value.length === 0) return fallback;
-  const withoutControls = value.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  const text = z.string().min(1).safeParse(value);
+
+  if (!text.success) return fallback;
+
+  const withoutControls = text.data
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+
   return withoutControls.length > 0
     ? withoutControls.slice(0, maxLength)
     : fallback;
@@ -432,7 +483,9 @@ function isBase64Url(value: string): boolean {
 function encodeBase64Url(bytes: ArrayBuffer | Uint8Array): string {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let binary = "";
+
   for (const byte of view) binary += String.fromCharCode(byte);
+
   return btoa(binary)
     .replaceAll("+", "-")
     .replaceAll("/", "_")
@@ -443,10 +496,13 @@ function decodeBase64Url(value: string): ArrayBuffer {
   const padded =
     value.replaceAll("-", "+").replaceAll("_", "/") +
     "=".repeat((4 - (value.length % 4)) % 4);
+
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
+
   for (let index = 0; index < binary.length; index += 1)
     bytes[index] = binary.charCodeAt(index);
+
   return bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
@@ -455,6 +511,7 @@ function decodeBase64Url(value: string): ArrayBuffer {
 
 async function sign(payload: string, secret: string): Promise<string> {
   const key = await signingKey(secret, ["sign"]);
+
   return encodeBase64Url(
     await crypto.subtle.sign("HMAC", key, encoder.encode(payload)),
   );
@@ -467,6 +524,7 @@ async function verify(
 ): Promise<boolean> {
   try {
     const key = await signingKey(secret, ["verify"]);
+
     return await crypto.subtle.verify(
       "HMAC",
       key,
@@ -485,10 +543,12 @@ async function signingKey(
   if (secret.length === 0 || secret.length > 4_096)
     throw new Error("Invalid cookie signing secret");
   const encoded = encoder.encode(secret);
+
   const raw = encoded.buffer.slice(
     encoded.byteOffset,
     encoded.byteOffset + encoded.byteLength,
   );
+
   return crypto.subtle.importKey(
     "raw",
     raw,
@@ -506,10 +566,13 @@ export async function constantTimeEqual(
     crypto.subtle.digest("SHA-256", encoder.encode(left)),
     crypto.subtle.digest("SHA-256", encoder.encode(right)),
   ]);
+
   const leftBytes = new Uint8Array(leftHash);
   const rightBytes = new Uint8Array(rightHash);
   let difference = 0;
+
   for (let index = 0; index < leftBytes.length; index += 1)
     difference |= leftBytes[index] ^ rightBytes[index];
+
   return difference === 0;
 }

@@ -149,6 +149,7 @@ describe("normalizeChecks", () => {
       state: "pass",
       confidence: "high",
     });
+
     const spoofedFail: CheckResult = {
       ...pass,
       category: "security_posture",
@@ -179,11 +180,13 @@ describe("normalizeChecks", () => {
       state: "pass",
       confidence: "high",
     });
+
     const unknown = makeCheck({
       ruleId: "security.code-scanning",
       state: "unknown",
       confidence: "low",
     });
+
     expect(normalizeChecks([pass, unknown])[0]?.state).toBe("unknown");
 
     const medium = makeCheck({
@@ -191,11 +194,13 @@ describe("normalizeChecks", () => {
       state: "fail",
       confidence: "medium",
     });
+
     const high = makeCheck({
       ruleId: "public.description",
       state: "fail",
       confidence: "high",
     });
+
     expect(normalizeChecks([medium, high])[0]?.confidence).toBe("high");
   });
 
@@ -204,6 +209,7 @@ describe("normalizeChecks", () => {
       makeCheck({ ruleId: "security.security-policy", state: "pass" }),
       makeCheck({ ruleId: "public.readme", state: "pass" }),
     ];
+
     const original = [...checks];
     normalizeChecks(checks);
     expect(checks).toEqual(original);

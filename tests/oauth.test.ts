@@ -1,32 +1,22 @@
 import type {
   AuthRequest,
   ClientInfo,
-  OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@cloudflare/workers-oauth-provider", () => ({
-  AuthorizationError: class AuthorizationError extends Error {},
-}));
-
 import {
   fetchWithTimeout,
-  handleDefaultRequest,
+  createOAuthHandler,
   type OAuthEnv,
 } from "../src/oauth";
 
-function memoryKv(): KVNamespace {
-  const values = new Map<string, string>();
-  return {
-    delete: async (key: string) => {
-      values.delete(key);
-    },
-    get: async (key: string) => values.get(key) ?? null,
-    put: async (key: string, value: string) => {
-      values.set(key, value);
-    },
-  } as unknown as KVNamespace;
-}
+const { handleDefaultRequest } = createOAuthHandler({
+  authorizationError() {
+    throw new Error("Unexpected authorization parse failure");
+  },
+});
+
+import { memoryKv } from "./helpers/oauth-state";
 
 const requestDetails: AuthRequest = {
   clientId: "client-1",
@@ -48,14 +38,18 @@ const client: ClientInfo = {
 
 function hiddenValue(html: string, name: string): string {
   const match = html.match(new RegExp(`name="${name}" value="([^"]+)"`, "u"));
+
   if (!match?.[1]) throw new Error(`Missing ${name} field`);
+
   return match[1];
 }
 
 function cookieValue(response: Response, name: string): string {
   const header = response.headers.get("Set-Cookie") ?? "";
   const match = header.match(new RegExp(`${name}=([^;,]+)`, "u"));
+
   if (!match?.[1]) throw new Error(`Missing ${name} cookie`);
+
   return match[1];
 }
 
@@ -68,11 +62,13 @@ describe("OAuth proxy flow", () => {
     const completeAuthorization = vi.fn(async () => ({
       redirectTo: "https://client.example/callback?code=provider-code",
     }));
+
     const helpers = {
       parseAuthRequest: vi.fn(async () => requestDetails),
       lookupClient: vi.fn(async () => client),
       completeAuthorization,
-    } as unknown as OAuthHelpers;
+    } satisfies OAuthEnv["OAUTH_PROVIDER"];
+
     const env: OAuthEnv = {
       OAUTH_KV: memoryKv(),
       OAUTH_PROVIDER: helpers,
@@ -87,6 +83,7 @@ describe("OAuth proxy flow", () => {
       new Request("https://shipshape.example/authorize?client_id=client-1"),
       env,
     );
+
     const consentHtml = await consent.text();
     const browser = cookieValue(consent, "__Host-shipshape-browser");
     const csrfCookie = cookieValue(consent, "__Host-shipshape-csrf");
@@ -115,6 +112,7 @@ describe("OAuth proxy flow", () => {
       }),
       env,
     );
+
     const githubAuthorize = new URL(approve.headers.get("Location") ?? "");
 
     expect(approve.status).toBe(302);
@@ -134,6 +132,7 @@ describe("OAuth proxy flow", () => {
         }),
       )
       .mockResolvedValueOnce(Response.json({ login: "AranLucas" }));
+
     vi.stubGlobal("fetch", fetchMock);
 
     const callback = await handleDefaultRequest(
@@ -177,16 +176,21 @@ describe("OAuth proxy flow", () => {
           ...client,
           redirectUris: [redirectUri],
         })),
-      } as unknown as OAuthHelpers,
+        completeAuthorization: async () => {
+          throw new Error("Unexpected authorization completion");
+        },
+      } satisfies OAuthEnv["OAUTH_PROVIDER"],
       GITHUB_CLIENT_ID: "github-client-id",
       GITHUB_CLIENT_SECRET: "github-client-secret",
       COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
       PUBLIC_ORIGIN: "https://shipshape.example",
     };
+
     const consent = await handleDefaultRequest(
       new Request("https://shipshape.example/authorize"),
       env,
     );
+
     const html = await consent.text();
     const browser = cookieValue(consent, "__Host-shipshape-browser");
     const csrf = cookieValue(consent, "__Host-shipshape-csrf");
@@ -196,6 +200,7 @@ describe("OAuth proxy flow", () => {
     expect(consent.headers.get("Content-Security-Policy")).toContain(
       "default-src 'none'",
     );
+
     const denied = await handleDefaultRequest(
       new Request("https://shipshape.example/authorize", {
         method: "POST",
@@ -211,6 +216,7 @@ describe("OAuth proxy flow", () => {
       }),
       env,
     );
+
     const location = new URL(denied.headers.get("Location") ?? "");
     expect(denied.status).toBe(302);
     expect(location.href.split("?")[0]).toBe(redirectUri);
@@ -224,16 +230,21 @@ describe("OAuth proxy flow", () => {
       OAUTH_PROVIDER: {
         parseAuthRequest: vi.fn(async () => requestDetails),
         lookupClient: vi.fn(async () => client),
-      } as unknown as OAuthHelpers,
+        completeAuthorization: async () => {
+          throw new Error("Unexpected authorization completion");
+        },
+      } satisfies OAuthEnv["OAUTH_PROVIDER"],
       GITHUB_CLIENT_ID: "github-client-id",
       GITHUB_CLIENT_SECRET: "github-client-secret",
       COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
       PUBLIC_ORIGIN: "https://shipshape.example",
     };
+
     const consent = await handleDefaultRequest(
       new Request("https://shipshape.example/authorize"),
       env,
     );
+
     const html = await consent.text();
     const browser = cookieValue(consent, "__Host-shipshape-browser");
 
@@ -266,7 +277,10 @@ describe("OAuth proxy flow", () => {
       OAUTH_PROVIDER: {
         parseAuthRequest: vi.fn(async () => requestDetails),
         lookupClient: vi.fn(async () => client),
-      } as unknown as OAuthHelpers,
+        completeAuthorization: async () => {
+          throw new Error("Unexpected authorization completion");
+        },
+      } satisfies OAuthEnv["OAUTH_PROVIDER"],
       GITHUB_CLIENT_ID: "github-client-id",
       GITHUB_CLIENT_SECRET: "github-client-secret",
       COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
@@ -277,6 +291,7 @@ describe("OAuth proxy flow", () => {
       new Request("https://shipshape.example/authorize", { method: "PUT" }),
       env,
     );
+
     expect(authorize.status).toBe(405);
     expect(authorize.headers.get("Allow")).toBe("GET, POST");
 
@@ -284,6 +299,7 @@ describe("OAuth proxy flow", () => {
       new Request("https://shipshape.example/callback", { method: "POST" }),
       env,
     );
+
     expect(callback.status).toBe(405);
     expect(callback.headers.get("Allow")).toBe("GET");
   });
@@ -295,6 +311,7 @@ describe("OAuth proxy flow", () => {
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
         fetchSignal = init?.signal ?? undefined;
+
         return new Response("ok");
       }),
     );

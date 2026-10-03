@@ -4,7 +4,9 @@ import {
   type StandardsSource,
 } from "../../src/standards/evaluate";
 import { mergePolicy, parsePolicy } from "../../src/standards/policy";
+
 const policy = () => parsePolicy("baseline: shipshape/recommended@1");
+
 function fixture(files: StandardsSource["files"] = {}): StandardsSource {
   return {
     repository: "octo/demo",
@@ -16,11 +18,13 @@ function fixture(files: StandardsSource["files"] = {}): StandardsSource {
     collectedAt: "2026-09-07T00:00:00Z",
   };
 }
+
 function state(source: StandardsSource, rule: string) {
   return evaluateStandards(source).audit.checks.find(
     (check) => check.ruleId === `standards.${rule}`,
   )?.state;
 }
+
 const manifest = JSON.stringify({
   scripts: {
     "format:check": "oxfmt --check",
@@ -30,8 +34,10 @@ const manifest = JSON.stringify({
     check: "pnpm format:check && pnpm lint && pnpm test && pnpm typecheck",
   },
 });
+
 const workflow =
   "on: [pull_request]\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm check\n";
+
 describe("standards audit", () => {
   it("recognizes package scripts and recursive quality script wiring without claiming execution", () => {
     const source = fixture({
@@ -40,6 +46,7 @@ describe("standards audit", () => {
       "pnpm-lock.yaml": null,
       ".github/workflows/ci.yml": workflow,
     });
+
     for (const rule of [
       "format",
       "lint",
@@ -109,6 +116,7 @@ describe("standards audit", () => {
     const result = evaluateStandards(
       fixture({ "apps/a/package.json": manifest, "apps/b/package.json": "{}" }),
     );
+
     expect(result.packages).toHaveLength(2);
     expect(
       result.audit.checks.find((check) => check.ruleId === "standards.test")
@@ -123,6 +131,7 @@ describe("standards audit", () => {
       "apps/a/package.json": manifest,
       ".github/workflows/ci.yml": workflow,
     });
+
     expect(state(source, "ci-gates")).toBe("unknown");
     source.files[".github/workflows/ci.yml"] = workflow.replace(
       "- run: pnpm check",
@@ -135,6 +144,7 @@ describe("standards audit", () => {
       "go.mod": "module example.org/demo",
       "python/pyproject.toml": "[project]",
     });
+
     source.policy.packages = [
       {
         path: ".",
@@ -181,6 +191,7 @@ describe("standards audit", () => {
       complete: false,
       policyState: "unknown" as const,
     };
+
     expect(
       evaluateStandards(source).audit.checks.every(
         (check) => check.state === "unknown",
@@ -189,6 +200,7 @@ describe("standards audit", () => {
     expect(evaluateStandards(source).complete).toBe(false);
   });
 });
+
 describe("shared policy boundary", () => {
   it("requires an immutable baseline and rejects unknown keys, traversal, and duplicate paths", () => {
     for (const text of [

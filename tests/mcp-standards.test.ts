@@ -1,60 +1,139 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeCheck } from "../src/domain/rules";
-const mocks = vi.hoisted(() => ({
-  handlers: new Map<
-    string,
-    (
-      input: Record<string, unknown>,
-    ) => Promise<{ structuredContent: Record<string, unknown> }>
-  >(),
-  standards: vi.fn(),
-  readiness: vi.fn(),
-  publicRepository: vi.fn(),
-  branchRisk: vi.fn(),
-  security: vi.fn(),
-  portfolio: vi.fn(),
-}));
-vi.mock("@modelcontextprotocol/server", () => ({
-  McpServer: class {
-    registerTool(name: string, _options: unknown, handler: never) {
-      mocks.handlers.set(name, handler);
-    }
-  },
-}));
-vi.mock("agents/mcp/server", () => ({
-  getMcpAuthContext: () => ({
-    props: { accessToken: "test-token", login: "octo" },
-  }),
-}));
-vi.mock("../src/standards/collect", () => ({
-  collectStandards: mocks.standards,
-}));
-vi.mock("../src/github/collectors", () => ({
-  collectRepositoryReadiness: mocks.readiness,
-  collectPublicRepository: mocks.publicRepository,
-  collectBranchRisk: mocks.branchRisk,
-  collectDeliveryHygiene: vi.fn(),
-  collectPortfolioSnapshot: vi.fn(),
-  collectSecurityPosture: mocks.security,
-}));
-vi.mock("../src/github/portfolio", () => ({
-  collectPortfolioReport: mocks.portfolio,
-}));
-vi.mock("../src/domain/evaluate", () => ({
-  evaluateRepositoryReadiness: () => [],
-  evaluateBranchRisk: vi.fn(),
-  evaluateDeliveryHygiene: vi.fn(),
-  evaluateSecurityPosture: () => [],
-}));
-import { createShipshapeServer } from "../src/mcp";
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
+import { afterEach, describe, expect, it } from "vitest";
+import { createPortfolioServer } from "../src/mcp";
+import { createGitHubOctokit } from "../src/github/client";
+import { fullRoute, jsonResponse, repository } from "./helpers/github-fixtures";
 
-describe("standards MCP integration", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+const cleanup: Array<() => Promise<void>> = [];
+
+afterEach(async () => {
+  for (const close of cleanup.splice(0)) await close();
+});
+
+async function connect(
+  route: (url: URL) => Response | Promise<Response> = auditRoute,
+) {
+  const calls: URL[] = [];
+
+  const github = createGitHubOctokit("synthetic-token", async (input, init) => {
+    const url = new URL(String(input));
+    expect(url.origin).toBe("https://api.github.com");
+    expect(init?.method ?? "GET").toBe("GET");
+    calls.push(url);
+    const response = await route(url);
+    Object.defineProperty(response, "url", { value: url.href });
+
+    return response;
   });
 
-  it("preserves portfolio coverage in the tool-visible structured result", async () => {
-    const report = {
+  const server = createPortfolioServer(() => github);
+  const client = new Client({ name: "offline-integration", version: "1.0.0" });
+
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+
+  cleanup.push(async () => {
+    await client.close();
+    await server.close();
+  });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  return { client, calls };
+}
+
+function auditRoute(url: URL): Response {
+  if (url.pathname === "/repos/octo/demo/commits/main")
+    return jsonResponse({ sha: "a".repeat(40) });
+
+  if (url.pathname === `/repos/octo/demo/git/trees/${"a".repeat(40)}`) {
+    return jsonResponse({
+      truncated: false,
+      tree: [
+        {
+          path: ".shipshape.yml",
+          sha: "b".repeat(40),
+          mode: "100644",
+          type: "blob",
+          size: 35,
+        },
+        {
+          path: "package.json",
+          sha: "c".repeat(40),
+          mode: "100644",
+          type: "blob",
+          size: 2,
+        },
+      ],
+    });
+  }
+
+  if (url.pathname === `/repos/octo/demo/git/blobs/${"b".repeat(40)}`) {
+    const text = "baseline: shipshape/recommended@1";
+
+    return jsonResponse({
+      encoding: "base64",
+      content: btoa(text),
+      size: text.length,
+    });
+  }
+
+  if (url.pathname === `/repos/octo/demo/git/blobs/${"c".repeat(40)}`)
+    return jsonResponse({ encoding: "base64", content: btoa("{}"), size: 2 });
+
+  return fullRoute(url);
+}
+
+describe("real MCP SDK integration", () => {
+  it("exposes exactly seven read-only tools and enforces their input schemas", async () => {
+    const { client, calls } = await connect();
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "action_plan",
+      "branch_risk",
+      "delivery_hygiene",
+      "portfolio_snapshot",
+      "repo_readiness",
+      "security_posture",
+      "standards_audit",
+    ]);
+
+    for (const tool of tools)
+      expect(tool.annotations).toMatchObject({
+        readOnlyHint: true,
+        destructiveHint: false,
+      });
+
+    const invalid = await client.callTool({
+      name: "standards_audit",
+      arguments: { owner: "../octo", repo: "demo" },
+    });
+
+    expect(invalid.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("preserves bounded portfolio coverage in the tool-visible result", async () => {
+    const { client } = await connect((url) => {
+      if (url.pathname === "/users/octo/repos") {
+        return jsonResponse(
+          Array.from({ length: 50 }, () => ({ ...repository, archived: true })),
+          200,
+          "https://api.github.com/users/octo/repos?page=2",
+        );
+      }
+
+      return auditRoute(url);
+    });
+
+    const result = await client.callTool({
+      name: "portfolio_snapshot",
+      arguments: { owner: "octo" },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
       owner: "octo",
       status: "partial",
       availableRepositories: 50,
@@ -67,121 +146,101 @@ describe("standards MCP integration", () => {
           countKind: "lower_bound",
         },
       },
-    };
-    mocks.portfolio.mockResolvedValue(report);
-    createShipshapeServer();
-    const result = await mocks.handlers.get("portfolio_snapshot")!({
-      owner: "octo",
-      limit: 4,
-      includeForks: false,
-      includeArchived: false,
-    });
-    expect(result.structuredContent).toEqual(report);
-    expect(mocks.portfolio).toHaveBeenCalledWith(expect.anything(), "octo", {
-      limit: 4,
-      includeForks: false,
-      includeArchived: false,
     });
   });
 
-  it("registers the read-only standards tool and returns its structured report", async () => {
-    mocks.standards.mockResolvedValue({
+  it("returns the standards report through the SDK", async () => {
+    const { client } = await connect();
+
+    const result = await client.callTool({
+      name: "standards_audit",
+      arguments: { owner: "octo", repo: "demo" },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
       baseline: "shipshape/recommended@1",
       commit: "a".repeat(40),
-      audit: { checks: [] },
-    });
-    createShipshapeServer();
-    const result = await mocks.handlers.get("standards_audit")!({
-      owner: "octo",
-      repo: "demo",
-    });
-    expect(result.structuredContent.baseline).toBe("shipshape/recommended@1");
-    expect(mocks.standards).toHaveBeenCalledWith(expect.anything(), {
-      owner: "octo",
-      repo: "demo",
-    });
-  });
-  it("includes standards failures in the existing action plan", async () => {
-    mocks.readiness.mockResolvedValue({
-      repository: { fullName: "octo/demo" },
-    });
-    mocks.standards.mockResolvedValue({
       audit: {
-        checks: [makeCheck({ ruleId: "standards.test", state: "fail" })],
+        checks: expect.arrayContaining([
+          expect.objectContaining({ ruleId: "standards.test", state: "fail" }),
+        ]),
       },
     });
-    createShipshapeServer();
-    const result = await mocks.handlers.get("action_plan")!({
-      owner: "octo",
-      repo: "demo",
-      limit: 8,
-    });
-    expect(result.structuredContent.plan).toMatchObject({
-      items: [{ ruleId: "standards.test", state: "fail" }],
-    });
   });
 
-  it("starts readiness and standards collection together for action_plan", async () => {
-    let releaseReadiness!: () => void;
-    const readinessGate = new Promise<void>((resolve) => {
+  it("includes standards failures in action_plan and starts both collections concurrently", async () => {
+    let releaseReadiness = () => {};
+
+    const gate = new Promise<void>((resolve) => {
       releaseReadiness = resolve;
     });
-    mocks.readiness.mockImplementation(async () => {
-      await readinessGate;
-      return { repository: { fullName: "octo/demo" } };
+
+    const { client, calls } = await connect(async (url) => {
+      if (url.pathname === "/repos/octo/demo/branches/main") await gate;
+
+      if (url.pathname === "/repos/octo/demo/commits/main") releaseReadiness();
+
+      return auditRoute(url);
     });
-    mocks.standards.mockImplementation(async () => {
-      releaseReadiness();
-      return {
-        audit: {
-          checks: [makeCheck({ ruleId: "standards.test", state: "fail" })],
-        },
-      };
+
+    const result = await client.callTool({
+      name: "action_plan",
+      arguments: { owner: "octo", repo: "demo", limit: 20 },
     });
-    createShipshapeServer();
-    const result = await mocks.handlers.get("action_plan")!({
-      owner: "octo",
-      repo: "demo",
-      limit: 8,
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      plan: {
+        items: expect.arrayContaining([
+          expect.objectContaining({ ruleId: "standards.test", state: "fail" }),
+        ]),
+      },
     });
-    expect(result.structuredContent.plan).toMatchObject({
-      items: [{ ruleId: "standards.test", state: "fail" }],
-    });
-    expect(mocks.readiness).toHaveBeenCalledOnce();
-    expect(mocks.standards).toHaveBeenCalledOnce();
+    expect(
+      calls.some((url) => url.pathname === "/repos/octo/demo/branches/main"),
+    ).toBe(true);
+    expect(
+      calls.some((url) => url.pathname === "/repos/octo/demo/commits/main"),
+    ).toBe(true);
   });
 
-  it("inspects security posture without repository readiness collection", async () => {
-    mocks.publicRepository.mockResolvedValue({
-      defaultBranch: "main",
-      evidence: [],
-      securitySettings: {},
+  it("inspects security posture without collecting readiness history", async () => {
+    const { client, calls } = await connect();
+
+    const result = await client.callTool({
+      name: "security_posture",
+      arguments: { owner: "octo", repo: "demo" },
     });
-    mocks.branchRisk.mockResolvedValue({ status: "available", evidence: [] });
-    mocks.security.mockResolvedValue({ evidence: [] });
-    createShipshapeServer();
-    const result = await mocks.handlers.get("security_posture")!({
-      owner: "octo",
-      repo: "demo",
-    });
+
+    expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toMatchObject({
       repository: { owner: "octo", repo: "demo" },
     });
-    expect(mocks.readiness).not.toHaveBeenCalled();
-    expect(mocks.publicRepository).toHaveBeenCalledWith(expect.anything(), {
-      owner: "octo",
-      repo: "demo",
+    expect(
+      calls.some((url) =>
+        /\/(commits|pulls|actions\/runs)$/.test(url.pathname),
+      ),
+    ).toBe(false);
+    expect(calls.some((url) => url.pathname.endsWith("/branches/main"))).toBe(
+      true,
+    );
+  });
+
+  it("refuses private repositories before reading their contents", async () => {
+    const { client, calls } = await connect(() =>
+      jsonResponse({ ...repository, private: true }),
+    );
+
+    const result = await client.callTool({
+      name: "standards_audit",
+      arguments: { owner: "octo", repo: "demo" },
     });
-    expect(mocks.branchRisk).toHaveBeenCalledWith(
-      expect.anything(),
-      { owner: "octo", repo: "demo" },
-      "main",
-      expect.objectContaining({ maxPages: 1 }),
-    );
-    expect(mocks.security).toHaveBeenCalledWith(
-      expect.anything(),
-      { owner: "octo", repo: "demo" },
-      expect.objectContaining({ maxPages: 1 }),
-    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "Shipshape only inspects public repositories." },
+    ]);
+    expect(calls.map((url) => url.pathname)).toEqual(["/repos/octo/demo"]);
   });
 });

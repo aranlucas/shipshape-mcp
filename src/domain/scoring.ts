@@ -43,7 +43,9 @@ const STATE_ORDER = new Map<CheckState, number>([
 ]);
 
 const DEFAULT_MAX_ACTIONS = 20;
+
 const MAX_ACTIONS = 50;
+
 const EvidenceSchema = z.object({
   url: z.string(),
   label: z.string(),
@@ -69,19 +71,23 @@ const emptyCounts = (): MutableStateCounts => ({
 
 const countStates = (checks: readonly CheckResult[]): StateCounts => {
   const counts = emptyCounts();
+
   for (const check of checks) {
     counts[check.state] += 1;
   }
+
   return counts;
 };
 
 const minimumConfidence = (checks: readonly CheckResult[]): Confidence => {
   const applicable = checks.filter((check) => check.state !== "not_applicable");
+
   if (applicable.length === 0) {
     return "low";
   }
 
   let confidenceRank: number = CONFIDENCE_LEVELS.length;
+
   for (const check of applicable) {
     confidenceRank = Math.min(
       confidenceRank,
@@ -112,9 +118,11 @@ const scoreFor = (
 
   for (const check of applicable) {
     totalImpact += check.scoreImpact;
+
     if (check.state === "fail") {
       failedImpact += check.scoreImpact;
     }
+
     if (check.state === "pass" || check.state === "fail") {
       observedImpact += check.scoreImpact;
     }
@@ -125,6 +133,7 @@ const scoreFor = (
   }
 
   const rawScore = ((totalImpact - failedImpact) / totalImpact) * 100;
+
   return {
     score: Math.max(0, Math.min(100, Math.round(rawScore))),
     totalImpact,
@@ -134,12 +143,12 @@ const scoreFor = (
 };
 
 const canonicalEvidence = (
-  evidence: unknown,
+  evidence: CheckResult["evidence"],
 ): readonly Evidence[] | undefined =>
   z.array(EvidenceSchema).safeParse(evidence).data;
 
 const canonicalCheck = (check: CheckResult): CheckResult => {
-  if (!check || typeof check !== "object") {
+  if (!z.object({}).safeParse(check).success) {
     throw new TypeError("A check result must be an object");
   }
 
@@ -173,6 +182,7 @@ const preferredDuplicate = (
   const stateDifference =
     (STATE_ORDER.get(candidate.state) ?? 0) -
     (STATE_ORDER.get(current.state) ?? 0);
+
   if (stateDifference !== 0) {
     return stateDifference > 0 ? candidate : current;
   }
@@ -180,6 +190,7 @@ const preferredDuplicate = (
   const confidenceDifference =
     (CONFIDENCE_ORDER.get(candidate.confidence) ?? 0) -
     (CONFIDENCE_ORDER.get(current.confidence) ?? 0);
+
   if (confidenceDifference !== 0) {
     return confidenceDifference > 0 ? candidate : current;
   }
@@ -196,6 +207,7 @@ const compareChecks = (left: CheckResult, right: CheckResult): number => {
   const categoryDifference =
     (CATEGORY_ORDER.get(left.category) ?? Number.MAX_SAFE_INTEGER) -
     (CATEGORY_ORDER.get(right.category) ?? Number.MAX_SAFE_INTEGER);
+
   return categoryDifference || compareStrings(left.ruleId, right.ruleId);
 };
 
@@ -209,6 +221,7 @@ export const normalizeChecks = (
   checks: readonly CheckResult[],
 ): readonly CheckResult[] => {
   const byRuleId = new Map<string, CheckResult>();
+
   for (const input of checks) {
     const candidate = canonicalCheck(input);
     const current = byRuleId.get(candidate.ruleId);
@@ -226,6 +239,7 @@ const rollupFor = (
   checks: readonly CheckResult[],
 ): CategoryRollup => {
   const score = scoreFor(checks);
+
   return {
     category,
     score: score.score,
@@ -247,10 +261,12 @@ const rollupFor = (
 export const scoreChecks = (checks: readonly CheckResult[]): ScoreSummary => {
   const normalized = normalizeChecks(checks);
   const score = scoreFor(normalized);
+
   const categories = RULE_CATEGORIES.flatMap((category) => {
     const categoryChecks = normalized.filter(
       (check) => check.category === category,
     );
+
     return categoryChecks.length > 0
       ? [rollupFor(category, categoryChecks)]
       : [];
@@ -280,6 +296,7 @@ const compareActions = (
 ): number => {
   const stateDifference =
     actionStateOrder(left.state) - actionStateOrder(right.state);
+
   if (stateDifference !== 0) {
     return -stateDifference;
   }
@@ -287,6 +304,7 @@ const compareActions = (
   const priorityDifference =
     (PRIORITY_ORDER.get(right.priority) ?? 0) -
     (PRIORITY_ORDER.get(left.priority) ?? 0);
+
   if (priorityDifference !== 0) {
     return priorityDifference;
   }
@@ -295,6 +313,7 @@ const compareActions = (
     left.scoreImpact,
     right.scoreImpact,
   );
+
   if (impactDifference !== 0) {
     return impactDifference;
   }
@@ -302,6 +321,7 @@ const compareActions = (
   const confidenceDifference =
     (CONFIDENCE_ORDER.get(right.confidence) ?? 0) -
     (CONFIDENCE_ORDER.get(left.confidence) ?? 0);
+
   if (confidenceDifference !== 0) {
     return confidenceDifference;
   }
@@ -313,9 +333,11 @@ const maxActionCount = (value: number | undefined): number => {
   if (value === undefined) {
     return DEFAULT_MAX_ACTIONS;
   }
+
   if (!Number.isFinite(value)) {
     return DEFAULT_MAX_ACTIONS;
   }
+
   return Math.max(0, Math.min(MAX_ACTIONS, Math.floor(value)));
 };
 
@@ -325,12 +347,14 @@ export const buildActionPlan = (
   options?: ActionPlanOptions,
 ): ActionPlan => {
   const normalized = normalizeChecks(checks);
+
   const actionable = normalized
     .filter(
       (check): check is CheckResult & { state: "fail" | "unknown" } =>
         check.state === "fail" || check.state === "unknown",
     )
     .sort(compareActions);
+
   const limit = maxActionCount(options?.maxItems);
 
   const items: ActionItem[] = actionable
@@ -361,5 +385,6 @@ export const categoryRollup = (
   const normalized = normalizeChecks(checks).filter(
     (check) => check.category === category,
   );
+
   return rollupFor(category, normalized);
 };

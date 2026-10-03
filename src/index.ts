@@ -1,11 +1,30 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
-import { createMcpHandler } from "agents/mcp/server";
+import { createMcpHandler, getMcpAuthContext } from "agents/mcp/server";
+
+import { z } from "zod";
+import { GitHubOwnerInputSchema } from "./github/schemas";
+import { createGitHubOctokit, GitHubInputError } from "./github/client";
 
 import { MCP_RESOURCE, MCP_SCOPE, PUBLIC_ORIGIN } from "./config";
-import { createShipshapeServer } from "./mcp";
-import defaultHandler, { type OAuthEnv } from "./oauth";
+import { createPortfolioServer } from "./mcp";
+import type { OAuthEnv } from "./oauth";
+import { defaultHandler } from "./oauth-runtime";
 
-const apiHandler = createMcpHandler(createShipshapeServer, {
+const AuthPropsSchema = z.object({
+  accessToken: z.string().min(1).max(4_096),
+  login: GitHubOwnerInputSchema,
+});
+
+function githubClient() {
+  const parsed = AuthPropsSchema.safeParse(getMcpAuthContext()?.props);
+
+  if (!parsed.success)
+    throw new GitHubInputError("GitHub authorization is required");
+
+  return createGitHubOctokit(parsed.data.accessToken);
+}
+
+const apiHandler = createMcpHandler(() => createPortfolioServer(githubClient), {
   route: "/mcp",
   legacy: "stateless",
 });

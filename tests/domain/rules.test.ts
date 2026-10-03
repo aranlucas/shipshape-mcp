@@ -18,6 +18,7 @@ describe("rule catalog", () => {
       const total = RULE_DEFINITIONS.filter(
         (rule) => rule.category === category,
       ).reduce((sum, rule) => sum + rule.scoreImpact, 0);
+
       expect(total).toBe(100);
     }
   });
@@ -80,14 +81,16 @@ describe("rule catalog", () => {
     expect(() =>
       makeCheck({
         ruleId: "public.readme",
-        state: "pending" as never,
+        // @ts-expect-error Exercise rejection of an invalid runtime state.
+        state: "pending",
       }),
     ).toThrowError("Invalid check state: pending");
     expect(() =>
       makeCheck({
         ruleId: "public.readme",
         state: "pass",
-        confidence: "certain" as never,
+        // @ts-expect-error Exercise rejection of an invalid runtime confidence.
+        confidence: "certain",
       }),
     ).toThrowError("Invalid confidence: certain");
   });
@@ -187,10 +190,12 @@ describe("evidence normalization", () => {
   it("ignores malformed runtime entries without making scoring unsafe", () => {
     expect(
       dedupeEvidence([
+        // @ts-expect-error Untrusted callers can supply malformed evidence at runtime.
         null,
+        // @ts-expect-error The normalizer must also reject missing entries.
         undefined,
         { url: "not a URL", label: "bad" },
-      ] as unknown as Evidence[]),
+      ]),
     ).toEqual([]);
   });
 });

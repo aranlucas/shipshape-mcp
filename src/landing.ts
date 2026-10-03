@@ -1,5 +1,5 @@
 import { securityHeaders } from "./oauth-security";
-import { SHIPSHAPE_CSS, STYLES_PATH } from "./styles";
+import { APP_CSS, STYLES_PATH } from "./styles";
 
 const HEAD = `<meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -69,6 +69,7 @@ const NOT_FOUND_PAGE = `<!doctype html>
 
 export function landingHandler(request: Request): Response {
   const url = new URL(request.url);
+
   if (request.method !== "GET") return methodNotAllowed();
 
   switch (url.pathname) {
@@ -93,6 +94,7 @@ export function healthResponse(): Response {
   const headers = securityHeaders();
   headers.set("Content-Type", "application/json; charset=utf-8");
   headers.set("Cache-Control", "no-store");
+
   return new Response(JSON.stringify({ status: "ok" }), {
     status: 200,
     headers,
@@ -103,7 +105,8 @@ export function stylesheetResponse(): Response {
   const headers = securityHeaders();
   headers.set("Content-Type", "text/css; charset=utf-8");
   headers.set("Cache-Control", "public, max-age=86400");
-  return new Response(SHIPSHAPE_CSS, { status: 200, headers });
+
+  return new Response(APP_CSS, { status: 200, headers });
 }
 
 export function notFoundResponse(): Response {
@@ -115,6 +118,7 @@ export function methodNotAllowed(allow = "GET"): Response {
   headers.set("Allow", allow);
   headers.set("Content-Type", "text/plain; charset=utf-8");
   headers.set("Cache-Control", "no-store");
+
   return new Response("Method not allowed", { status: 405, headers });
 }
 
@@ -122,5 +126,6 @@ function htmlResponse(body: string, status = 200): Response {
   const headers = securityHeaders();
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
+
   return new Response(body, { status, headers });
 }

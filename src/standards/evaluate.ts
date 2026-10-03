@@ -1,3 +1,9 @@
+import { z } from "zod";
+import {
+  ConfigObjectSchema,
+  configObject as object,
+  type ConfigDocument,
+} from "./config-value";
 import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { makeCheck } from "../domain/rules";
 import {
@@ -24,21 +30,24 @@ export interface StandardsSource {
   policyEvidence?: string;
   collectedAt: string;
 }
-const object = (value: unknown): Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+
 const join = (path: string, name: string) =>
   path === "." ? name : `${path}/${name}`;
-function json(text: string | null | undefined): Record<string, unknown> | null {
+
+function json(text: string | null | undefined): ConfigDocument | null {
   if (text == null) return null;
   const errors: ParseError[] = [];
   const value: unknown = parseJsonc(text, errors, { allowTrailingComma: true });
-  return errors.length ? null : object(value);
+
+  return errors.length
+    ? null
+    : (ConfigObjectSchema.safeParse(value).data ?? {});
 }
+
 export function evaluateStandards(source: StandardsSource) {
   const { files, policy } = source;
   const paths = Object.keys(files).sort();
+
   const directories = [
     ...new Set(
       paths
@@ -50,12 +59,16 @@ export function evaluateStandards(source: StandardsSource) {
         ),
     ),
   ];
+
   for (const pkg of policy.packages)
     if (!directories.includes(pkg.path)) directories.push(pkg.path);
+
   if (!directories.length) directories.push(".");
+
   const workflowPaths = paths.filter((path) =>
     /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path),
   );
+
   const workflows = workflowPaths.map((path) => {
     try {
       return {
@@ -66,16 +79,20 @@ export function evaluateStandards(source: StandardsSource) {
       return { path, value: null };
     }
   });
+
   const prWorkflows = workflows.filter(({ value }) => {
     const on = value?.on;
+
     return (
       on === "pull_request" ||
       (Array.isArray(on) && on.includes("pull_request")) ||
       Object.hasOwn(object(on), "pull_request")
     );
   });
+
   const uncertainWorkflows =
     !source.complete || workflows.some(({ value }) => value === null);
+
   const packages = directories
     .sort()
     .slice(0, 20)
@@ -87,20 +104,25 @@ export function evaluateStandards(source: StandardsSource) {
       const go = Object.hasOwn(files, join(path, "go.mod"));
       const python = Object.hasOwn(files, join(path, "pyproject.toml"));
       const commands: Commands = {};
+
       for (const gate of ["format", "lint", "test", "typecheck"] as const) {
         const key =
-          gate === "format" && typeof scripts["format:check"] === "string"
+          gate === "format" &&
+          z.string().safeParse(scripts["format:check"]).success
             ? "format:check"
             : gate;
-        if (typeof scripts[key] === "string" && scripts[key].trim())
+
+        if (z.string().trim().min(1).safeParse(scripts[key]).success)
           commands[gate] = `npm run ${key}`;
       }
+
       Object.assign(
         commands,
         policy.packages.find((pkg) => pkg.path === path)?.commands,
       );
       const checks: CheckResult[] = [];
       const exceptions: Policy["exceptions"] = [];
+
       function add(
         rule: (typeof RULE_NAMES)[number],
         state: CheckState,
@@ -108,6 +130,7 @@ export function evaluateStandards(source: StandardsSource) {
         detail: string,
       ) {
         if (source.policyState === "unknown") state = "unknown";
+
         const exception =
           source.policyState === "unknown"
             ? undefined
@@ -117,11 +140,13 @@ export function evaluateStandards(source: StandardsSource) {
                   item.path === path &&
                   item.expires >= source.collectedAt.slice(0, 10),
               );
+
         if (exception && rule !== "baseline") {
           exceptions.push(exception);
           state = "not_applicable";
           detail = `Exception until ${exception.expires}: ${exception.reason}`;
         }
+
         checks.push(
           makeCheck({
             ruleId: `standards.${rule}`,
@@ -135,6 +160,7 @@ export function evaluateStandards(source: StandardsSource) {
           }),
         );
       }
+
       add(
         "baseline",
         source.policyState,
@@ -143,6 +169,7 @@ export function evaluateStandards(source: StandardsSource) {
           ? "Shared baseline version is pinned."
           : "Add or verify .shipshape.yml with baseline: shipshape/recommended@1.",
       );
+
       for (const gate of ["format", "lint", "test", "typecheck"] as const) {
         const applicable = gate !== "typecheck" || !go;
         add(
@@ -160,13 +187,16 @@ export function evaluateStandards(source: StandardsSource) {
             : `Declare a ${gate} check in package scripts or .shipshape.yml packages[].commands.`,
         );
       }
+
       const ancestors = [path];
+
       while (ancestors[ancestors.length - 1] !== ".") {
         const last = ancestors[ancestors.length - 1]!;
         ancestors.push(
           last.includes("/") ? last.slice(0, last.lastIndexOf("/")) : ".",
         );
       }
+
       // Ancestor lockfiles are evidence of a possible workspace, not proof of membership.
       const locks = node
         ? [
@@ -181,13 +211,16 @@ export function evaluateStandards(source: StandardsSource) {
           : python
             ? ["uv.lock", "poetry.lock", "pdm.lock"]
             : [];
+
       const localLocks = locks
         .map((name) => join(path, name))
         .filter((name) => Object.hasOwn(files, name));
+
       const ancestorLocks = ancestors
         .slice(1)
         .flatMap((dir) => locks.map((name) => join(dir, name)))
         .filter((name) => Object.hasOwn(files, name));
+
       add(
         "lockfile",
         localLocks.length
@@ -209,6 +242,7 @@ export function evaluateStandards(source: StandardsSource) {
       const tsPath = join(path, "tsconfig.json");
       const ts = json(files[tsPath]);
       const strict = object(ts?.compilerOptions).strict;
+
       const hasTs =
         Object.hasOwn(files, tsPath) ||
         paths.some(
@@ -216,6 +250,7 @@ export function evaluateStandards(source: StandardsSource) {
             name.startsWith(path === "." ? "" : `${path}/`) &&
             /\.tsx?$/.test(name),
         );
+
       add(
         "strict",
         !hasTs
@@ -241,19 +276,26 @@ export function evaluateStandards(source: StandardsSource) {
         "Configure a pull_request workflow; event filters and actual execution are not verified.",
       );
       const invoked = new Set<string>();
+
       for (const workflow of prWorkflows) {
         for (const job of Object.values(object(workflow.value?.jobs))) {
           const j = object(job);
+
           if (j.if !== undefined || j["continue-on-error"] || j.uses) continue;
           const steps = Array.isArray(j.steps) ? j.steps : [];
+
           for (const step of steps) {
             const s = object(step);
+
             if (
               s.if !== undefined ||
               s["continue-on-error"] ||
-              typeof s.run !== "string"
+              !z.string().safeParse(s.run).success
             )
               continue;
+
+            const run = z.string().parse(s.run);
+
             const working =
               s["working-directory"] ??
               object(object(j.defaults).run)["working-directory"] ??
@@ -261,25 +303,30 @@ export function evaluateStandards(source: StandardsSource) {
                 "working-directory"
               ] ??
               ".";
+
             if (working !== path) continue;
+
             // Only standalone or &&-joined commands are recognized. Shell wrappers stay unknown.
             if (
               /(?:^|\n)\s*(?:if|for|while|case|until|exit|cd|set)\b|[|;`$]/.test(
-                s.run,
+                run,
               )
             )
               continue;
-            const lines = s.run.split(/\n|&&/).map((line) => line.trim());
+            const lines = run.split(/\n|&&/).map((line) => line.trim());
             const expanded = new Set(lines);
+
             const visit = (line: string, seen = new Set<string>()) => {
               const match =
                 /^(npm run|pnpm(?: run)?|yarn(?: run)?) ([\w:-]+)$/.exec(line);
+
               if (!match || seen.has(match[2]!) || seen.size >= 32) return;
               const key = match[2]!;
               seen.add(key);
               expanded.add(`npm run ${key}`);
-              const script = scripts[key];
-              if (typeof script === "string")
+              const script = z.string().safeParse(scripts[key]).data;
+
+              if (script !== undefined)
                 for (const sub of script
                   .split("&&")
                   .map((part) => part.trim())) {
@@ -287,18 +334,22 @@ export function evaluateStandards(source: StandardsSource) {
                   visit(sub, seen);
                 }
             };
+
             for (const line of lines) visit(line);
+
             for (const [gate, command] of Object.entries(commands))
               if (expanded.has(command)) invoked.add(gate);
           }
         }
       }
+
       const required = [
         "format",
         "lint",
         "test",
         ...(!go ? ["typecheck"] : []),
       ];
+
       const missing = required.filter((gate) => !invoked.has(gate));
       add(
         "ci-gates",
@@ -312,17 +363,20 @@ export function evaluateStandards(source: StandardsSource) {
           ? `Verify CI invokes these quality commands for ${path}: ${missing.join(", ")}. Indirect, conditional, or external workflows are not resolved.`
           : "Quality commands are wired in PR workflow steps. Runtime success is not verified.",
       );
+
       const updateFiles = paths.filter((name) =>
         /^(\.github\/dependabot\.ya?ml|renovate\.json5?|\.renovaterc(?:\.json)?|\.github\/renovate\.json5?)$/.test(
           name,
         ),
       );
+
       add(
         "updates",
         updateFiles.length ? "pass" : source.complete ? "fail" : "unknown",
         updateFiles.length ? updateFiles : [".github"],
         "Dependency update configuration presence only; ecosystem coverage and scheduler execution require verification.",
       );
+
       return {
         path,
         profiles: [
@@ -335,7 +389,9 @@ export function evaluateStandards(source: StandardsSource) {
         audit: scoreChecks(checks),
       };
     });
+
   const checks = normalizeChecks(packages.flatMap((pkg) => pkg.audit.checks));
+
   const complete =
     source.complete &&
     directories.length <= 20 &&
@@ -345,6 +401,7 @@ export function evaluateStandards(source: StandardsSource) {
         /(^|\/)(package.json|tsconfig.json|go.mod|pyproject.toml)$/.test(name),
       )
       .every((name) => files[name] !== null);
+
   return {
     repository: source.repository,
     commit: source.commit,

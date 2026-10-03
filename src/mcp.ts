@@ -1,7 +1,6 @@
 import { collectPortfolioReport } from "./github/portfolio";
 import { collectStandards } from "./standards/collect";
-import { McpServer } from "@modelcontextprotocol/server";
-import { getMcpAuthContext } from "agents/mcp/server";
+import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import {
@@ -20,7 +19,6 @@ import {
   collectSecurityPosture,
 } from "./github/collectors";
 import {
-  createGitHubOctokit,
   GitHubInputError,
   GitHubPayloadError,
   PrivateRepositoryError,
@@ -38,10 +36,6 @@ const CoordinatesSchema = RepositoryCoordinatesSchema.extend({
     "Public GitHub repository name",
   ),
 });
-const AuthPropsSchema = z.object({
-  accessToken: z.string().min(1).max(4_096),
-  login: GitHubOwnerInputSchema,
-});
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -50,14 +44,7 @@ const READ_ONLY_ANNOTATIONS = {
   openWorldHint: true,
 } as const;
 
-type ToolPayload = Record<string, unknown>;
-
-function githubClient(): GitHubOctokit {
-  const parsed = AuthPropsSchema.safeParse(getMcpAuthContext()?.props);
-  if (!parsed.success)
-    throw new GitHubInputError("GitHub authorization is required");
-  return createGitHubOctokit(parsed.data.accessToken);
-}
+type ToolPayload = NonNullable<CallToolResult["structuredContent"]>;
 
 function jsonResult(payload: ToolPayload) {
   return {
@@ -68,23 +55,22 @@ function jsonResult(payload: ToolPayload) {
   };
 }
 
-function toolError(error: unknown) {
+function toolError(cause: unknown) {
+  const error = cause;
+  const status = z.object({ status: z.number() }).safeParse(error).data?.status;
   let message = "The repository could not be inspected right now.";
+
   if (error instanceof PrivateRepositoryError) {
     message = "Shipshape only inspects public repositories.";
   } else if (error instanceof GitHubInputError) {
     message = error.message;
-  } else if (
-    error instanceof Error &&
-    "status" in error &&
-    typeof error.status === "number"
-  ) {
+  } else if (error instanceof Error && status !== undefined) {
     message =
-      error.status === 404
+      status === 404
         ? "The public repository or requested GitHub feature was not found."
-        : error.status === 403
+        : status === 403
           ? "GitHub denied this read-only request or the feature is unavailable on the repository's plan."
-          : `GitHub returned HTTP ${error.status} while inspecting the repository.`;
+          : `GitHub returned HTTP ${status} while inspecting the repository.`;
   } else if (error instanceof GitHubPayloadError) {
     message = "GitHub returned an invalid or incomplete response.";
   }
@@ -113,7 +99,9 @@ function categoryResult(
   };
 }
 
-export function createShipshapeServer(): McpServer {
+export function createPortfolioServer(
+  githubClient: () => GitHubOctokit,
+): McpServer {
   const server = new McpServer({
     name: "Shipshape",
     version: "0.1.0",
@@ -163,7 +151,9 @@ export function createShipshapeServer(): McpServer {
             concurrency: 3,
           },
         );
+
         const checks = evaluateRepositoryReadiness(readiness);
+
         return {
           readiness,
           audit: scoreChecks(checks),
@@ -189,7 +179,9 @@ export function createShipshapeServer(): McpServer {
           { owner, repo },
           branch,
         );
+
         const checks = evaluateBranchRisk(risk);
+
         return {
           repository: { owner, repo },
           risk,
@@ -223,7 +215,9 @@ export function createShipshapeServer(): McpServer {
             concurrency: 3,
           },
         );
+
         const checks = evaluateDeliveryHygiene(delivery);
+
         return {
           repository: { owner, repo },
           branch,
@@ -247,11 +241,14 @@ export function createShipshapeServer(): McpServer {
         const client = githubClient();
         const fact = await collectPublicRepository(client, repository);
         const options = { maxPages: 1, perPage: 25, concurrency: 3 };
+
         const [branchRisk, security] = await Promise.all([
           collectBranchRisk(client, repository, fact.defaultBranch, options),
           collectSecurityPosture(client, repository, options),
         ]);
+
         const checks = evaluateSecurityPosture(security, fact, branchRisk);
+
         return {
           repository,
           security,
@@ -290,6 +287,7 @@ export function createShipshapeServer(): McpServer {
       safely(async () => {
         const client = githubClient();
         const repository = { owner, repo };
+
         const [readiness, standards] = await Promise.all([
           collectRepositoryReadiness(client, repository, {
             maxPages: 2,
@@ -298,10 +296,12 @@ export function createShipshapeServer(): McpServer {
           }),
           collectStandards(client, repository),
         ]);
+
         const checks = [
           ...evaluateRepositoryReadiness(readiness),
           ...standards.audit.checks,
         ];
+
         return {
           repository: readiness.repository,
           standards,

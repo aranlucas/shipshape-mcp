@@ -5,6 +5,18 @@
     "worker-configuration.d.ts",
     "pnpm-lock.yaml",
     "dist/**",
-    "coverage/**"
+    "coverage/**",
+    ".agent/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".continue/**",
+    ".cursor/**",
+    ".gemini/**",
+    ".opencode/**",
+    ".pi/**",
+    ".roo/**",
+    ".windsurf/**",
+    "tools/oxlint/anti-slop/**"
   ]
 }

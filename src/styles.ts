@@ -1,6 +1,6 @@
 export const STYLES_PATH = "/assets/shipshape.css" as const;
 
-export const SHIPSHAPE_CSS = `
+export const APP_CSS = `
 :root {
   color-scheme: dark;
   --ink: #f5f3e9;

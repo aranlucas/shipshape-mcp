@@ -1,3 +1,4 @@
+import { ConfigValueSchema, type ConfigValue } from "./config-value";
 import { parseDocument } from "yaml";
 import { z } from "zod";
 import { GitHubInputError } from "../github/client";
@@ -15,6 +16,7 @@ export const RULE_NAMES = [
   "ci-gates",
   "updates",
 ] as const;
+
 export const PackagePathSchema = z
   .string()
   .max(240)
@@ -25,7 +27,9 @@ export const PackagePathSchema = z
         !path.endsWith("/")),
     "Use a repository-relative directory without traversal",
   );
+
 export const FilePathSchema = PackagePathSchema.refine((path) => path !== ".");
+
 export const CommandsSchema = z
   .object({
     format: z.string().trim().min(1).max(300).optional(),
@@ -34,6 +38,7 @@ export const CommandsSchema = z
     typecheck: z.string().trim().min(1).max(300).optional(),
   })
   .strict();
+
 export const PolicySchema = z
   .object({
     baseline: z.literal("shipshape/recommended@1"),
@@ -81,16 +86,23 @@ export const PolicySchema = z
     )
       context.addIssue({ code: "custom", message: "Duplicate package paths" });
     const keys = policy.exceptions.map((item) => `${item.path}:${item.rule}`);
+
     if (new Set(keys).size !== keys.length)
       context.addIssue({ code: "custom", message: "Duplicate exceptions" });
   });
+
 export type Policy = z.infer<typeof PolicySchema>;
+
 export type Commands = z.infer<typeof CommandsSchema>;
-export function parseYaml(text: string): unknown {
+
+export function parseYaml(text: string): ConfigValue {
   const doc = parseDocument(text, { uniqueKeys: true });
+
   if (doc.errors.length) throw new Error("Invalid YAML");
-  return doc.toJS({ maxAliasCount: 20 });
+
+  return ConfigValueSchema.parse(doc.toJS({ maxAliasCount: 20 }));
 }
+
 export function parsePolicy(text: string): Policy {
   try {
     return PolicySchema.parse(parseYaml(text));
@@ -100,20 +112,25 @@ export function parsePolicy(text: string): Policy {
     );
   }
 }
+
 export function mergePolicy(shared: Policy, local: Policy): Policy {
   if (shared.extends)
     throw new GitHubInputError("Shared policies cannot extend another policy.");
   const packages = new Map(shared.packages.map((pkg) => [pkg.path, pkg]));
+
   for (const pkg of local.packages)
     packages.set(pkg.path, {
       ...pkg,
       commands: { ...packages.get(pkg.path)?.commands, ...pkg.commands },
     });
+
   const exceptions = new Map(
     shared.exceptions.map((item) => [`${item.path}:${item.rule}`, item]),
   );
+
   for (const item of local.exceptions)
     exceptions.set(`${item.path}:${item.rule}`, item);
+
   return PolicySchema.parse({
     ...local,
     packages: [...packages.values()],
