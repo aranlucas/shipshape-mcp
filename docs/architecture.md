@@ -69,7 +69,7 @@ The eight MCP tools intentionally sit above GitHub's generic API surface:
 ## Operations
 
 `cloudflare.config.ts` is the source of truth for bindings and runtime flags.
-`wrangler types` generates `worker-configuration.d.ts`; bindings are not
+`cf workers types` generates `.cloudflare/types/index.d.ts`; bindings are not
 hand-written. Logs and traces are enabled, but tokens, OAuth props, and GitHub
 response bodies are never logged.
 

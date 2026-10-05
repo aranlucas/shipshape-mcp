@@ -1,15 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { build } from "esbuild";
-import {
-  Miniflare,
-  Response as WorkerResponse,
-  convertV4MiniflareOptions,
-} from "miniflare";
+import { exports } from "cloudflare:workers";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { MCP_RESOURCE, MCP_SCOPE } from "../src/config";
-import { repository } from "./helpers/github-fixtures";
-
-let worker: Miniflare;
+import { MCP_RESOURCE, MCP_SCOPE } from "../../src/config";
+import { repository } from "../helpers/github-fixtures";
 
 const outbound: string[] = [];
 
@@ -18,71 +11,50 @@ const upstream = new Map<
   { method: string; payload: string; token?: string }
 >();
 
+// The Worker runs in the test isolate, so its outbound fetches hit this stub.
 beforeAll(async () => {
-  const bundle = await build({
-    entryPoints: ["tests/helpers/worker-entry.ts"],
-    bundle: true,
-    write: false,
-    format: "esm",
-    platform: "neutral",
-    target: "es2022",
-    conditions: ["workerd", "worker", "browser"],
-    mainFields: ["module", "main"],
-    external: ["cloudflare:*", "node:*"],
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    const fixture = upstream.get(request.url);
+
+    if (fixture) {
+      expect(request.method).toBe(fixture.method);
+
+      if (fixture.token)
+        expect(request.headers.get("Authorization")).toMatch(
+          new RegExp(`^(token|bearer) ${fixture.token}$`, "i"),
+        );
+      upstream.delete(request.url);
+
+      return new Response(fixture.payload, {
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    outbound.push(request.url);
+    throw new Error(`Unexpected Worker outbound request: ${request.url}`);
   });
 
-  const script = bundle.outputFiles[0]?.text;
-
-  if (!script) throw new Error("Worker bundle is missing");
-  worker = new Miniflare(
-    convertV4MiniflareOptions({
-      modules: true,
-      script,
-      cf: false,
-      compatibilityDate: "2026-08-30",
-      compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
-      kvNamespaces: ["OAUTH_KV"],
-      bindings: {
-        GITHUB_CLIENT_ID: "synthetic-client",
-        GITHUB_CLIENT_SECRET: "synthetic-secret",
-        COOKIE_ENCRYPTION_KEY: "synthetic-cookie-key",
-      },
-      outboundService(request) {
-        const fixture = upstream.get(request.url);
-
-        if (fixture) {
-          expect(request.method).toBe(fixture.method);
-
-          if (fixture.token)
-            expect(request.headers.get("Authorization")).toMatch(
-              new RegExp(`^(token|bearer) ${fixture.token}$`, "i"),
-            );
-          upstream.delete(request.url);
-
-          return new WorkerResponse(fixture.payload, {
-            headers: { "content-type": "application/json" },
-          });
-        }
-
-        outbound.push(request.url);
-        throw new Error(`Unexpected Worker outbound request: ${request.url}`);
-      },
-    }),
-  );
-  await worker.ready;
+  // The first request loads the whole Worker module graph; keep that out of test timeouts.
+  await dispatch(MCP_RESOURCE);
 }, 30_000);
 
-afterAll(async () => {
-  await worker?.dispose();
+afterAll(() => {
+  vi.restoreAllMocks();
   expect(outbound).toEqual([]);
   expect(upstream.size).toBe(0);
 });
 
-function dispatch(
-  input: string | URL,
-  init: Parameters<Miniflare["dispatchFetch"]>[1] = {},
-) {
-  return worker.dispatchFetch(input, { ...init, redirect: "manual" });
+// In-isolate requests carry no Host header; reproduce the edge request authority.
+// A dedicated test header permits checking the Host rejection path.
+function dispatch(input: string | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Host", headers.get("X-Fixture-Host") ?? new URL(input).host);
+  headers.delete("X-Fixture-Host");
+
+  return exports.default.fetch(
+    new Request(input, { ...init, headers, redirect: "manual" }),
+  );
 }
 
 function register(redirectUris: string[]) {

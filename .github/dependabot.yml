@@ -10,7 +10,7 @@ updates:
         patterns:
           - "@cloudflare/*"
           - agents
-          - wrangler
+          - cf
       development-tooling:
         dependency-type: development
   - package-ecosystem: github-actions
