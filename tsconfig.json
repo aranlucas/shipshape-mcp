@@ -13,5 +13,11 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "tests", "worker-configuration.d.ts"]
+  "include": [
+    "src",
+    "tests",
+    "cloudflare.config.ts",
+    "vite.config.ts",
+    ".cloudflare/types"
+  ]
 }

@@ -23,6 +23,9 @@ export default defineConfig({
       PUBLIC_ORIGIN: bindings.text(
         "https://shipshape-mcp.aranlucas.workers.dev",
       ),
+      GITHUB_CLIENT_ID: bindings.secret(),
+      GITHUB_CLIENT_SECRET: bindings.secret(),
+      COOKIE_ENCRYPTION_KEY: bindings.secret(),
       OAUTH_KV: bindings.kv({
         id: "9653a49921874566b41d5d4e17c88c15",
       }),
