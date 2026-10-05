@@ -8,11 +8,13 @@
     "build": "cf build",
     "check": "pnpm types && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
     "deploy": "cf deploy",
+    "deploy:ci": "cf deploy --prebuilt",
     "dev": "cf dev",
     "dry-run": "cf deploy --dry-run",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "oxlint",
+    "preview": "cf previews deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "types": "cf workers types"
