@@ -17,7 +17,12 @@ import {
   makeCookie,
   securityHeaders,
 } from "../oauth-security";
-import { callbackUrl, completeGitHubLogin, type OAuthEnv } from "../oauth";
+import {
+  CALLBACK_PATH,
+  callbackUrl,
+  completeGitHubLogin,
+  type OAuthEnv,
+} from "../oauth";
 import { APP_SCRIPT } from "./script";
 import { renderAppPage, renderSignInPage } from "./page";
 import {
@@ -25,6 +30,7 @@ import {
   LOGIN_STATE_TTL_SECONDS,
   SESSION_COOKIE_NAME,
   SESSION_TTL_SECONDS,
+  WEB_LOGIN_STATE_PREFIX,
   consumeLoginState,
   createLoginState,
   createSession,
@@ -35,7 +41,11 @@ import {
 
 export const APP_PATH = "/app" as const;
 
-export const WEB_CALLBACK_PATH = "/callback/web" as const;
+// Reuse the GitHub OAuth app's registered callback for website and MCP logins.
+// Website state selects its handler; cookie binding still authenticates state.
+export const WEB_CALLBACK_PATH = CALLBACK_PATH;
+
+const LEGACY_WEB_CALLBACK_PATH = "/callback/web";
 
 export const APP_SCRIPT_PATH = "/app/app.js" as const;
 
@@ -56,11 +66,17 @@ const RulesRequestSchema = z
   .object({ policy: z.string().min(1).max(MAX_POLICY_LENGTH) })
   .strict();
 
-export function isWebPath(pathname: string): boolean {
+export function isWebPath(
+  pathname: string,
+  state: string | null = null,
+): boolean {
   return (
     pathname === APP_PATH ||
     pathname.startsWith(`${APP_PATH}/`) ||
-    pathname === WEB_CALLBACK_PATH
+    pathname === LEGACY_WEB_CALLBACK_PATH ||
+    (pathname === WEB_CALLBACK_PATH &&
+      state !== null &&
+      state.startsWith(WEB_LOGIN_STATE_PREFIX))
   );
 }
 
@@ -215,7 +231,7 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
   );
 
   const login = valid
-    ? await completeGitHubLogin(request, env, WEB_CALLBACK_PATH)
+    ? await completeGitHubLogin(request, env, url.pathname)
     : null;
 
   if (!login) {
@@ -295,7 +311,7 @@ export async function webHandler(
     return startLogin(request, env);
   }
 
-  if (pathname === WEB_CALLBACK_PATH) {
+  if (pathname === WEB_CALLBACK_PATH || pathname === LEGACY_WEB_CALLBACK_PATH) {
     if (request.method !== "GET") return methodNotAllowed();
 
     return finishLogin(request, env);

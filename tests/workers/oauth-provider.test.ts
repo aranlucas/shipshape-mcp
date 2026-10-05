@@ -70,6 +70,60 @@ function register(redirectUris: string[]) {
 }
 
 describe("OAuth provider redirect policy", () => {
+  it("signs the website in through the registered MCP callback", async () => {
+    const login = await dispatch(new URL("/app/login", MCP_RESOURCE));
+    expect(login.status).toBe(302);
+    const github = new URL(login.headers.get("Location") ?? "");
+    const callback = new URL("/callback", MCP_RESOURCE);
+    expect(github.searchParams.get("redirect_uri")).toBe(callback.href);
+
+    const browser = captured(
+      login.headers.get("Set-Cookie") ?? "",
+      /__Host-shipshape-web-login=([^;,]+)/,
+    );
+
+    upstream.set("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      payload: JSON.stringify({
+        access_token: "synthetic-web-token",
+        token_type: "bearer",
+        scope: "read:user",
+      }),
+    });
+    upstream.set("https://api.github.com/user", {
+      method: "GET",
+      payload: JSON.stringify({ login: "octo" }),
+    });
+    callback.search = new URLSearchParams({
+      code: "synthetic-web-code",
+      state: github.searchParams.get("state") ?? "",
+    }).toString();
+
+    const completed = await dispatch(callback, {
+      headers: { Cookie: `__Host-shipshape-web-login=${browser}` },
+    });
+
+    expect(completed.status).toBe(302);
+    expect(completed.headers.get("Location")).toBe("/app");
+
+    const session = captured(
+      completed.headers.get("Set-Cookie") ?? "",
+      /__Host-shipshape-session=([^;,]+)/,
+    );
+
+    const page = await dispatch(new URL("/app", MCP_RESOURCE), {
+      headers: { Cookie: `__Host-shipshape-session=${session}` },
+    });
+
+    expect(await page.text()).toContain("Signed in as <strong>@octo</strong>");
+
+    const replay = await dispatch(callback, {
+      headers: { Cookie: `__Host-shipshape-web-login=${browser}` },
+    });
+
+    expect(replay.status).toBe(400);
+  });
+
   it.each([
     ["https://client.example/callback"],
     ["http://127.0.0.1:49152/callback"],

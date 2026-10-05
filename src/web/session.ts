@@ -17,6 +17,8 @@ export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 export const LOGIN_STATE_TTL_SECONDS = 10 * 60;
 
+export const WEB_LOGIN_STATE_PREFIX = "web_";
+
 const encoder = new TextEncoder();
 
 const SessionRecordSchema = z
@@ -151,7 +153,7 @@ export async function deleteSession(
 export async function createLoginState(
   kv: OAuthStateStore,
 ): Promise<{ state: string; browser: string }> {
-  const state = randomToken(32);
+  const state = WEB_LOGIN_STATE_PREFIX + randomToken(32);
   const browser = randomToken(32);
 
   await kv.put(

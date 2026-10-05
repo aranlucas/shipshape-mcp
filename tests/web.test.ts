@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OAuthEnv } from "../src/oauth";
-import { webHandler } from "../src/web/routes";
+import { isWebPath, webHandler } from "../src/web/routes";
 import { memoryKv } from "./helpers/oauth-state";
 import { jsonResponse, repository } from "./helpers/github-fixtures";
 
@@ -56,7 +56,7 @@ async function signIn(env: OAuthEnv) {
 
   const callback = await webHandler(
     new Request(
-      `${ORIGIN}/callback/web?code=github-code&state=${authorize.searchParams.get("state") ?? ""}`,
+      `${ORIGIN}/callback?code=github-code&state=${authorize.searchParams.get("state") ?? ""}`,
       { headers: { Cookie: `__Host-shipshape-web-login=${browser}` } },
     ),
     env,
@@ -89,6 +89,13 @@ function api(
 }
 
 describe("website companion", () => {
+  it("routes only website state to the website's shared callback", () => {
+    expect(isWebPath("/callback", "web_synthetic-state")).toBe(true);
+    expect(isWebPath("/callback", "synthetic-mcp-state")).toBe(false);
+    expect(isWebPath("/callback")).toBe(false);
+    expect(isWebPath("/callback/web", "legacy-state")).toBe(true);
+  });
+
   it("offers GitHub sign-in under a strict script policy", async () => {
     const { env } = environment();
     const response = await webHandler(new Request(`${ORIGIN}/app`), env);
@@ -110,7 +117,7 @@ describe("website companion", () => {
     expect(authorize.origin).toBe("https://github.com");
     expect(authorize.searchParams.get("scope")).toBe("read:user");
     expect(authorize.searchParams.get("redirect_uri")).toBe(
-      `${ORIGIN}/callback/web`,
+      `${ORIGIN}/callback`,
     );
     expect(callback.status).toBe(302);
     expect(callback.headers.get("Location")).toBe("/app");

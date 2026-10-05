@@ -12,7 +12,9 @@ const oauthHandler = createOAuthHandler({
 /** The website companion shares the Worker but not the MCP authorization flow. */
 export const defaultHandler: ExportedHandler<OAuthEnv> = {
   async fetch(request, env) {
-    if (!isWebPath(new URL(request.url).pathname))
+    const url = new URL(request.url);
+
+    if (!isWebPath(url.pathname, url.searchParams.get("state")))
       return oauthHandler.defaultHandler.fetch(request, env);
 
     try {
