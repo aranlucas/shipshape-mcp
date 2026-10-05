@@ -233,25 +233,34 @@ describe("OAuth provider redirect policy", () => {
 
     expect(access.scope).toBe(MCP_SCOPE);
 
-    const listing = await dispatch(MCP_RESOURCE, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${access.access_token}`,
-        "MCP-Protocol-Version": "2025-03-26",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/list",
-        params: {},
-      }),
-    });
+    // SDK 2.3 rejects shared servers and stateless transports across requests.
+    // Issue overlapping requests through the real Worker handler.
+    const listings = await Promise.all(
+      [1, 2].map((id) =>
+        dispatch(MCP_RESOURCE, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            Accept: "application/json, text/event-stream",
+            Authorization: `Bearer ${access.access_token}`,
+            "MCP-Protocol-Version": "2025-03-26",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/list",
+            params: {},
+          }),
+        }),
+      ),
+    );
 
-    const listingBody = await listing.text();
-    expect(listing.status, listingBody).toBe(200);
-    expect(listingBody).toContain('"standards_audit"');
+    for (const listing of listings) {
+      const listingBody = await listing.text();
+      expect(listing.status, listingBody).toBe(200);
+      expect(listingBody).toContain('"standards_audit"');
+    }
+
     expect(upstream.size).toBe(0);
     upstream.set("https://api.github.com/repos/octo/demo", {
       method: "GET",
