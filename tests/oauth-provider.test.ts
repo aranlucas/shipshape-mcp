@@ -15,7 +15,13 @@ const outbound: string[] = [];
 
 const upstream = new Map<
   string,
-  { method: string; payload: string; token?: string }
+  {
+    method: string;
+    payload: string;
+    token?: string;
+    onRequest?: () => void;
+    waitForResponse?: Promise<void>;
+  }
 >();
 
 beforeAll(async () => {
@@ -47,7 +53,7 @@ beforeAll(async () => {
         GITHUB_CLIENT_SECRET: "synthetic-secret",
         COOKIE_ENCRYPTION_KEY: "synthetic-cookie-key",
       },
-      outboundService(request) {
+      async outboundService(request) {
         const fixture = upstream.get(request.url);
 
         if (fixture) {
@@ -58,6 +64,8 @@ beforeAll(async () => {
               new RegExp(`^(token|bearer) ${fixture.token}$`, "i"),
             );
           upstream.delete(request.url);
+          fixture.onRequest?.();
+          await fixture.waitForResponse;
 
           return new WorkerResponse(fixture.payload, {
             headers: { "content-type": "application/json" },
@@ -233,42 +241,46 @@ describe("OAuth provider redirect policy", () => {
 
     expect(access.scope).toBe(MCP_SCOPE);
 
-    // SDK 2.3 rejects shared servers and stateless transports across requests.
-    // Issue overlapping requests through the real Worker handler.
-    const listings = await Promise.all(
-      [1, 2].map((id) =>
-        dispatch(MCP_RESOURCE, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            Accept: "application/json, text/event-stream",
-            Authorization: `Bearer ${access.access_token}`,
-            "MCP-Protocol-Version": "2025-03-26",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id,
-            method: "tools/list",
-            params: {},
-          }),
-        }),
-      ),
-    );
+    const listing = await dispatch(MCP_RESOURCE, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${access.access_token}`,
+        "MCP-Protocol-Version": "2025-03-26",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {},
+      }),
+    });
 
-    for (const listing of listings) {
-      const listingBody = await listing.text();
-      expect(listing.status, listingBody).toBe(200);
-      expect(listingBody).toContain('"standards_audit"');
-    }
-
+    const listingBody = await listing.text();
+    expect(listing.status, listingBody).toBe(200);
+    expect(listingBody).toContain('"standards_audit"');
     expect(upstream.size).toBe(0);
+    let signalRequest: (() => void) | undefined;
+    let releaseResponse: (() => void) | undefined;
+
+    const requestStarted = new Promise<void>((resolve) => {
+      signalRequest = resolve;
+    });
+
+    const responseReleased = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+
     upstream.set("https://api.github.com/repos/octo/demo", {
       method: "GET",
       token: "synthetic-github-token",
       payload: JSON.stringify({ ...repository, private: true }),
+      onRequest: () => signalRequest?.(),
+      waitForResponse: responseReleased,
     });
 
-    const privateAudit = await dispatch(MCP_RESOURCE, {
+    const pendingAudit = dispatch(MCP_RESOURCE, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -287,6 +299,34 @@ describe("OAuth provider redirect policy", () => {
       }),
     });
 
+    try {
+      await requestStarted;
+
+      // SDK 2.3 rejects a shared server while another request is still running.
+      const overlappingListing = await dispatch(MCP_RESOURCE, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${access.access_token}`,
+          "MCP-Protocol-Version": "2025-03-26",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/list",
+          params: {},
+        }),
+      });
+
+      const overlappingBody = await overlappingListing.text();
+      expect(overlappingListing.status, overlappingBody).toBe(200);
+      expect(overlappingBody).toContain('"standards_audit"');
+    } finally {
+      releaseResponse?.();
+    }
+
+    const privateAudit = await pendingAudit;
     expect(privateAudit.status).toBe(200);
     expect(await privateAudit.text()).toContain(
       "Shipshape only inspects public repositories.",
