@@ -10,6 +10,8 @@ describe("offline test guard", () => {
   it("also blocks direct Undici requests and harness redirect destinations", async () => {
     await expect(
       transportFetch("https://unexpected.invalid/"),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      cause: { code: "UND_MOCK_ERR_MOCK_NOT_MATCHED" },
+    });
   });
 });
