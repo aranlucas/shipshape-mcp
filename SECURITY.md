@@ -3,6 +3,8 @@
 Shipshape is intentionally read-only. It requests only GitHub's `read:user`
 OAuth scope and refuses private repositories before collecting repository data.
 It does not expose a mutation tool, clone code, or execute repository content.
+`settings_drift` remediation is returned as text for a maintainer to review;
+Shipshape never sends those requests.
 
 Please report vulnerabilities through GitHub's private vulnerability reporting
 flow for this repository. Do not include active credentials in a public issue.

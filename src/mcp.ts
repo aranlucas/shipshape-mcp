@@ -1,5 +1,11 @@
 import { collectPortfolioReport } from "./github/portfolio";
 import { collectStandards } from "./standards/collect";
+import {
+  PolicySourceSchema,
+  collectSettingsDrift,
+  readPinnedPolicy,
+} from "./drift/collect";
+import { DriftPolicySchema } from "./drift/policy";
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
@@ -270,6 +276,46 @@ export function createPortfolioServer(
       safely(async () => ({
         ...(await collectStandards(githubClient(), repository)),
       })),
+  );
+
+  server.registerTool(
+    "settings_drift",
+    {
+      title: "Repository settings drift",
+      description:
+        "Compare an owner's public repositories with declarative settings rules (merge strategy, features, topics, security analysis, branch protection) selected by repository-name globs. Returns per-setting drift and reviewable gh api remediation commands; nothing is ever changed. Supply inline rules or a policy file pinned to a commit.",
+      inputSchema: z.object({
+        owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
+        rules: DriftPolicySchema.optional().describe(
+          "Inline policy: { version: 1, rules: [...] }",
+        ),
+        policy: PolicySourceSchema.optional().describe(
+          "A YAML policy in a public repository, pinned to a full commit SHA",
+        ),
+        limit: z.number().int().min(1).max(20).default(10),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ owner, rules, policy, limit }) =>
+      safely(async () => {
+        if ((rules === undefined) === (policy === undefined))
+          throw new GitHubInputError("Provide exactly one of rules or policy.");
+
+        const client = githubClient();
+
+        if (rules)
+          return collectSettingsDrift(client, owner, rules, {
+            limit,
+            source: { kind: "inline" },
+          });
+
+        const pinned = await readPinnedPolicy(client, policy!);
+
+        return collectSettingsDrift(client, owner, pinned.policy, {
+          limit,
+          source: { kind: "policy", url: pinned.url },
+        });
+      }),
   );
 
   server.registerTool(

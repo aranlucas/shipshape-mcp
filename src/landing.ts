@@ -16,13 +16,14 @@ const LANDING_PAGE = `<!doctype html>
     <main class="site-shell">
       <header class="masthead">
         <a class="wordmark" href="/">Shipshape <span>/ MCP</span></a>
-        <nav aria-label="Service links"><ul class="nav-list"><li><a href="/privacy">Privacy</a></li><li><a href="/health">Health</a></li></ul></nav>
+        <nav aria-label="Service links"><ul class="nav-list"><li><a href="/app">Dashboard</a></li><li><a href="/privacy">Privacy</a></li><li><a href="/health">Health</a></li></ul></nav>
       </header>
       <section class="hero">
         <p class="eyebrow">Repository intelligence, without the guesswork</p>
         <h1>Know what to fix next.</h1>
         <p class="lead">Shipshape turns public GitHub evidence into a small, ranked maintenance queue. It reads; it never pushes, edits, clones, or executes a repository.</p>
         <div class="endpoint"><span class="status-dot" aria-hidden="true"></span><code>shipshape-mcp.aranlucas.workers.dev/mcp</code></div>
+        <p class="lead">Prefer a browser? <a href="/app">Open the settings dashboard</a> to check repository settings against your own rules.</p>
       </section>
       <section class="signal-grid" aria-label="Design principles">
         <article class="signal"><span class="signal-number">01 / READ ONLY</span><h2>Safe by construction</h2><p>One narrow GitHub OAuth scope, public repositories only, and a client with no mutation method.</p></article>
@@ -30,7 +31,7 @@ const LANDING_PAGE = `<!doctype html>
         <article class="signal"><span class="signal-number">03 / HONEST</span><h2>Unknown stays unknown</h2><p>Permission- and plan-gated evidence never quietly becomes a passing security signal.</p></article>
       </section>
       <section class="tools">
-        <p class="section-label">Seven focused tools</p>
+        <p class="section-label">Eight focused tools</p>
         <div class="tool-grid">
           <article class="tool"><h3>portfolio_snapshot</h3><p>Find recently active public repositories that most need attention.</p></article>
           <article class="tool"><h3>repo_readiness</h3><p>Audit publication, branch, delivery, and security signals together.</p></article>
@@ -38,6 +39,7 @@ const LANDING_PAGE = `<!doctype html>
           <article class="tool"><h3>delivery_hygiene</h3><p>Summarize recent commits, pull requests, and workflow health.</p></article>
           <article class="tool"><h3>security_posture</h3><p>Normalize code, dependency, and secret-scanning evidence.</p></article>
           <article class="tool"><h3>standards_audit</h3><p>Check packages against a shared engineering baseline with commit-pinned evidence.</p></article>
+          <article class="tool"><h3>settings_drift</h3><p>Compare repository settings with declarative rules and get reviewable fix commands.</p></article>
           <article class="tool"><h3>action_plan</h3><p>Turn failed and unknown checks into a bounded maintenance queue.</p></article>
         </div>
       </section>
@@ -55,6 +57,7 @@ const PRIVACY_PAGE = `<!doctype html>
       <h1>Privacy, in plain language.</h1>
       <p>Shipshape uses GitHub OAuth to identify you and make authorized, read-only requests about public repositories. It requests <code>read:user</code>; it does not request the broad <code>repo</code> scope.</p>
       <p>OAuth access tokens are stored only in encrypted authorization properties. They are never put in URLs, logs, tool output, or rendered pages.</p>
+      <p>The <a href="/app">dashboard</a> keeps an eight-hour session in an HttpOnly cookie. Its GitHub token is encrypted with a key derived from that cookie before it is stored in Cloudflare KV. Rules you choose to save are stored in KV under your GitHub login until you replace them.</p>
       <p>Short-lived OAuth state and grants are stored in Cloudflare KV. You can revoke access from GitHub or your MCP client. Shipshape does not sell personal information and does not clone or execute repository code.</p>
       <p><a href="/">Return to Shipshape MCP</a></p>
     </article></main>

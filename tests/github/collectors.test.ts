@@ -200,6 +200,28 @@ describe("GitHub collectors", () => {
     expect(security.secretScanning.reason).toContain("HTTP 404");
   });
 
+  it("reads branch protection toggles in GitHub's { enabled } response shape", async () => {
+    const { client } = clientFor((url) =>
+      url.pathname.endsWith("/protection")
+        ? jsonResponse({
+            ...protection,
+            allow_force_pushes: { enabled: true },
+            allow_deletions: { enabled: false },
+            required_linear_history: { enabled: true },
+          })
+        : fullRoute(url),
+    );
+
+    const risk = await collectBranchRisk(client, coordinates, "main");
+
+    expect(risk).toMatchObject({
+      status: "available",
+      protectionStatus: "protected",
+      allowsForcePushes: true,
+      allowsDeletions: false,
+    });
+  });
+
   it("rejects private repositories rather than silently including them", async () => {
     const { client } = clientFor((url) => {
       if (url.pathname === "/repos/octo/demo")

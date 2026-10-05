@@ -26,7 +26,7 @@ codex mcp add shipshape \
   --oauth-client-registration auto
 ```
 
-Available tools include `portfolio_snapshot`, `repo_readiness`, `branch_risk`, `delivery_hygiene`, `security_posture`, `standards_audit`, and `action_plan`. Shipshape accepts public repositories only and has no mutation or code-execution capability.
+Available tools include `portfolio_snapshot`, `repo_readiness`, `branch_risk`, `delivery_hygiene`, `security_posture`, `standards_audit`, `settings_drift`, and `action_plan`. Shipshape accepts public repositories only and has no mutation or code-execution capability.
 
 | Tool                 | Use it to                                                           |
 | -------------------- | ------------------------------------------------------------------- |
@@ -36,6 +36,7 @@ Available tools include `portfolio_snapshot`, `repo_readiness`, `branch_risk`, `
 | `delivery_hygiene`   | Review commits, pull requests, workflows, and release evidence.     |
 | `security_posture`   | Normalize code, dependency, and secret-scanning evidence.           |
 | `standards_audit`    | Compare Node, Go, and Python packages with a pinned baseline.       |
+| `settings_drift`     | Check repository settings against rules and suggest fix commands.   |
 | `action_plan`        | Turn failed and unknown checks into a bounded work queue.           |
 
 The service asks GitHub for public metadata and repository signals through the
@@ -60,6 +61,19 @@ Use `standards_audit` to check Node, Go, and Python packages against a pinned
 engineering baseline. Commit `.shipshape.yml` with
 `baseline: shipshape/recommended@1` to adopt it. Shared policies, dated
 exceptions, and evidence semantics are documented in [Shared standards](docs/standards.md).
+
+## Settings drift
+
+Use `settings_drift` to declare the repository settings you expect (merge
+strategy, features, topics, security analysis, and branch protection), select
+repositories with name globs, and see which public repositories have drifted.
+Each drift comes with a `gh api` command a maintainer can review and run;
+Shipshape itself never changes a setting. See [Settings drift](docs/settings-drift.md).
+
+The same check is available in the browser at
+[`/app`](https://shipshape-mcp.aranlucas.workers.dev/app). Sign in with GitHub,
+edit rules in YAML (or start from presets), save them to your account, and copy
+fix commands from the results.
 
 ## Architecture
 

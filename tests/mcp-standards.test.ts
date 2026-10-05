@@ -86,7 +86,7 @@ function auditRoute(url: URL): Response {
 }
 
 describe("real MCP SDK integration", () => {
-  it("exposes exactly seven read-only tools and enforces their input schemas", async () => {
+  it("exposes exactly eight read-only tools and enforces their input schemas", async () => {
     const { client, calls } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
@@ -96,6 +96,7 @@ describe("real MCP SDK integration", () => {
       "portfolio_snapshot",
       "repo_readiness",
       "security_posture",
+      "settings_drift",
       "standards_audit",
     ]);
 
@@ -242,5 +243,163 @@ describe("real MCP SDK integration", () => {
       { type: "text", text: "Shipshape only inspects public repositories." },
     ]);
     expect(calls.map((url) => url.pathname)).toEqual(["/repos/octo/demo"]);
+  });
+
+  it("reports settings drift with reviewable remediation and no writes", async () => {
+    const { client, calls } = await connect((url) => {
+      if (url.pathname === "/users/octo/repos")
+        return jsonResponse([
+          repository,
+          { ...repository, name: "fork", full_name: "octo/fork", fork: true },
+        ]);
+
+      if (url.pathname === "/repos/octo/demo")
+        return jsonResponse({
+          ...repository,
+          allow_squash_merge: false,
+          delete_branch_on_merge: true,
+        });
+
+      if (url.pathname === "/repos/octo/demo/branches/main/protection")
+        return jsonResponse({
+          required_status_checks: null,
+          enforce_admins: {
+            url: "https://api.github.com/repos/octo/demo/branches/main/protection/enforce_admins",
+            enabled: false,
+          },
+          required_signatures: {
+            url: "https://api.github.com/repos/octo/demo/branches/main/protection/required_signatures",
+            enabled: true,
+          },
+          required_linear_history: { enabled: true },
+          allow_force_pushes: { enabled: false },
+          allow_deletions: { enabled: false },
+          required_conversation_resolution: { enabled: false },
+        });
+
+      return auditRoute(url);
+    });
+
+    const result = await client.callTool({
+      name: "settings_drift",
+      arguments: {
+        owner: "octo",
+        rules: {
+          version: 1,
+          rules: [
+            {
+              id: "baseline",
+              merge: { allowSquash: true, deleteBranchOnMerge: true },
+              branchProtection: {
+                requiredSignatures: true,
+                requiredLinearHistory: true,
+                enforceAdmins: true,
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      owner: "octo",
+      status: "drifted",
+      policy: { kind: "inline" },
+      scope: { matchedRepositories: 1, scannedRepositories: 1 },
+      totals: { drifted: 1, remediationSteps: 2 },
+      repositories: [
+        {
+          repository: "octo/demo",
+          counts: { pass: 3, fail: 2, unknown: 0 },
+          remediation: [
+            {
+              method: "PATCH",
+              path: "/repos/octo/demo",
+              body: { allow_squash_merge: true },
+            },
+            {
+              method: "PUT",
+              path: "/repos/octo/demo/branches/main/protection",
+              body: { enforce_admins: true, required_linear_history: true },
+            },
+          ],
+        },
+      ],
+    });
+    expect(calls.map((url) => url.pathname)).not.toContain("/repos/octo/fork");
+  });
+
+  it("loads a pinned policy file and requires exactly one policy source", async () => {
+    const sha = "d".repeat(40);
+
+    const text =
+      "version: 1\nrules:\n  - id: topics\n    topics: {required: [demo]}\n";
+
+    const { client } = await connect((url) => {
+      if (url.pathname === "/users/octo/repos")
+        return jsonResponse([repository]);
+
+      if (url.pathname === "/repos/octo/standards")
+        return jsonResponse({ ...repository, name: "standards" });
+
+      if (url.pathname === `/repos/octo/standards/git/trees/${sha}`)
+        return jsonResponse({
+          truncated: false,
+          tree: [
+            {
+              path: "repo-rules.yml",
+              sha: "e".repeat(40),
+              mode: "100644",
+              type: "blob",
+              size: text.length,
+            },
+          ],
+        });
+
+      if (url.pathname === `/repos/octo/standards/git/blobs/${"e".repeat(40)}`)
+        return jsonResponse({
+          encoding: "base64",
+          content: btoa(text),
+          size: text.length,
+        });
+
+      return auditRoute(url);
+    });
+
+    const result = await client.callTool({
+      name: "settings_drift",
+      arguments: {
+        owner: "octo",
+        policy: {
+          owner: "octo",
+          repo: "standards",
+          ref: sha,
+          path: "repo-rules.yml",
+        },
+      },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      status: "compliant",
+      policy: {
+        kind: "policy",
+        url: `https://github.com/octo/standards/blob/${sha}/repo-rules.yml`,
+      },
+      repositories: [
+        { repository: "octo/demo", status: "compliant", remediation: [] },
+      ],
+    });
+
+    const neither = await client.callTool({
+      name: "settings_drift",
+      arguments: { owner: "octo" },
+    });
+
+    expect(neither.isError).toBe(true);
+    expect(neither.content).toEqual([
+      { type: "text", text: "Provide exactly one of rules or policy." },
+    ]);
   });
 });
