@@ -69,6 +69,10 @@ export const GitHubSecurityAnalysisSchema = z
       .object({ status: z.string().optional() })
       .nullable()
       .optional(),
+    dependabot_security_updates: z
+      .object({ status: z.string().optional() })
+      .nullable()
+      .optional(),
   })
   .passthrough();
 
@@ -104,7 +108,10 @@ export const GitHubRepositorySchema = z
     has_pages: z.boolean().optional(),
     has_discussions: z.boolean().optional(),
     allow_merge_commit: z.boolean().optional(),
+    allow_squash_merge: z.boolean().optional(),
     allow_rebase_merge: z.boolean().optional(),
+    allow_auto_merge: z.boolean().optional(),
+    delete_branch_on_merge: z.boolean().optional(),
     allow_update_branch: z.boolean().optional(),
     security_and_analysis: GitHubSecurityAnalysisSchema.nullable().optional(),
     owner: GitHubOwnerSchema.optional(),
@@ -146,6 +153,14 @@ const GitHubRequiredStatusChecksSchema = z
   .nullable()
   .optional();
 
+/** GitHub reports protection toggles as `{ enabled }`; accept bare booleans too. */
+const ProtectionFlagSchema = z
+  .union([
+    z.boolean(),
+    z.object({ enabled: z.boolean() }).transform((value) => value.enabled),
+  ])
+  .optional();
+
 export const GitHubBranchProtectionSchema = z
   .object({
     url: z.string().url().optional(),
@@ -171,11 +186,12 @@ export const GitHubBranchProtectionSchema = z
       })
       .nullable()
       .optional(),
-    required_linear_history: z.boolean().optional(),
-    allow_force_pushes: z.boolean().optional(),
-    allow_deletions: z.boolean().optional(),
-    required_conversation_resolution: z.boolean().optional(),
-    lock_branch: z.boolean().optional(),
+    required_signatures: ProtectionFlagSchema,
+    required_linear_history: ProtectionFlagSchema,
+    allow_force_pushes: ProtectionFlagSchema,
+    allow_deletions: ProtectionFlagSchema,
+    required_conversation_resolution: ProtectionFlagSchema,
+    lock_branch: ProtectionFlagSchema,
   })
   .passthrough();
 

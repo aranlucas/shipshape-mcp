@@ -16,7 +16,7 @@ import { parsePolicy, mergePolicy, type Policy } from "./policy";
 
 const SHA = z.string().regex(/^[a-f0-9]{40}$/);
 
-const TreeSchema = z.object({
+export const TreeSchema = z.object({
   truncated: z.boolean(),
   tree: z
     .array(
@@ -31,7 +31,7 @@ const TreeSchema = z.object({
     .max(100_000),
 });
 
-const BlobSchema = z.object({
+export const BlobSchema = z.object({
   encoding: z.literal("base64"),
   content: z.string().max(180_000),
   size: z.number().int().nonnegative().max(128_000),
@@ -41,7 +41,7 @@ const selected = (path: string) =>
   /(^|\/)(package.json|go.mod|pyproject.toml|tsconfig.json)$/.test(path) ||
   /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
 
-function decode(content: string) {
+export function decode(content: string) {
   return new TextDecoder("utf-8", { fatal: true }).decode(
     Uint8Array.from(atob(content.replace(/\s/g, "")), (char) =>
       char.charCodeAt(0),

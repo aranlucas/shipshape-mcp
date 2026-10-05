@@ -30,7 +30,7 @@ const LANDING_PAGE = `<!doctype html>
         <article class="signal"><span class="signal-number">03 / HONEST</span><h2>Unknown stays unknown</h2><p>Permission- and plan-gated evidence never quietly becomes a passing security signal.</p></article>
       </section>
       <section class="tools">
-        <p class="section-label">Seven focused tools</p>
+        <p class="section-label">Eight focused tools</p>
         <div class="tool-grid">
           <article class="tool"><h3>portfolio_snapshot</h3><p>Find recently active public repositories that most need attention.</p></article>
           <article class="tool"><h3>repo_readiness</h3><p>Audit publication, branch, delivery, and security signals together.</p></article>
@@ -38,6 +38,7 @@ const LANDING_PAGE = `<!doctype html>
           <article class="tool"><h3>delivery_hygiene</h3><p>Summarize recent commits, pull requests, and workflow health.</p></article>
           <article class="tool"><h3>security_posture</h3><p>Normalize code, dependency, and secret-scanning evidence.</p></article>
           <article class="tool"><h3>standards_audit</h3><p>Check packages against a shared engineering baseline with commit-pinned evidence.</p></article>
+          <article class="tool"><h3>settings_drift</h3><p>Compare repository settings with declarative rules and get reviewable fix commands.</p></article>
           <article class="tool"><h3>action_plan</h3><p>Turn failed and unknown checks into a bounded maintenance queue.</p></article>
         </div>
       </section>
