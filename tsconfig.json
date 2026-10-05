@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals", "@cloudflare/vitest-plugin/types"]
   },
   "include": [
     "src",

@@ -1,11 +1,12 @@
 import { bindings, defineConfig } from "cf/config";
+import * as entrypoint from "./src/index" with { type: "cf-worker" };
 
 export default defineConfig({
   worker: {
     name: "shipshape-mcp",
     compatibilityDate: "2026-08-30",
     compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
-    entrypoint: "src/index.ts",
+    entrypoint,
     observability: {
       enabled: true,
       logs: {
