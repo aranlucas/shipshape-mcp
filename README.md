@@ -114,6 +114,9 @@ pnpm dev
 tests, and a `cf deploy --dry-run`. Deploy with `pnpm deploy` only after configuring
 the production OAuth secrets and KV binding described in `cloudflare.config.ts`.
 
+Workers Builds runs `pnpm run build`, then `pnpm run deploy:ci` for `main` and
+`pnpm run preview` for other branches.
+
 ## Status and limits
 
 The public endpoint is deployed at
