@@ -19,7 +19,7 @@
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
     "@modelcontextprotocol/server": "2.1.0",
-    "agents": "^0.24.0",
+    "agents": "^0.26.0",
     "jsonc-parser": "^3.3.1",
     "oauth4webapi": "^3.8.8",
     "octokit": "^5.0.5",
@@ -40,7 +40,7 @@
     "typescript": "7.0.2",
     "undici": "8.11.2",
     "vitest": "^5.0.3",
-    "wrangler": "^4.143.0"
+    "wrangler": "^4.147.0"
   },
   "packageManager": "pnpm@12.6.0"
 }
