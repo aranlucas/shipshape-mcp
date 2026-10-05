@@ -35,6 +35,19 @@ Stateless MCP handler ---- GitHub REST API 2026-03-10
 - GitHub feature endpoints may answer `403` or `404` when a plan or permission
   is missing. Those signals become `unknown`, never a passing result.
 
+## Website companion
+
+`src/web/` serves the settings dashboard on the same Worker under `/app`. It
+does not go through the MCP authorization server: GitHub redirects to
+`/callback/web`, a subdirectory of the registered OAuth callback, with
+one-time state bound to a browser cookie. The resulting token is encrypted with
+AES-GCM under a key derived from an HttpOnly session cookie, and only a hash of
+that cookie is used as the KV key, so KV contents alone cannot recover a token.
+Sessions last eight hours. The page loads one same-origin script under a strict
+CSP and builds the DOM with `textContent`. State-changing API calls require a
+matching `Origin` and a JSON body. The dashboard reuses the read-only drift
+collector.
+
 ## Scoring
 
 Rules emit a stable ID, category, state, score impact, confidence, evidence,

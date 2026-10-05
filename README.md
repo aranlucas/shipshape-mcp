@@ -70,6 +70,11 @@ repositories with name globs, and see which public repositories have drifted.
 Each drift comes with a `gh api` command a maintainer can review and run;
 Shipshape itself never changes a setting. See [Settings drift](docs/settings-drift.md).
 
+The same check is available in the browser at
+[`/app`](https://shipshape-mcp.aranlucas.workers.dev/app). Sign in with GitHub,
+edit rules in YAML (or start from presets), save them to your account, and copy
+fix commands from the results.
+
 ## Architecture
 
 ```mermaid

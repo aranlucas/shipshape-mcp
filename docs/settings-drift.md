@@ -10,6 +10,14 @@ plain text for a maintainer to review and run with their own administrator
 credential. That is the main difference from hosted rule enforcers that apply
 settings automatically with an installed GitHub App.
 
+## Use the dashboard
+
+The website companion at `/app` runs the same check without an MCP client.
+Sign in with GitHub (`read:user`), edit rules in YAML or add presets, and run
+the check against any owner. Results show each repository's checks, conflicts,
+manual items, and copyable fix commands. **Save rules** stores the policy under
+your GitHub login, and **Download YAML** exports it for a policy repository.
+
 ## Write rules
 
 ```yaml

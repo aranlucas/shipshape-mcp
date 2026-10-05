@@ -88,8 +88,8 @@ export interface OAuthRuntime {
 }
 
 export function createOAuthHandler(runtime: OAuthRuntime) {
-  const defaultHandler: ExportedHandler<OAuthEnv> = {
-    async fetch(request, env) {
+  const defaultHandler = {
+    async fetch(request: Request, env: OAuthEnv): Promise<Response> {
       try {
         return await handleDefaultRequest(request, env, runtime);
       } catch {
@@ -105,7 +105,7 @@ export function createOAuthHandler(runtime: OAuthRuntime) {
         return response;
       }
     },
-  };
+  } satisfies ExportedHandler<OAuthEnv>;
 
   return {
     defaultHandler,
@@ -526,8 +526,9 @@ async function exchangeGitHubCode(
   callbackParameters: URLSearchParams,
   request: Request,
   env: OAuthEnv,
+  callbackPath: string = CALLBACK_PATH,
 ): Promise<string | null> {
-  const callback = callbackUrl(request, env);
+  const callback = callbackUrl(request, env, callbackPath);
 
   try {
     const client: oauth.Client = { client_id: env.GITHUB_CLIENT_ID };
@@ -733,7 +734,11 @@ export async function fetchWithTimeout(
   }
 }
 
-function callbackUrl(request: Request, env: OAuthEnv): URL {
+export function callbackUrl(
+  request: Request,
+  env: OAuthEnv,
+  path: string = CALLBACK_PATH,
+): URL {
   const requestOrigin = new URL(request.url).origin;
   const configuredOrigin = env.PUBLIC_ORIGIN?.trim() || requestOrigin;
   const origin = new URL(configuredOrigin);
@@ -753,7 +758,66 @@ function callbackUrl(request: Request, env: OAuthEnv): URL {
     throw new Error("Invalid public origin configuration");
   }
 
-  return new URL(CALLBACK_PATH, origin);
+  return new URL(path, origin);
+}
+
+/**
+ * Finish a GitHub authorization-code callback for a first-party page: validate
+ * the response, exchange the code, and confirm the token identifies a user.
+ * State must already be verified by the caller.
+ */
+export async function completeGitHubLogin(
+  request: Request,
+  env: OAuthEnv,
+  callbackPath: string,
+): Promise<{ accessToken: string; login: string } | null> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+
+  if (
+    url.searchParams.has("error") ||
+    code === null ||
+    !isSafeUpstreamValue(code)
+  )
+    return null;
+
+  let callbackParameters: URLSearchParams;
+
+  try {
+    callbackParameters = oauth.validateAuthResponse(
+      GITHUB_AUTHORIZATION_SERVER,
+      { client_id: env.GITHUB_CLIENT_ID },
+      url.searchParams,
+      oauth.skipStateCheck,
+    );
+  } catch {
+    reportOAuthFailure("github_authorization_response");
+
+    return null;
+  }
+
+  const accessToken = await exchangeGitHubCode(
+    callbackParameters,
+    request,
+    env,
+    callbackPath,
+  );
+
+  if (accessToken === null) return null;
+
+  const login = await fetchAndValidateGitHubUser(
+    accessToken,
+    env,
+    request.signal,
+  );
+
+  if (login === null) {
+    reportOAuthFailure("github_user_validation");
+
+    return null;
+  }
+
+  return { accessToken, login };
 }
 
 function reportOAuthFailure(stage: string): void {
