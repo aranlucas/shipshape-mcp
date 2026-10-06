@@ -1,0 +1,1 @@
+export const MAX_SETTINGS_DRIFT_REPOSITORIES = 30;

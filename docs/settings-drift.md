@@ -59,12 +59,21 @@ rules:
       requiredConversationResolution: true
       dismissStaleReviews: true
       requireCodeOwnerReviews: true
+      requireLastPushApproval: true
       requiredApprovingReviews: 1 # minimum
       requiredStatusChecks: [build, test] # must be present
 ```
 
 Each rule needs at least one setting, and every field is optional. Unknown
 fields are rejected. A policy can have up to 25 rules with unique kebab-case ids.
+
+The dashboard includes optional presets for stronger pull request reviews and
+signed commits. Code-owner review only has an effect when the repository has a
+valid `CODEOWNERS` file on the base branch, with owners who can write to the
+repository. Signed-commit requirements can affect contributor workflows, so
+enable them only after contributors are ready to sign commits. See the [GitHub
+best-practices research](github-best-practices-research.md) for source-backed
+guidance and practices that Shipshape does not currently evaluate.
 
 Repository selectors are case-insensitive name globs that support `*` and `?`.
 They are deliberately not regular expressions: glob matching runs in linear
@@ -111,7 +120,7 @@ are merged.
 
 The top-level `status` is `drifted` if any check fails. It is `unknown` when
 evidence is missing, a repository could not be read, or the scan was truncated
-by `limit` (at most 20 repositories) or by the 300-repository owner listing.
+by `limit` (at most 30 repositories) or by the 300-repository owner listing.
 Otherwise it is `compliant`.
 
 ## Visibility and unknown states

@@ -5,6 +5,7 @@ import {
   collectSettingsDrift,
   readPinnedPolicy,
 } from "./drift/collect";
+import { MAX_SETTINGS_DRIFT_REPOSITORIES } from "./drift/limits";
 import { DriftPolicySchema } from "./drift/policy";
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -292,7 +293,12 @@ export function createPortfolioServer(
         policy: PolicySourceSchema.optional().describe(
           "A YAML policy in a public repository, pinned to a full commit SHA",
         ),
-        limit: z.number().int().min(1).max(20).default(10),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_SETTINGS_DRIFT_REPOSITORIES)
+          .default(10),
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
