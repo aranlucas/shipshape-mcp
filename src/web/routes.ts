@@ -273,16 +273,72 @@ async function driftApi(
 ): Promise<Response> {
   const input = DriftRequestSchema.parse(await readJson(request));
   const policy = parseDriftPolicy(input.policy);
+  const client = createGitHubOctokit(session.accessToken);
+
+  const options = {
+    page: input.page,
+    perPage: input.limit ?? SETTINGS_DRIFT_PAGE_SIZE,
+    source: { kind: "inline" as const },
+  };
+
+  if (request.headers.get("accept")?.includes("application/x-ndjson")) {
+    const encoder = new TextEncoder();
+    const headers = appHeaders("application/x-ndjson; charset=utf-8");
+    let cancelled = false;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (event: ConfigValue) => {
+          if (cancelled) return;
+
+          try {
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          } catch {
+            cancelled = true;
+          }
+        };
+
+        void collectSettingsDrift(client, input.owner, policy, {
+          ...options,
+          onProgress: (progress) =>
+            send(
+              ConfigValueSchema.parse(
+                JSON.parse(JSON.stringify({ type: "progress", ...progress })),
+              ),
+            ),
+        })
+          .then((report) =>
+            send(
+              ConfigValueSchema.parse(
+                JSON.parse(JSON.stringify({ type: "complete", report })),
+              ),
+            ),
+          )
+          .catch((error) => {
+            const { message } = errorMessage(error);
+            send(
+              ConfigValueSchema.parse(
+                JSON.parse(JSON.stringify({ type: "error", error: message })),
+              ),
+            );
+          })
+          .finally(() => {
+            if (!cancelled) controller.close();
+          });
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+
+    return new Response(stream, { headers });
+  }
 
   const report = await collectSettingsDrift(
-    createGitHubOctokit(session.accessToken),
+    client,
     input.owner,
     policy,
-    {
-      page: input.page,
-      perPage: input.limit ?? SETTINGS_DRIFT_PAGE_SIZE,
-      source: { kind: "inline" },
-    },
+    options,
   );
 
   return json(ConfigValueSchema.parse(JSON.parse(JSON.stringify(report))));
@@ -312,7 +368,6 @@ export async function webHandler(
   if (pathname === APP_SCRIPT_PATH) {
     if (request.method !== "GET") return methodNotAllowed();
     const headers = appHeaders("text/javascript; charset=utf-8");
-    headers.set("Cache-Control", "public, max-age=300");
 
     return new Response(APP_SCRIPT, { status: 200, headers });
   }

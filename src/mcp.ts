@@ -284,7 +284,7 @@ export function createPortfolioServer(
     {
       title: "Repository settings drift",
       description:
-        "Compare one page of an owner's public repositories with declarative settings rules (merge strategy, features, topics, security analysis, branch protection) selected by repository-name globs. Pass increasing page values until scope.hasNextPage is false to scan every page. Returns per-setting drift and reviewable gh api remediation commands; nothing is ever changed. Supply inline rules or a policy file pinned to a commit.",
+        "Compare one page of an owner's public repositories with declarative GitHub best-practice rules for repository settings, community files, Actions workflow security, active rulesets, and branch protection. Pass increasing page values until scope.hasNextPage is false to scan every page. Returns per-setting drift, manual guidance, and reviewable gh api remediation commands; nothing is ever changed. Supply inline rules or a policy file pinned to a commit.",
       inputSchema: z.object({
         owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
         rules: DriftPolicySchema.optional().describe(

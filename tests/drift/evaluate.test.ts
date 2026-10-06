@@ -5,6 +5,9 @@ import {
   type BranchProtectionFact,
   type ProtectionState,
   type RepositorySettingId,
+  type RepositoryFileSettingId,
+  type RepositoryRuleSettingId,
+  type WorkflowSecuritySettingId,
   type RepositorySettingsFacts,
 } from "../../src/drift/evaluate";
 import { DriftPolicySchema } from "../../src/drift/policy";
@@ -13,6 +16,30 @@ import { DriftPolicySchema } from "../../src/drift/policy";
 const unknownSettings = Object.fromEntries(
   REPOSITORY_SETTINGS.map((definition) => [definition.id, null]),
 ) as Record<RepositorySettingId, boolean | null>;
+
+const unknownRepositoryFiles: Record<RepositoryFileSettingId, boolean | null> =
+  {
+    "repositoryFiles.readme": null,
+    "repositoryFiles.license": null,
+    "repositoryFiles.contributing": null,
+    "repositoryFiles.codeOfConduct": null,
+    "repositoryFiles.security": null,
+    "repositoryFiles.citation": null,
+  };
+
+const unknownWorkflowSecurity: Record<
+  WorkflowSecuritySettingId,
+  boolean | null
+> = {
+  "workflowSecurity.leastPrivilegeToken": null,
+  "workflowSecurity.pinnedActions": null,
+  "workflowSecurity.dependencyReview": null,
+};
+
+const unknownRepositoryRules: Record<RepositoryRuleSettingId, boolean | null> =
+  {
+    "repositoryRules.activeRuleset": null,
+  };
 
 function facts(
   overrides: Partial<RepositorySettingsFacts> = {},
@@ -26,6 +53,10 @@ function facts(
     fork: false,
     archived: false,
     settings: unknownSettings,
+    repositoryFiles: unknownRepositoryFiles,
+    workflowSecurity: unknownWorkflowSecurity,
+    repositoryRules: unknownRepositoryRules,
+    privateVulnerabilityReporting: null,
     topics: ["api", "legacy"],
     branches: new Map(),
     ...overrides,

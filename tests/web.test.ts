@@ -213,7 +213,7 @@ describe("website companion", () => {
 
         const response =
           url.pathname === "/users/octo/repos"
-            ? jsonResponse([repository])
+            ? jsonResponse([{ ...repository, has_wiki: true }])
             : jsonResponse({ ...repository, has_wiki: true });
 
         Object.defineProperty(response, "url", { value: url.href });

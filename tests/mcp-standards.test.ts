@@ -249,7 +249,11 @@ describe("real MCP SDK integration", () => {
     const { client, calls } = await connect((url) => {
       if (url.pathname === "/users/octo/repos")
         return jsonResponse([
-          repository,
+          {
+            ...repository,
+            allow_squash_merge: false,
+            delete_branch_on_merge: true,
+          },
           { ...repository, name: "fork", full_name: "octo/fork", fork: true },
         ]);
 

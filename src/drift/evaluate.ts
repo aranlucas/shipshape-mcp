@@ -100,6 +100,34 @@ export const REPOSITORY_SETTINGS = [
 
 export type RepositorySettingId = (typeof REPOSITORY_SETTINGS)[number]["id"];
 
+export const REPOSITORY_FILE_SETTINGS = [
+  { id: "repositoryFiles.readme", key: "readme" },
+  { id: "repositoryFiles.license", key: "license" },
+  { id: "repositoryFiles.contributing", key: "contributing" },
+  { id: "repositoryFiles.codeOfConduct", key: "codeOfConduct" },
+  { id: "repositoryFiles.security", key: "security" },
+  { id: "repositoryFiles.citation", key: "citation" },
+] as const;
+
+export type RepositoryFileSettingId =
+  (typeof REPOSITORY_FILE_SETTINGS)[number]["id"];
+
+export const WORKFLOW_SECURITY_SETTINGS = [
+  { id: "workflowSecurity.leastPrivilegeToken", key: "leastPrivilegeToken" },
+  { id: "workflowSecurity.pinnedActions", key: "pinnedActions" },
+  { id: "workflowSecurity.dependencyReview", key: "dependencyReview" },
+] as const;
+
+export type WorkflowSecuritySettingId =
+  (typeof WORKFLOW_SECURITY_SETTINGS)[number]["id"];
+
+export const REPOSITORY_RULE_SETTINGS = [
+  { id: "repositoryRules.activeRuleset", key: "activeRuleset" },
+] as const;
+
+export type RepositoryRuleSettingId =
+  (typeof REPOSITORY_RULE_SETTINGS)[number]["id"];
+
 const PROTECTION_FLAGS = [
   "requiredSignatures",
   "enforceAdmins",
@@ -156,6 +184,16 @@ export interface RepositorySettingsFacts {
   readonly archived: boolean;
   /** Null means GitHub did not disclose the value to this credential. */
   readonly settings: Readonly<Record<RepositorySettingId, boolean | null>>;
+  readonly repositoryFiles: Readonly<
+    Record<RepositoryFileSettingId, boolean | null>
+  >;
+  readonly workflowSecurity: Readonly<
+    Record<WorkflowSecuritySettingId, boolean | null>
+  >;
+  readonly repositoryRules: Readonly<
+    Record<RepositoryRuleSettingId, boolean | null>
+  >;
+  readonly privateVulnerabilityReporting: boolean | null;
   readonly topics: readonly string[];
   readonly branches: ReadonlyMap<string, BranchProtectionFact>;
 }
@@ -243,6 +281,30 @@ type Expectation =
       readonly setting: "requiredStatusChecks";
       readonly branch: string;
       readonly value: readonly string[];
+    }
+  | {
+      readonly kind: "file";
+      readonly rule: string;
+      readonly setting: RepositoryFileSettingId;
+      readonly value: boolean;
+    }
+  | {
+      readonly kind: "workflow";
+      readonly rule: string;
+      readonly setting: WorkflowSecuritySettingId;
+      readonly value: boolean;
+    }
+  | {
+      readonly kind: "privateVulnerabilityReporting";
+      readonly rule: string;
+      readonly setting: "privateVulnerabilityReporting";
+      readonly value: boolean;
+    }
+  | {
+      readonly kind: "repositoryRule";
+      readonly rule: string;
+      readonly setting: RepositoryRuleSettingId;
+      readonly value: boolean;
     };
 
 /** The branches a policy needs protection evidence for, per repository. */
@@ -282,6 +344,50 @@ function expectations(rule: DriftRule, defaultBranch: string): Expectation[] {
         value,
       });
   }
+
+  for (const definition of REPOSITORY_FILE_SETTINGS) {
+    const value = rule.repositoryFiles?.[definition.key];
+
+    if (value !== undefined)
+      result.push({
+        kind: "file",
+        rule: rule.id,
+        setting: definition.id,
+        value,
+      });
+  }
+
+  for (const definition of WORKFLOW_SECURITY_SETTINGS) {
+    const value = rule.workflowSecurity?.[definition.key];
+
+    if (value !== undefined)
+      result.push({
+        kind: "workflow",
+        rule: rule.id,
+        setting: definition.id,
+        value,
+      });
+  }
+
+  for (const definition of REPOSITORY_RULE_SETTINGS) {
+    const value = rule.repositoryRules?.[definition.key];
+
+    if (value !== undefined)
+      result.push({
+        kind: "repositoryRule",
+        rule: rule.id,
+        setting: definition.id,
+        value,
+      });
+  }
+
+  if (rule.security?.privateVulnerabilityReporting !== undefined)
+    result.push({
+      kind: "privateVulnerabilityReporting",
+      rule: rule.id,
+      setting: "privateVulnerabilityReporting",
+      value: rule.security.privateVulnerabilityReporting,
+    });
 
   if (rule.topics?.required.length)
     result.push({
@@ -392,6 +498,48 @@ function compare(
     return verdict(actual === expectation.value, actual);
   }
 
+  if (expectation.kind === "file") {
+    const actual = facts.repositoryFiles[expectation.setting];
+
+    if (actual === null)
+      return unknown("The repository tree was incomplete or unavailable.");
+
+    return verdict(actual === expectation.value, actual);
+  }
+
+  if (expectation.kind === "workflow") {
+    const actual = facts.workflowSecurity[expectation.setting];
+
+    if (actual === null)
+      return unknown(
+        "One or more GitHub Actions workflow files could not be inspected.",
+      );
+
+    return verdict(actual === expectation.value, actual);
+  }
+
+  if (expectation.kind === "privateVulnerabilityReporting") {
+    const actual = facts.privateVulnerabilityReporting;
+
+    if (actual === null)
+      return unknown(
+        "GitHub did not expose private vulnerability reporting to this credential.",
+      );
+
+    return verdict(actual === expectation.value, actual);
+  }
+
+  if (expectation.kind === "repositoryRule") {
+    const actual = facts.repositoryRules[expectation.setting];
+
+    if (actual === null)
+      return unknown(
+        "GitHub did not expose active repository rulesets to this credential.",
+      );
+
+    return verdict(actual === expectation.value, actual);
+  }
+
   if (expectation.kind === "topics") {
     const present = new Set(facts.topics);
 
@@ -442,6 +590,18 @@ function compare(
 function evidenceUrl(facts: RepositorySettingsFacts, expectation: Expectation) {
   if (expectation.kind === "topics") return facts.url;
 
+  if (expectation.kind === "file")
+    return `${facts.url}/tree/${encodeURIComponent(facts.defaultBranch)}`;
+
+  if (expectation.kind === "workflow")
+    return `${facts.url}/tree/${encodeURIComponent(facts.defaultBranch)}/.github/workflows`;
+
+  if (expectation.kind === "privateVulnerabilityReporting")
+    return `${facts.url}/settings/security_analysis`;
+
+  if (expectation.kind === "repositoryRule")
+    return `${facts.url}/settings/rules`;
+
   if (expectation.kind !== "repository")
     return `${facts.url}/settings/branches`;
 
@@ -451,7 +611,12 @@ function evidenceUrl(facts: RepositorySettingsFacts, expectation: Expectation) {
 }
 
 function branchOf(expectation: Expectation): string | null {
-  return expectation.kind === "repository" || expectation.kind === "topics"
+  return expectation.kind === "repository" ||
+    expectation.kind === "topics" ||
+    expectation.kind === "file" ||
+    expectation.kind === "workflow" ||
+    expectation.kind === "privateVulnerabilityReporting" ||
+    expectation.kind === "repositoryRule"
     ? null
     : expectation.branch;
 }
@@ -485,6 +650,13 @@ function step(
 
 interface Desired {
   readonly repository: Map<RepositorySettingId, boolean>;
+  readonly other: Map<
+    | RepositoryFileSettingId
+    | WorkflowSecuritySettingId
+    | RepositoryRuleSettingId
+    | "privateVulnerabilityReporting",
+    boolean
+  >;
   readonly required: Set<string>;
   readonly forbidden: Set<string>;
   readonly branches: Map<
@@ -505,6 +677,7 @@ interface Desired {
 function desiredState(all: readonly Expectation[]) {
   const desired: Desired = {
     repository: new Map(),
+    other: new Map(),
     required: new Set(),
     forbidden: new Set(),
     branches: new Map(),
@@ -555,10 +728,17 @@ function desiredState(all: readonly Expectation[]) {
     } else if (expectation.kind === "approvals") {
       const target = branch(expectation.branch);
       target.approvals = Math.max(target.approvals ?? 0, expectation.value);
-    } else {
+    } else if (expectation.kind === "checks") {
       const target = branch(expectation.branch);
 
       for (const context of expectation.value) target.checks.add(context);
+    } else {
+      const previous = desired.other.get(expectation.setting);
+
+      if (previous !== undefined && previous !== expectation.value)
+        conflicts.add(expectation.setting);
+
+      desired.other.set(expectation.setting, expectation.value);
     }
   }
 
@@ -572,6 +752,14 @@ function conflictKey(expectation: Expectation): string {
   if (expectation.kind === "repository") return expectation.setting;
 
   if (expectation.kind === "topics") return "topics";
+
+  if (
+    expectation.kind === "file" ||
+    expectation.kind === "workflow" ||
+    expectation.kind === "privateVulnerabilityReporting" ||
+    expectation.kind === "repositoryRule"
+  )
+    return expectation.setting;
 
   return `${expectation.branch}:${expectation.setting}`;
 }
@@ -717,6 +905,7 @@ export function evaluateRepositoryDrift(
     );
 
     if (!definition || patched.includes(definition.id)) continue;
+
     patched.push(definition.id);
 
     if (definition.security)
@@ -738,6 +927,43 @@ export function evaluateRepositoryDrift(
         patched,
       ),
     );
+
+  for (const [index, expectation] of all.entries()) {
+    if (
+      (expectation.kind !== "file" &&
+        expectation.kind !== "workflow" &&
+        expectation.kind !== "privateVulnerabilityReporting" &&
+        expectation.kind !== "repositoryRule") ||
+      !open(expectation, index)
+    )
+      continue;
+
+    const reason =
+      expectation.kind === "file"
+        ? expectation.value
+          ? "Add the recognized repository file in a GitHub-supported location."
+          : "Remove or relocate the file so GitHub no longer recognizes it at this repository."
+        : expectation.kind === "workflow"
+          ? expectation.setting === "workflowSecurity.dependencyReview"
+            ? "Add actions/dependency-review-action to a pull_request workflow and require that workflow to pass."
+            : expectation.setting === "workflowSecurity.pinnedActions"
+              ? "Pin third-party Actions to verified full commit SHAs."
+              : "Declare minimal permissions for GITHUB_TOKEN at workflow or job level."
+          : expectation.kind === "repositoryRule"
+            ? expectation.value
+              ? "Create an enabled repository or organization ruleset that covers the branches you want to protect."
+              : "Disable or remove the active repository ruleset."
+            : expectation.value
+              ? "Enable private vulnerability reporting in the repository Security settings."
+              : "Disable private vulnerability reporting in the repository Security settings.";
+
+    manual.push({
+      setting: expectation.setting,
+      branch: null,
+      reason,
+      evidence: checks[index]?.evidence ?? facts.url,
+    });
+  }
 
   const topicsOpen = all.some(
     (expectation, index) =>

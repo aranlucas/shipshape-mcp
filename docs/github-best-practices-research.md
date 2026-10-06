@@ -1,8 +1,8 @@
 # GitHub repository best practices
 
 Researched from GitHub Docs on 2026-10-05. This note informs the optional
-presets in Shipshape's settings drift dashboard and records useful practices
-that the current checker cannot yet evaluate.
+presets in Shipshape's settings drift dashboard and records which checks are
+static approximations.
 
 ## Practices available in Shipshape
 
@@ -38,33 +38,46 @@ requests for vulnerable dependencies; push protection blocks pushes that
 contain supported secrets. [Best practices for repositories](https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories),
 [securing your repository](https://docs.github.com/en/code-security/getting-started/quickstart-for-securing-your-repository)
 
-## Practices to add later
+## Additional practices now checked by Shipshape
 
 - **Workflow hardening:** GitHub recommends granting `GITHUB_TOKEN` only the
   permissions a workflow needs, with read access to repository contents as a
   useful default. It also recommends pinning third-party Actions to full commit
-  SHAs. These require reading workflow YAML or Actions policy settings, which
-  Shipshape's current repository-settings checker does not inspect. [Secure use of GitHub Actions](https://docs.github.com/en/actions/reference/security/secure-use)
+  SHAs. Shipshape checks workflow/job permission blocks for broad write access
+  and checks action references for full commit SHAs. Tagged reusable-workflow
+  references are exempt because GitHub documents that exception. [Secure use of GitHub Actions](https://docs.github.com/en/actions/reference/security/secure-use)
 - **Dependency review:** The Dependency Review Action can inspect dependency
   changes in pull requests and fail a required check when a change introduces a
-  known vulnerability. This needs a workflow and project-specific severity
-  choices, so it is not a repository-settings toggle in the current checker.
+  known vulnerability. Shipshape checks for the action in a `pull_request`
+  workflow; it does not inspect severity or license settings.
   [Dependency Review Action](https://docs.github.com/en/code-security/tutorials/secure-your-dependencies/customize-dependency-review-action)
 - **Vulnerability reporting:** GitHub recommends a `SECURITY.md` file with
   reporting instructions and supports private vulnerability reporting for
-  public repositories. Shipshape does not currently inspect repository files
-  or evaluate that setting. [Repository security guidance](https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories),
+  public repositories. Shipshape checks recognized `SECURITY.md` locations and
+  reads the private-reporting status when GitHub exposes it. [Repository security guidance](https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories),
   [vulnerability reporting](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting)
 - **Repository onboarding:** GitHub recommends a README for every repository.
   A license, contribution guidelines, citation file, and code of conduct help
-  explain project expectations. These are file checks, so they also sit outside
-  the current settings drift evaluator. [Best practices for repositories](https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories)
+  explain project expectations. Shipshape checks recognized repository-local
+  README, license, contribution, conduct, and citation files. [Best practices for repositories](https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories)
+- **Rulesets:** GitHub's repository rulesets can include inherited organization
+  rulesets. Shipshape checks whether any listed ruleset is active, following all
+  result pages, but it does not prove that a ruleset covers the default branch
+  or contains particular rules. [REST API endpoints for rules](https://docs.github.com/en/rest/repos/rules)
 
 ## Scope
 
-The dashboard presets are optional policy rules; adding one checks settings and
-generates reviewable `gh api` commands. Shipshape does not execute those
-commands. The new checks use branch protection fields already collected by the
-app, including the last-push approval setting. Rulesets, workflow files,
-Dependabot alerts, code scanning, private vulnerability reporting, and
-repository documentation files still need separate evaluation.
+The dashboard presets are optional policy rules. Settings checks generate
+reviewable `gh api` commands; workflow, file, and vulnerability-reporting
+findings produce manual steps because Shipshape does not rewrite source files or
+workflow YAML. Shipshape does not execute commands. Repository-tree checks can
+become `unknown` when GitHub truncates a very large tree or a workflow file
+cannot be read. It does not resolve inherited community health files, execute
+workflows, follow reusable workflows, or verify dependency review as a required
+branch check. Rulesets, Dependabot alerts, and code scanning setup still need
+additional GitHub permissions or separate evaluation. The app deliberately
+keeps the OAuth scope at `read:user`; GitHub's Dependabot alert endpoints
+require `public_repo` or `security_events` for public repositories, and the
+code-scanning configuration endpoint requires `public_repo` or repository
+administration access. [Dependabot alerts API](https://docs.github.com/en/rest/dependabot/alerts),
+[code scanning API](https://docs.github.com/en/rest/code-scanning/code-scanning)

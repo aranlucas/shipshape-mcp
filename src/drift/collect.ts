@@ -1,9 +1,12 @@
 import { z } from "zod";
+import type { ZodType } from "zod";
 import pLimit from "p-limit";
 import {
   GitHubInputError,
+  MAX_ALLOWED_CONCURRENCY,
   PrivateRepositoryError,
   octokitGet,
+  type GitHubReadParameters,
   type GitHubOctokit,
 } from "../github/client";
 import {
@@ -12,20 +15,32 @@ import {
   GitHubOwnerInputSchema,
   GitHubRepositorySchema,
   RepositoryCoordinatesSchema,
+  type GitHubResponseMetadata,
   type GitHubBranchProtection,
   type GitHubRepository,
   type RepositoryCoordinates,
 } from "../github/schemas";
 import { BlobSchema, TreeSchema, decode } from "../standards/collect";
-import { FilePathSchema } from "../standards/policy";
+import { FilePathSchema, parseYaml } from "../standards/policy";
 import {
+  ConfigObjectSchema,
+  ConfigValueSchema,
+  configObject as object,
+  type ConfigDocument,
+  type ConfigValue,
+} from "../standards/config-value";
+import {
+  REPOSITORY_FILE_SETTINGS,
   REPOSITORY_SETTINGS,
   evaluateRepositoryDrift,
   protectedBranchesFor,
   type BranchProtectionFact,
   type ProtectionState,
   type RepositoryDrift,
+  type RepositoryFileSettingId,
+  type RepositoryRuleSettingId,
   type RepositorySettingId,
+  type WorkflowSecuritySettingId,
 } from "./evaluate";
 import {
   parseDriftPolicy,
@@ -56,6 +71,221 @@ function unavailable(cause: unknown): string {
   return status === undefined
     ? "Branch protection could not be read."
     : `GitHub returned HTTP ${status} for branch protection.`;
+}
+
+type DriftGet = <T>(
+  route: `GET ${string}`,
+  parameters: GitHubReadParameters,
+  schema: ZodType<T>,
+) => Promise<{ data: T; metadata: GitHubResponseMetadata }>;
+
+const REPOSITORY_FILE_PATHS: Record<
+  (typeof REPOSITORY_FILE_SETTINGS)[number]["key"],
+  readonly string[]
+> = {
+  readme: [
+    ".github/readme",
+    ".github/readme.md",
+    ".github/readme.markdown",
+    ".github/readme.rst",
+    ".github/readme.txt",
+    "readme",
+    "readme.md",
+    "readme.markdown",
+    "readme.rst",
+    "readme.txt",
+    "docs/readme",
+    "docs/readme.md",
+    "docs/readme.markdown",
+    "docs/readme.rst",
+    "docs/readme.txt",
+  ],
+  license: [
+    "license",
+    "license.md",
+    "license.txt",
+    "license.rst",
+    "copying",
+    "copying.md",
+    "copying.txt",
+  ],
+  contributing: [
+    ".github/contributing",
+    ".github/contributing.md",
+    ".github/contributing.rst",
+    ".github/contributing.txt",
+    "contributing",
+    "contributing.md",
+    "contributing.rst",
+    "contributing.txt",
+    "docs/contributing",
+    "docs/contributing.md",
+    "docs/contributing.rst",
+    "docs/contributing.txt",
+  ],
+  codeOfConduct: [
+    ".github/code_of_conduct.md",
+    "code_of_conduct.md",
+    "docs/code_of_conduct.md",
+  ],
+  security: [".github/security.md", "security.md", "docs/security.md"],
+  citation: [
+    "citation",
+    "citations",
+    "citation.cff",
+    "citations.cff",
+    "citation.bib",
+    "citations.bib",
+    "citation.md",
+    "citations.md",
+    "inst/citation",
+  ],
+};
+
+interface WorkflowInspection {
+  readonly parsed: ConfigDocument | null;
+  readonly path: string;
+}
+
+function workflowUses(
+  value: ConfigValue | undefined,
+  uses: string[] = [],
+): string[] {
+  const list = z.array(ConfigValueSchema).safeParse(value).data;
+
+  if (list) {
+    for (const item of list) workflowUses(item, uses);
+
+    return uses;
+  }
+
+  const record = ConfigObjectSchema.safeParse(value).data;
+
+  if (!record) return uses;
+
+  for (const [key, child] of Object.entries(record)) {
+    const use = z.string().safeParse(child).data;
+
+    if (key === "uses" && use) uses.push(use);
+    else workflowUses(child, uses);
+  }
+
+  return uses;
+}
+
+function workflowTriggersPullRequest(workflow: ConfigDocument) {
+  const events = workflow.on;
+  const eventName = z.literal("pull_request").safeParse(events).success;
+
+  if (eventName) return true;
+
+  const eventList = z.array(z.string()).safeParse(events).data;
+
+  if (eventList) return eventList.includes("pull_request");
+
+  const eventMap = ConfigObjectSchema.safeParse(events).data;
+
+  return eventMap ? Object.hasOwn(eventMap, "pull_request") : false;
+}
+
+function permissionBlocksAreMinimal(workflow: ConfigDocument) {
+  const jobs = object(workflow.jobs);
+  const blocks: ConfigValue[] = [];
+  const workflowHasPermissions = Object.hasOwn(workflow, "permissions");
+
+  if (workflowHasPermissions) blocks.push(workflow.permissions);
+
+  const jobPermissions = Object.values(jobs).map((job) => {
+    const permissions = object(job);
+
+    return Object.hasOwn(permissions, "permissions")
+      ? permissions.permissions
+      : undefined;
+  });
+
+  if (!workflowHasPermissions) {
+    if (
+      !jobPermissions.length ||
+      jobPermissions.some((item) => item === undefined)
+    )
+      return false;
+
+    blocks.push(
+      ...jobPermissions.filter(
+        (item): item is ConfigValue => item !== undefined,
+      ),
+    );
+  } else blocks.push(...jobPermissions.filter((item) => item !== undefined));
+
+  return blocks.every((block) => {
+    const allPermissions = z
+      .enum(["read-all", "write-all"])
+      .safeParse(block).data;
+
+    if (allPermissions) return false;
+
+    const scopes = ConfigObjectSchema.safeParse(block).data;
+
+    return (
+      scopes !== undefined &&
+      Object.values(scopes).every(
+        (permission) => z.enum(["read", "none"]).safeParse(permission).success,
+      )
+    );
+  });
+}
+
+function actionUsesArePinned(workflow: ConfigDocument) {
+  return workflowUses(workflow).every((use) => {
+    if (use.startsWith("./") || use.startsWith("docker://")) return true;
+
+    if (/\.github\/workflows\/[^/]+\.ya?ml@[^@]+$/iu.test(use)) return true;
+
+    const separator = use.lastIndexOf("@");
+
+    return separator >= 0 && /^[a-f0-9]{40}$/iu.test(use.slice(separator + 1));
+  });
+}
+
+function hasDependencyReview(workflow: ConfigDocument) {
+  return (
+    workflowTriggersPullRequest(workflow) &&
+    workflowUses(workflow).some((use) =>
+      /^actions\/dependency-review-action@/iu.test(use),
+    )
+  );
+}
+
+async function collectActiveRuleset(
+  get: DriftGet,
+  coordinates: RepositoryCoordinates,
+): Promise<boolean | null> {
+  let page = 1;
+
+  while (true) {
+    try {
+      const response = await get(
+        "GET /repos/{owner}/{repo}/rulesets",
+        { ...coordinates, includes_parents: true, per_page: 100, page },
+        z.array(z.object({ enforcement: z.string().optional() }).passthrough()),
+      );
+
+      if (
+        response.data.some(
+          (ruleset) =>
+            ruleset.enforcement === "enabled" ||
+            ruleset.enforcement === "active",
+        )
+      )
+        return true;
+
+      if (!response.metadata.nextUrl) return false;
+
+      page += 1;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /** Read a YAML policy from a public repository at an immutable commit. */
@@ -154,7 +384,7 @@ function protectionState(protection: GitHubBranchProtection): ProtectionState {
 }
 
 async function collectBranch(
-  client: GitHubOctokit,
+  get: DriftGet,
   coordinates: RepositoryCoordinates,
   branch: string,
 ): Promise<BranchProtectionFact> {
@@ -162,8 +392,7 @@ async function collectBranch(
 
   try {
     protectedBranch = (
-      await octokitGet(
-        client,
+      await get(
         "GET /repos/{owner}/{repo}/branches/{branch}",
         { ...coordinates, branch },
         GitHubBranchSchema,
@@ -183,8 +412,7 @@ async function collectBranch(
 
   try {
     const protection = (
-      await octokitGet(
-        client,
+      await get(
         "GET /repos/{owner}/{repo}/branches/{branch}/protection",
         { ...coordinates, branch },
         GitHubBranchProtectionSchema,
@@ -211,35 +439,200 @@ function settingValue(
 }
 
 async function collectRepository(
-  client: GitHubOctokit,
+  get: DriftGet,
   policy: DriftPolicy,
+  repository: GitHubRepository,
   coordinates: RepositoryCoordinates,
 ): Promise<RepositoryDrift | null> {
-  const repository = (
-    await octokitGet(
-      client,
-      "GET /repos/{owner}/{repo}",
-      coordinates,
-      GitHubRepositorySchema,
-    )
-  ).data;
-
-  if (repository.private) throw new PrivateRepositoryError(coordinates);
-
   const selection = {
     name: repository.name,
     fork: repository.fork,
     archived: repository.archived,
   };
 
-  const branches = new Map<string, BranchProtectionFact>();
+  const rules = policy.rules.filter((rule) => ruleSelects(rule, selection));
 
-  for (const branch of protectedBranchesFor(
+  const branchNames = protectedBranchesFor(
     policy,
     selection,
     repository.default_branch,
-  ))
-    branches.set(branch, await collectBranch(client, coordinates, branch));
+  );
+
+  const branchFactsTask = Promise.all(
+    branchNames.map(
+      async (branch) =>
+        [branch, await collectBranch(get, coordinates, branch)] as const,
+    ),
+  );
+
+  const needsFiles = rules.some((rule) => rule.repositoryFiles !== undefined);
+
+  const needsWorkflows = rules.some(
+    (rule) => rule.workflowSecurity !== undefined,
+  );
+
+  const needsPrivateVulnerabilityReporting = rules.some(
+    (rule) => rule.security?.privateVulnerabilityReporting !== undefined,
+  );
+
+  const needsActiveRuleset = rules.some(
+    (rule) => rule.repositoryRules?.activeRuleset !== undefined,
+  );
+
+  const treeTask =
+    needsFiles || needsWorkflows
+      ? get(
+          "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
+          {
+            ...coordinates,
+            tree_sha: repository.default_branch,
+            recursive: "1",
+          },
+          TreeSchema,
+        )
+          .then((response) => response.data)
+          .catch(() => null)
+      : Promise.resolve(null);
+
+  const reportingTask = needsPrivateVulnerabilityReporting
+    ? get(
+        "GET /repos/{owner}/{repo}/private-vulnerability-reporting",
+        coordinates,
+        z.object({ enabled: z.boolean() }),
+      )
+        .then((response) => response.data.enabled)
+        .catch(() => null)
+    : Promise.resolve(null);
+
+  const rulesetTask = needsActiveRuleset
+    ? collectActiveRuleset(get, coordinates)
+    : Promise.resolve(null);
+
+  const [branchFacts, tree, privateVulnerabilityReporting, activeRuleset] =
+    await Promise.all([branchFactsTask, treeTask, reportingTask, rulesetTask]);
+
+  const branches = new Map<string, BranchProtectionFact>();
+
+  for (const [branch, fact] of branchFacts) branches.set(branch, fact);
+
+  const repositoryFiles: Record<RepositoryFileSettingId, boolean | null> = {
+    "repositoryFiles.readme": null,
+    "repositoryFiles.license": null,
+    "repositoryFiles.contributing": null,
+    "repositoryFiles.codeOfConduct": null,
+    "repositoryFiles.security": null,
+    "repositoryFiles.citation": null,
+  };
+
+  const workflowSecurity: Record<WorkflowSecuritySettingId, boolean | null> = {
+    "workflowSecurity.leastPrivilegeToken": null,
+    "workflowSecurity.pinnedActions": null,
+    "workflowSecurity.dependencyReview": null,
+  };
+
+  const repositoryRules: Record<RepositoryRuleSettingId, boolean | null> = {
+    "repositoryRules.activeRuleset": activeRuleset,
+  };
+
+  if (tree) {
+    const paths = tree.tree
+      .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
+      .map((entry) => entry.path.toLowerCase());
+
+    for (const definition of REPOSITORY_FILE_SETTINGS) {
+      if (
+        !rules.some(
+          (rule) => rule.repositoryFiles?.[definition.key] !== undefined,
+        )
+      )
+        continue;
+
+      const present = REPOSITORY_FILE_PATHS[definition.key].some((candidate) =>
+        paths.includes(candidate),
+      );
+
+      repositoryFiles[definition.id] = present
+        ? true
+        : tree.truncated
+          ? null
+          : false;
+    }
+
+    if (needsWorkflows) {
+      const workflowEntries = tree.tree.filter(
+        (entry) =>
+          entry.type === "blob" &&
+          entry.mode !== "120000" &&
+          /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(entry.path),
+      );
+
+      const workflowReads: WorkflowInspection[] = await Promise.all(
+        workflowEntries.map(async (entry) => {
+          if ((entry.size ?? 0) > 128_000)
+            return { path: entry.path, parsed: null };
+
+          try {
+            const blob = (
+              await get(
+                "GET /repos/{owner}/{repo}/git/blobs/{file_sha}",
+                { ...coordinates, file_sha: entry.sha },
+                BlobSchema,
+              )
+            ).data;
+
+            return {
+              path: entry.path,
+              parsed:
+                ConfigObjectSchema.safeParse(parseYaml(decode(blob.content)))
+                  .data ?? null,
+            };
+          } catch {
+            return { path: entry.path, parsed: null };
+          }
+        }),
+      );
+
+      const unknown =
+        tree.truncated || workflowReads.some((item) => !item.parsed);
+
+      const parsedWorkflows = workflowReads.flatMap((item) =>
+        item.parsed ? [item.parsed] : [],
+      );
+
+      const allKnown = (values: boolean[]) =>
+        values.includes(false) ? false : unknown ? null : true;
+
+      if (
+        rules.some(
+          (rule) => rule.workflowSecurity?.leastPrivilegeToken !== undefined,
+        )
+      )
+        workflowSecurity["workflowSecurity.leastPrivilegeToken"] = allKnown(
+          parsedWorkflows.map(permissionBlocksAreMinimal),
+        );
+
+      if (
+        rules.some((rule) => rule.workflowSecurity?.pinnedActions !== undefined)
+      )
+        workflowSecurity["workflowSecurity.pinnedActions"] = allKnown(
+          parsedWorkflows.map(actionUsesArePinned),
+        );
+
+      if (
+        rules.some(
+          (rule) => rule.workflowSecurity?.dependencyReview !== undefined,
+        )
+      ) {
+        const found = parsedWorkflows.some(hasDependencyReview);
+
+        workflowSecurity["workflowSecurity.dependencyReview"] = found
+          ? true
+          : unknown
+            ? null
+            : false;
+      }
+    }
+  }
 
   // SAFETY: fromEntries receives exactly one entry per REPOSITORY_SETTINGS id.
   const settings = Object.fromEntries(
@@ -258,6 +651,10 @@ async function collectRepository(
     fork: repository.fork,
     archived: repository.archived,
     settings,
+    repositoryFiles,
+    workflowSecurity,
+    repositoryRules,
+    privateVulnerabilityReporting,
     topics: repository.topics ?? [],
     branches,
   });
@@ -267,6 +664,14 @@ export interface DriftOptions {
   readonly page: number;
   readonly perPage: number;
   readonly source: { kind: "inline" } | { kind: "policy"; url: string };
+  readonly onProgress?: (progress: {
+    completed: number;
+    total: number;
+    result:
+      | RepositoryDrift
+      | { repository: string; url: string; error: string }
+      | null;
+  }) => void;
 }
 
 export async function collectSettingsDrift(
@@ -302,29 +707,46 @@ export async function collectSettingsDrift(
   });
 
   const selected = matched;
-  const limit = pLimit(4);
+  const requestLimit = pLimit(MAX_ALLOWED_CONCURRENCY);
+
+  const get: DriftGet = (route, parameters, schema) =>
+    requestLimit(() => octokitGet(client, route, parameters, schema));
+
+  let completed = 0;
 
   const results = await Promise.all(
-    selected.map((repository) =>
-      limit(async () => {
+    selected.map(async (repository) => {
+      let result:
+        | RepositoryDrift
+        | { repository: string; url: string; error: string }
+        | null = null;
+
+      try {
         const coordinates = RepositoryCoordinatesSchema.parse({
           owner: repository.owner?.login ?? validatedOwner,
           repo: repository.name,
         });
 
-        try {
-          return await collectRepository(client, policy, coordinates);
-        } catch (error) {
-          if (error instanceof PrivateRepositoryError) return null;
-
-          return {
+        result = await collectRepository(get, policy, repository, coordinates);
+      } catch (error) {
+        if (!(error instanceof PrivateRepositoryError))
+          result = {
             repository: repository.full_name,
             url: repository.html_url,
             error: "The repository settings could not be read.",
           };
-        }
-      }),
-    ),
+      }
+
+      completed += 1;
+
+      try {
+        options.onProgress?.({ completed, total: selected.length, result });
+      } catch {
+        /* Progress observers must not interrupt a read-only scan. */
+      }
+
+      return result;
+    }),
   );
 
   const repositories = results.flatMap((result) =>

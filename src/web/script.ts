@@ -46,6 +46,39 @@ export const APP_SCRIPT = String.raw`"use strict";
       "      pushProtection: true",
       "      dependabotSecurityUpdates: true",
     ],
+    onboarding: [
+      "  - id: community-health-files",
+      "    description: README, license, contribution guide, code of conduct, security policy, and citation metadata",
+      "    repositoryFiles:",
+      "      readme: true",
+      "      license: true",
+      "      contributing: true",
+      "      codeOfConduct: true",
+      "      security: true",
+      "      citation: true",
+    ],
+    workflows: [
+      "  - id: hardened-actions-workflows",
+      "    description: Minimal token permissions, immutable action references, and dependency review on pull requests",
+      "    workflowSecurity:",
+      "      leastPrivilegeToken: true",
+      "      pinnedActions: true",
+      "      dependencyReview: true",
+    ],
+    rulesets: [
+      "  - id: active-repository-ruleset",
+      "    description: Require an active repository or inherited organization ruleset",
+      "    repositoryRules:",
+      "      activeRuleset: true",
+    ],
+    vulnerability: [
+      "  - id: vulnerability-reporting",
+      "    description: Publish a security policy and enable private vulnerability reporting",
+      "    security:",
+      "      privateVulnerabilityReporting: true",
+      "    repositoryFiles:",
+      "      security: true",
+    ],
     tidy: [
       "  - id: tidy-features",
       "    description: Issues on, unused wiki and projects off",
@@ -69,6 +102,20 @@ export const APP_SCRIPT = String.raw`"use strict";
   const owner = form.elements.namedItem("owner");
   let activeScan = null;
   let isLoading = false;
+
+  const SETTING_LABELS = {
+    "repositoryFiles.readme": "README file",
+    "repositoryFiles.license": "License file",
+    "repositoryFiles.contributing": "Contribution guide",
+    "repositoryFiles.codeOfConduct": "Code of conduct",
+    "repositoryFiles.security": "Security policy",
+    "repositoryFiles.citation": "Citation metadata",
+    "workflowSecurity.leastPrivilegeToken": "Minimal Actions token permissions",
+    "workflowSecurity.pinnedActions": "Actions pinned to full commit SHAs",
+    "workflowSecurity.dependencyReview": "Dependency review on pull requests",
+    "repositoryRules.activeRuleset": "At least one active repository ruleset",
+    privateVulnerabilityReporting: "Private vulnerability reporting",
+  };
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -115,6 +162,65 @@ export const APP_SCRIPT = String.raw`"use strict";
     return payload;
   }
 
+  async function streamRequest(path, body, onEvent) {
+    const response = await fetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/x-ndjson",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+      if (response.status === 401) {
+        window.location.assign("/app");
+        throw new Error("Sign in again to continue.");
+      }
+      throw new Error((payload && payload.error) || "Request failed (" + response.status + ").");
+    }
+
+    if (!response.body) throw new Error("The scan response did not include a progress stream.");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let complete = false;
+
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        onEvent(event);
+        if (event.type === "complete") complete = true;
+        if (event.type === "error") throw new Error(event.error || "The scan could not be completed.");
+      }
+
+      if (chunk.done) break;
+    }
+
+    if (buffer.trim()) {
+      const event = JSON.parse(buffer);
+      onEvent(event);
+      if (event.type === "complete") complete = true;
+      if (event.type === "error") throw new Error(event.error || "The scan could not be completed.");
+    }
+
+    if (!complete) throw new Error("The scan ended before returning its results.");
+  }
+
   function copyButton(text) {
     const button = el("button", "button-secondary button-small", "Copy");
     button.type = "button";
@@ -150,7 +256,8 @@ export const APP_SCRIPT = String.raw`"use strict";
     const body = el("tbody");
     for (const check of checks) {
       const row = el("tr");
-      const setting = check.branch ? check.setting + " (" + check.branch + ")" : check.setting;
+      const settingName = SETTING_LABELS[check.setting] || check.setting;
+      const setting = check.branch ? settingName + " (" + check.branch + ")" : settingName;
       const state = el("td");
       state.appendChild(pill(check.state));
       if (check.reason) state.title = check.reason;
@@ -267,14 +374,25 @@ export const APP_SCRIPT = String.raw`"use strict";
     isLoading = true;
     say("Checking repository page " + page + "…");
     results.setAttribute("aria-busy", "true");
+    const progress = el("p", "muted", "Connecting to GitHub…");
+    results.replaceChildren(el("h2", "panel-title", "Results"), progress);
     try {
-      const report = await request("/app/api/drift", "POST", {
+      await streamRequest("/app/api/drift", {
         owner: activeScan.owner,
         policy: activeScan.policy,
         page,
+      }, (event) => {
+        if (event.type === "progress") {
+          progress.textContent = "Checked " + event.completed + " of " + event.total + " matching repositories on page " + page + ".";
+          if (event.result && event.result.checks)
+            results.appendChild(repoCard(event.result));
+          else if (event.result && event.result.error)
+            results.appendChild(el("p", "form-status", event.result.repository + ": " + event.result.error));
+        } else if (event.type === "complete") {
+          render(event.report);
+          say("Repository page " + event.report.scope.page + " checked.", event.report.status === "compliant" ? "ok" : "");
+        }
       });
-      render(report);
-      say("Repository page " + report.scope.page + " checked.", report.status === "compliant" ? "ok" : "");
     } catch (error) {
       say(error.message, "error");
     } finally {

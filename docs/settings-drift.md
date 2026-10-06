@@ -55,6 +55,20 @@ rules:
       secretScanning: true
       pushProtection: true
       dependabotSecurityUpdates: true
+      privateVulnerabilityReporting: true
+    repositoryFiles:
+      readme: true
+      license: true
+      contributing: true
+      codeOfConduct: true
+      security: true
+      citation: true
+    workflowSecurity:
+      leastPrivilegeToken: true
+      pinnedActions: true
+      dependencyReview: true
+    repositoryRules:
+      activeRuleset: true
     branchProtection:
       # branch: release # omit to use each repository's default branch
       requiredSignatures: true
@@ -77,7 +91,7 @@ the base branch, with owners who can write to the repository. Signed-commit
 requirements can affect contributor workflows, so enable them only after
 contributors are ready to sign commits. See the [GitHub best-practices
 research](github-best-practices-research.md) for source-backed guidance and
-practices that Shipshape does not currently evaluate.
+practices and the limits of the static workflow checks.
 
 Repository selectors are case-insensitive name globs that support `*` and `?`.
 They are deliberately not regular expressions: glob matching runs in linear
@@ -111,7 +125,7 @@ repositories are rejected.
 Each scanned repository includes:
 
 - `checks`: one entry per rule and setting, with `expected`, `actual`, a state,
-  and a settings-page evidence URL.
+  and an evidence URL. File and workflow checks link to the corresponding tree.
 - `remediation`: ordered steps with `method`, `path`, JSON `body`, and a
   ready-to-review `command`.
 - `manual`: drift that no command can safely fix (see below).
@@ -149,9 +163,21 @@ Remediation is chosen to be safe despite that uncertainty:
   the branch restricts who can push (a restriction list Shipshape cannot
   rebuild), the drift goes to `manual` instead.
 
+Workflow checks inspect YAML only. They do not execute workflows, resolve
+reusable workflows or composite actions, prove what permissions a workflow
+needs, or verify that a dependency-review workflow is a required status check.
+When a workflow cannot be read or the repository tree is truncated, Shipshape
+reports `unknown`. The recognized file checks inspect files in the repository;
+they do not resolve default community health files inherited from an owner's
+`.github` repository. An active-ruleset check only confirms that at least one
+repository or inherited organization ruleset is enabled; it does not verify
+which branches or rules that ruleset covers.
+
 ## Out of scope
 
 Shipshape is limited to public repositories, so there are no visibility rules.
 Team and collaborator permissions need organization membership scopes that
-Shipshape does not request. Rulesets, scheduled runs, webhooks, audit history,
-and automatic application are also not included.
+Shipshape does not request. Dependabot alert status, code scanning setup,
+scheduled runs, webhooks, audit history, and automatic application are also not
+included. The app keeps the GitHub OAuth scope at `read:user`; it does not ask
+for `public_repo` or administrator access to inspect security alert controls.

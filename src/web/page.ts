@@ -19,7 +19,7 @@ export function renderSignInPage(message?: string): string {
       <section class="consent-card">
         <div class="brand-row"><a class="wordmark" href="/">Shipshape <span>/ Rules</span></a><span class="eyebrow">Read only</span></div>
         <h1>Keep every repository in shape.</h1>
-        <p>Write rules for merge strategy, features, topics, security analysis, and branch protection. Shipshape checks your public repositories against them and hands you the exact commands to fix any drift.</p>
+        <p>Write rules for repository settings, community files, GitHub Actions security, and branch protection. Shipshape checks your public repositories and shows the changes needed to address drift.</p>
         ${notice}
         <p class="permission-note">GitHub permission: <code>read:user</code>. Shipshape reads public repositories and never changes them.</p>
         <div class="button-row"><a class="button-link button-primary" href="/app/login">Continue with GitHub</a></div>
@@ -48,7 +48,7 @@ export function renderAppPage(login: string): string {
       <section class="app-intro">
         <p class="eyebrow">Settings drift</p>
         <h1 class="app-title">Rules in, fixes out.</h1>
-        <p class="lead">Describe the settings your repositories should have. Shipshape checks the public ones and lists the <code>gh api</code> commands that would bring each back in line.</p>
+      <p class="lead">Describe the settings and practices your repositories should follow. Shipshape checks public repository settings, recognized community files, and GitHub Actions workflows.</p>
       </section>
       <div class="app-grid">
         <form id="drift-form" class="panel" novalidate>
@@ -66,6 +66,10 @@ export function renderAppPage(login: string): string {
                 <option value="review">Team review controls</option>
                 <option value="signatures">Require signed commits</option>
                 <option value="security">Security analysis on</option>
+                <option value="onboarding">Repository health files</option>
+                <option value="workflows">Harden GitHub Actions</option>
+                <option value="vulnerability">Vulnerability reporting</option>
+                <option value="rulesets">Active repository ruleset</option>
                 <option value="tidy">Tidy repository features</option>
               </select>
             </label>
@@ -79,7 +83,11 @@ export function renderAppPage(login: string): string {
           <p id="form-status" class="form-status" role="status"></p>
           <details>
             <summary>Rule reference</summary>
-            <p>Each rule has an <code>id</code>, optional <code>repositories</code> globs (<code>include</code>, <code>exclude</code>, <code>forks</code>, <code>archived</code>), and any of <code>merge</code>, <code>features</code>, <code>topics</code>, <code>security</code>, and <code>branchProtection</code>. See the <a href="https://github.com/aranlucas/shipshape-mcp/blob/main/docs/settings-drift.md">settings drift guide</a>.</p>
+            <p>Each rule has an <code>id</code>, optional <code>repositories</code> globs (<code>include</code>, <code>exclude</code>, <code>forks</code>, <code>archived</code>), and any of <code>merge</code>, <code>features</code>, <code>topics</code>, <code>security</code>, <code>repositoryFiles</code>, <code>workflowSecurity</code>, <code>repositoryRules</code>, and <code>branchProtection</code>. See the <a href="https://github.com/aranlucas/shipshape-mcp/blob/main/docs/settings-drift.md">settings drift guide</a>.</p>
+          </details>
+          <details>
+            <summary>Coverage and limits</summary>
+            <p>Scans paginate through public repositories and check settings, repository files, GitHub Actions workflows, and active rulesets. Dependabot alert status and code scanning setup need broader GitHub permissions than <code>read:user</code>, so review those in each repository’s Security settings. Workflow checks inspect YAML without running it.</p>
           </details>
         </form>
         <section id="results" class="panel results" aria-live="polite" aria-busy="false">
