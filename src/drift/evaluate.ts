@@ -109,6 +109,7 @@ const PROTECTION_FLAGS = [
   "requiredConversationResolution",
   "dismissStaleReviews",
   "requireCodeOwnerReviews",
+  "requireLastPushApproval",
 ] as const;
 
 type ProtectionFlag = (typeof PROTECTION_FLAGS)[number];
@@ -358,6 +359,9 @@ function flagValue(state: ProtectionState, flag: ProtectionFlag) {
   if (flag === "requireCodeOwnerReviews")
     return state.reviews?.requireCodeOwnerReviews ?? false;
 
+  if (flag === "requireLastPushApproval")
+    return state.reviews?.requireLastPushApproval ?? false;
+
   return state[flag];
 }
 
@@ -583,7 +587,8 @@ function protectionBody(
   const reviewsWanted =
     wanted.approvals !== null ||
     flag("dismissStaleReviews", false) ||
-    flag("requireCodeOwnerReviews", false);
+    flag("requireCodeOwnerReviews", false) ||
+    flag("requireLastPushApproval", false);
 
   const reviews =
     current.reviews || reviewsWanted
@@ -600,8 +605,10 @@ function protectionBody(
             current.reviews?.requiredApprovingReviews ?? 0,
             wanted.approvals ?? 0,
           ),
-          require_last_push_approval:
+          require_last_push_approval: flag(
+            "requireLastPushApproval",
             current.reviews?.requireLastPushApproval ?? false,
+          ),
         }
       : null;
 

@@ -60,6 +60,7 @@ export const BranchProtectionSettingsSchema = z
     requiredConversationResolution: z.boolean().optional(),
     dismissStaleReviews: z.boolean().optional(),
     requireCodeOwnerReviews: z.boolean().optional(),
+    requireLastPushApproval: z.boolean().optional(),
     /** A minimum: stricter repositories still comply. */
     requiredApprovingReviews: z.number().int().min(0).max(6).optional(),
     /** Contexts that must be present; additional required checks comply. */
