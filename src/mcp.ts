@@ -293,9 +293,12 @@ export function createPortfolioServer(
         policy: PolicySourceSchema.optional().describe(
           "A YAML policy in a public repository, pinned to a full commit SHA",
         ),
-        page: z.number().int().min(1).default(1).describe(
-          "One-based page of the owner's GitHub repository listing",
-        ),
+        page: z
+          .number()
+          .int()
+          .min(1)
+          .default(1)
+          .describe("One-based page of the owner's GitHub repository listing"),
         limit: z
           .number()
           .int()
