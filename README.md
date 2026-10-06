@@ -64,16 +64,19 @@ exceptions, and evidence semantics are documented in [Shared standards](docs/sta
 
 ## Settings drift
 
-Use `settings_drift` to declare the repository settings you expect (merge
-strategy, features, topics, security analysis, and branch protection), select
-repositories with name globs, and see which public repositories have drifted.
-Each drift comes with a `gh api` command a maintainer can review and run;
-Shipshape itself never changes a setting. See [Settings drift](docs/settings-drift.md).
+Use `settings_drift` to declare the GitHub practices you expect: repository
+settings, community health files, Actions token permissions and SHA pinning,
+dependency review, private vulnerability reporting, active rulesets, and branch
+protection. Select repositories with name globs and paginate through every
+public repository. Settings drift comes with a `gh api` command; file and
+workflow findings include manual steps because Shipshape never edits a
+repository. See [Settings drift](docs/settings-drift.md).
 
 The same check is available in the browser at
 [`/app`](https://shipshape-mcp.aranlucas.workers.dev/app). Sign in with GitHub,
-edit rules in YAML (or start from presets), save them to your account, and copy
-fix commands from the results.
+edit rules in YAML (or start from presets), see scan progress and results as
+repositories finish, save rules to your account, and copy fix commands from the
+results.
 
 ## Architecture
 

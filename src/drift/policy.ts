@@ -45,7 +45,31 @@ export const SecuritySettingsSchema = z
     secretScanning: z.boolean().optional(),
     pushProtection: z.boolean().optional(),
     dependabotSecurityUpdates: z.boolean().optional(),
+    privateVulnerabilityReporting: z.boolean().optional(),
   })
+  .strict();
+
+export const RepositoryFileSettingsSchema = z
+  .object({
+    readme: z.boolean().optional(),
+    license: z.boolean().optional(),
+    contributing: z.boolean().optional(),
+    codeOfConduct: z.boolean().optional(),
+    security: z.boolean().optional(),
+    citation: z.boolean().optional(),
+  })
+  .strict();
+
+export const WorkflowSecuritySettingsSchema = z
+  .object({
+    leastPrivilegeToken: z.boolean().optional(),
+    pinnedActions: z.boolean().optional(),
+    dependencyReview: z.boolean().optional(),
+  })
+  .strict();
+
+export const RepositoryRulesSettingsSchema = z
+  .object({ activeRuleset: z.boolean().optional() })
   .strict();
 
 export const BranchProtectionSettingsSchema = z
@@ -93,6 +117,9 @@ export const DriftRuleSchema = z
       .strict()
       .optional(),
     security: SecuritySettingsSchema.optional(),
+    repositoryFiles: RepositoryFileSettingsSchema.optional(),
+    workflowSecurity: WorkflowSecuritySettingsSchema.optional(),
+    repositoryRules: RepositoryRulesSettingsSchema.optional(),
     branchProtection: BranchProtectionSettingsSchema.optional(),
   })
   .strict()
@@ -101,6 +128,9 @@ export const DriftRuleSchema = z
       rule.merge,
       rule.features,
       rule.security,
+      rule.repositoryFiles,
+      rule.workflowSecurity,
+      rule.repositoryRules,
       rule.branchProtection,
     ].some(
       (section) =>
