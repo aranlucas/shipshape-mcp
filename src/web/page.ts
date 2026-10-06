@@ -58,6 +58,7 @@ export function renderAppPage(login: string): string {
           </div>
           <p class="muted">Scan the owner’s repositories one GitHub page at a time. Use the results controls to continue; there is no total repository limit.</p>
           <label class="field"><span>Rules (YAML)</span><textarea name="policy" rows="22" spellcheck="false" autocomplete="off" required></textarea></label>
+          <p class="muted">The starter policy includes every built-in best-practice check. Team review controls stay optional.</p>
           <div class="field-row preset-row">
             <label class="field"><span>Add a preset rule</span>
               <select id="preset">

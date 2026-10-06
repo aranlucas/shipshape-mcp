@@ -18,11 +18,14 @@ settings automatically with an installed GitHub App.
 
 The website companion at `/app` runs the same check without an MCP client.
 Sign in with GitHub (`read:user`), edit rules in YAML or add presets, and run
-the check against any owner. Results show one page at a time with previous and
-next controls; keep going until GitHub has no next page. There is no total
-repository-count limit. Each result shows checks, conflicts, manual items, and
-copyable fix commands. **Save rules** stores the policy under your GitHub login,
-and **Download YAML** exports it for a policy repository.
+the check against any owner. The starter policy includes every built-in
+best-practice check; team review controls remain optional. A previously saved
+two-rule starter expands in the editor, while custom saved policies stay as
+they are. Results show one page at a time with previous and next controls; keep
+going until GitHub has no next page. There is no total repository-count limit.
+Each result shows checks, conflicts, manual items, and copyable fix commands.
+**Save rules** stores the policy under your GitHub login, and **Download YAML**
+exports it for a policy repository.
 
 ## Write rules
 
