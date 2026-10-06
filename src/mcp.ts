@@ -5,7 +5,7 @@ import {
   collectSettingsDrift,
   readPinnedPolicy,
 } from "./drift/collect";
-import { MAX_SETTINGS_DRIFT_REPOSITORIES } from "./drift/limits";
+import { SETTINGS_DRIFT_PAGE_SIZE } from "./drift/limits";
 import { DriftPolicySchema } from "./drift/policy";
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -284,7 +284,7 @@ export function createPortfolioServer(
     {
       title: "Repository settings drift",
       description:
-        "Compare an owner's public repositories with declarative settings rules (merge strategy, features, topics, security analysis, branch protection) selected by repository-name globs. Returns per-setting drift and reviewable gh api remediation commands; nothing is ever changed. Supply inline rules or a policy file pinned to a commit.",
+        "Compare one page of an owner's public repositories with declarative settings rules (merge strategy, features, topics, security analysis, branch protection) selected by repository-name globs. Pass increasing page values until scope.hasNextPage is false to scan every page. Returns per-setting drift and reviewable gh api remediation commands; nothing is ever changed. Supply inline rules or a policy file pinned to a commit.",
       inputSchema: z.object({
         owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
         rules: DriftPolicySchema.optional().describe(
@@ -293,16 +293,20 @@ export function createPortfolioServer(
         policy: PolicySourceSchema.optional().describe(
           "A YAML policy in a public repository, pinned to a full commit SHA",
         ),
+        page: z.number().int().min(1).default(1).describe(
+          "One-based page of the owner's GitHub repository listing",
+        ),
         limit: z
           .number()
           .int()
           .min(1)
-          .max(MAX_SETTINGS_DRIFT_REPOSITORIES)
-          .default(10),
+          .max(SETTINGS_DRIFT_PAGE_SIZE)
+          .default(SETTINGS_DRIFT_PAGE_SIZE)
+          .describe("Repositories per page; this does not cap later pages"),
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, rules, policy, limit }) =>
+    async ({ owner, rules, policy, page, limit }) =>
       safely(async () => {
         if ((rules === undefined) === (policy === undefined))
           throw new GitHubInputError("Provide exactly one of rules or policy.");
@@ -311,14 +315,16 @@ export function createPortfolioServer(
 
         if (rules)
           return collectSettingsDrift(client, owner, rules, {
-            limit,
+            page,
+            perPage: limit,
             source: { kind: "inline" },
           });
 
         const pinned = await readPinnedPolicy(client, policy!);
 
         return collectSettingsDrift(client, owner, pinned.policy, {
-          limit,
+          page,
+          perPage: limit,
           source: { kind: "policy", url: pinned.url },
         });
       }),

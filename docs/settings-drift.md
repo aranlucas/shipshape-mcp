@@ -1,9 +1,13 @@
 # Settings drift
 
-`settings_drift({owner, rules | policy, limit})` checks an owner's public
-repositories against declarative settings rules. For each matching repository
-it reports each setting as `pass`, `fail`, or `unknown`, and builds `gh api`
-commands that would fix the drift.
+`settings_drift({owner, rules | policy, page, limit})` checks one page of an
+owner's public repositories against declarative settings rules. `page` selects
+the one-based GitHub repository listing page; `limit` selects the number of
+repositories per page, up to GitHub's API maximum of 100. Continue through pages
+until `scope.hasNextPage` is `false`; there is no total repository-count limit.
+GitHub documents the 100-item maximum in its [REST repository API reference](https://docs.github.com/en/rest/repos/repos).
+For each matching repository Shipshape reports each setting as `pass`, `fail`,
+or `unknown`, and builds `gh api` commands that would fix the drift.
 
 Shipshape stays read-only. It never sends a write request, and the commands are
 plain text for a maintainer to review and run with their own administrator
@@ -14,9 +18,11 @@ settings automatically with an installed GitHub App.
 
 The website companion at `/app` runs the same check without an MCP client.
 Sign in with GitHub (`read:user`), edit rules in YAML or add presets, and run
-the check against any owner. Results show each repository's checks, conflicts,
-manual items, and copyable fix commands. **Save rules** stores the policy under
-your GitHub login, and **Download YAML** exports it for a policy repository.
+the check against any owner. Results show one page at a time with previous and
+next controls; keep going until GitHub has no next page. There is no total
+repository-count limit. Each result shows checks, conflicts, manual items, and
+copyable fix commands. **Save rules** stores the policy under your GitHub login,
+and **Download YAML** exports it for a policy repository.
 
 ## Write rules
 
@@ -57,23 +63,21 @@ rules:
       allowForcePushes: false
       allowDeletions: false
       requiredConversationResolution: true
-      dismissStaleReviews: true
-      requireCodeOwnerReviews: true
-      requireLastPushApproval: true
-      requiredApprovingReviews: 1 # minimum
       requiredStatusChecks: [build, test] # must be present
 ```
 
 Each rule needs at least one setting, and every field is optional. Unknown
 fields are rejected. A policy can have up to 25 rules with unique kebab-case ids.
 
-The dashboard includes optional presets for stronger pull request reviews and
-signed commits. Code-owner review only has an effect when the repository has a
-valid `CODEOWNERS` file on the base branch, with owners who can write to the
-repository. Signed-commit requirements can affect contributor workflows, so
-enable them only after contributors are ready to sign commits. See the [GitHub
-best-practices research](github-best-practices-research.md) for source-backed
-guidance and practices that Shipshape does not currently evaluate.
+The default branch preset does not require an approving review, so it works for
+solo-maintained repositories. Teams can add a review requirement with
+`requiredApprovingReviews`, or use the optional team-review preset. Code-owner
+review only has an effect when the repository has a valid `CODEOWNERS` file on
+the base branch, with owners who can write to the repository. Signed-commit
+requirements can affect contributor workflows, so enable them only after
+contributors are ready to sign commits. See the [GitHub best-practices
+research](github-best-practices-research.md) for source-backed guidance and
+practices that Shipshape does not currently evaluate.
 
 Repository selectors are case-insensitive name globs that support `*` and `?`.
 They are deliberately not regular expressions: glob matching runs in linear
@@ -118,10 +122,10 @@ When several rules match one repository, their expectations are combined:
 approval counts take the highest minimum, and required status checks and topics
 are merged.
 
-The top-level `status` is `drifted` if any check fails. It is `unknown` when
-evidence is missing, a repository could not be read, or the scan was truncated
-by `limit` (at most 30 repositories) or by the 300-repository owner listing.
-Otherwise it is `compliant`.
+The top-level `status` is `drifted` if any check on the current page fails. It
+is `unknown` when evidence is missing, a repository could not be read, or the
+owner has another repository listing page. For a complete owner scan, continue
+until `scope.hasNextPage` is `false`.
 
 ## Visibility and unknown states
 

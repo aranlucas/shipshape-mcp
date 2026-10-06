@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { GITHUB_SCOPE } from "../config";
 import { collectSettingsDrift } from "../drift/collect";
-import { MAX_SETTINGS_DRIFT_REPOSITORIES } from "../drift/limits";
+import { SETTINGS_DRIFT_PAGE_SIZE } from "../drift/limits";
 import { parseDriftPolicy } from "../drift/policy";
 import {
   GitHubInputError,
@@ -59,12 +59,14 @@ const DriftRequestSchema = z
   .object({
     owner: GitHubOwnerInputSchema,
     policy: z.string().min(1).max(MAX_POLICY_LENGTH),
+    page: z.number().int().min(1).default(1),
     limit: z
       .number()
       .int()
       .min(1)
-      .max(MAX_SETTINGS_DRIFT_REPOSITORIES)
-      .default(10),
+      .max(SETTINGS_DRIFT_PAGE_SIZE)
+      .optional()
+      .describe("Repositories per GitHub page; later pages are not capped"),
   })
   .strict();
 
@@ -276,7 +278,11 @@ async function driftApi(
     createGitHubOctokit(session.accessToken),
     input.owner,
     policy,
-    { limit: input.limit, source: { kind: "inline" } },
+    {
+      page: input.page,
+      perPage: input.limit ?? SETTINGS_DRIFT_PAGE_SIZE,
+      source: { kind: "inline" },
+    },
   );
 
   return json(ConfigValueSchema.parse(JSON.parse(JSON.stringify(report))));

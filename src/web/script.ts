@@ -17,10 +17,8 @@ export const APP_SCRIPT = String.raw`"use strict";
     ],
     protect: [
       "  - id: protected-default-branch",
-      "    description: Reviewed default branch with admin enforcement and resolved conversations",
+      "    description: Protected default branch without a required review, with admin enforcement and resolved conversations",
       "    branchProtection:",
-      "      requiredApprovingReviews: 1",
-      "      dismissStaleReviews: true",
       "      enforceAdmins: true",
       "      requiredConversationResolution: true",
       "      requiredLinearHistory: true",
@@ -29,7 +27,7 @@ export const APP_SCRIPT = String.raw`"use strict";
     ],
     review: [
       "  - id: stronger-review-controls",
-      "    description: Require code owner review and approval after the latest push",
+      "    description: Team review controls: code owner review and approval after the latest push",
       "    branchProtection:",
       "      requireCodeOwnerReviews: true",
       "      requireLastPushApproval: true",
@@ -69,7 +67,8 @@ export const APP_SCRIPT = String.raw`"use strict";
 
   const policy = form.elements.namedItem("policy");
   const owner = form.elements.namedItem("owner");
-  const limit = form.elements.namedItem("limit");
+  let activeScan = null;
+  let isLoading = false;
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -223,44 +222,72 @@ export const APP_SCRIPT = String.raw`"use strict";
     const totals = report.totals;
     append(results, [
       append(el("div", "tiles"), [
-        tile("Drifted", totals.drifted, "fail"),
-        tile("Compliant", totals.compliant, "pass"),
-        tile("Unknown", totals.unknown, "unknown"),
-        tile("Fix commands", totals.remediationSteps, "neutral"),
+        tile("Drifted on page", totals.drifted, "fail"),
+        tile("Compliant on page", totals.compliant, "pass"),
+        tile("Unknown on page", totals.unknown, "unknown"),
+        tile("Fix commands on page", totals.remediationSteps, "neutral"),
       ]),
     ]);
     const scope = report.scope;
-    let coverage = "Scanned " + scope.scannedRepositories + " of " + scope.matchedRepositories +
+    let coverage = "Page " + scope.page + ": scanned " + scope.scannedRepositories +
       " matching repositories (" + scope.listedRepositories + " listed).";
-    if (scope.omittedRepositories) coverage += " Raise the repository limit to scan the rest.";
-    if (!scope.listingComplete) coverage += " The owner has more repositories than one listing covers.";
+    if (scope.hasNextPage) coverage += " More repositories are available on the next page.";
     results.appendChild(el("p", "muted", coverage));
     if (!report.repositories.length && !report.failures.length)
-      results.appendChild(el("p", "", "No public repository matched these rules."));
+      results.appendChild(el("p", "", scope.hasNextPage
+        ? "No public repository matched these rules on this page. Continue to the next page to scan more."
+        : "No public repository matched these rules."));
     for (const repo of report.repositories) results.appendChild(repoCard(repo));
     for (const failure of report.failures)
       results.appendChild(el("p", "form-status", failure.repository + ": " + failure.error));
     if (report.repositories.some((repo) => repo.counts.unknown))
       results.appendChild(el("p", "muted", "Hidden values are settings GitHub only shows to repository administrators. The suggested commands still set them safely."));
+    if (scope.page > 1 || scope.hasNextPage) {
+      const navigation = el("nav", "button-row");
+      navigation.setAttribute("aria-label", "Repository pages");
+      if (scope.page > 1) {
+        const previous = el("button", "button-secondary button-small", "Previous page");
+        previous.type = "button";
+        previous.addEventListener("click", () => loadPage(scope.page - 1));
+        navigation.appendChild(previous);
+      }
+      navigation.appendChild(el("span", "muted", "GitHub repository page " + scope.page));
+      if (scope.hasNextPage) {
+        const next = el("button", "button-secondary button-small", "Next page");
+        next.type = "button";
+        next.addEventListener("click", () => loadPage(scope.page + 1));
+        navigation.appendChild(next);
+      }
+      results.appendChild(navigation);
+    }
   }
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    say("Checking repositories…");
+  async function loadPage(page) {
+    if (!activeScan || isLoading) return;
+    isLoading = true;
+    say("Checking repository page " + page + "…");
     results.setAttribute("aria-busy", "true");
     try {
       const report = await request("/app/api/drift", "POST", {
-        owner: owner.value.trim(),
-        policy: policy.value,
-        limit: Number(limit.value) || 10,
+        owner: activeScan.owner,
+        policy: activeScan.policy,
+        page,
       });
       render(report);
-      say(report.status === "compliant" ? "Everything matches your rules." : "Check complete.", report.status === "compliant" ? "ok" : "");
+      say("Repository page " + report.scope.page + " checked.", report.status === "compliant" ? "ok" : "");
     } catch (error) {
       say(error.message, "error");
     } finally {
       results.setAttribute("aria-busy", "false");
+      isLoading = false;
     }
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (isLoading) return;
+    activeScan = { owner: owner.value.trim(), policy: policy.value };
+    await loadPage(1);
   });
 
   document.getElementById("save-rules").addEventListener("click", async () => {
