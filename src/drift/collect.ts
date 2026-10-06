@@ -4,7 +4,6 @@ import {
   GitHubInputError,
   PrivateRepositoryError,
   octokitGet,
-  octokitPaginate,
   type GitHubOctokit,
 } from "../github/client";
 import {
@@ -44,8 +43,6 @@ export const PolicySourceSchema = RepositoryCoordinatesSchema.extend({
 }).strict();
 
 export type PolicySource = z.infer<typeof PolicySourceSchema>;
-
-const LISTING = { maxPages: 3, perPage: 100 } as const;
 
 const errorStatus = (cause: unknown) =>
   z.object({ status: z.number() }).safeParse(cause).data?.status;
@@ -267,7 +264,8 @@ async function collectRepository(
 }
 
 export interface DriftOptions {
-  readonly limit: number;
+  readonly page: number;
+  readonly perPage: number;
   readonly source: { kind: "inline" } | { kind: "policy"; url: string };
 }
 
@@ -280,17 +278,18 @@ export async function collectSettingsDrift(
   const validatedOwner = GitHubOwnerInputSchema.parse(owner);
   const collectedAt = new Date().toISOString();
 
-  const listing = await octokitPaginate(
+  const listing = await octokitGet(
     client,
     "GET /users/{username}/repos",
     {
       username: validatedOwner,
       type: "owner",
-      sort: "updated",
-      direction: "desc",
+      sort: "full_name",
+      direction: "asc",
+      page: options.page,
+      per_page: options.perPage,
     },
-    GitHubRepositorySchema,
-    LISTING,
+    GitHubRepositorySchema.array(),
   );
 
   const matched = listing.data.filter((repository) => {
@@ -302,7 +301,7 @@ export async function collectSettingsDrift(
     );
   });
 
-  const selected = matched.slice(0, options.limit);
+  const selected = matched;
   const limit = pLimit(4);
 
   const results = await Promise.all(
@@ -340,8 +339,7 @@ export async function collectSettingsDrift(
     ? "drifted"
     : failures.length ||
         repositories.some((item) => item.status === "unknown") ||
-        listing.metadata.nextUrl ||
-        matched.length > selected.length
+        listing.metadata.nextUrl
       ? "unknown"
       : "compliant";
 
@@ -358,9 +356,11 @@ export async function collectSettingsDrift(
     scope: {
       listedRepositories: listing.data.length,
       listingComplete: listing.metadata.nextUrl === null,
+      page: options.page,
+      pageSize: options.perPage,
+      hasNextPage: listing.metadata.nextUrl !== null,
       matchedRepositories: matched.length,
       scannedRepositories: selected.length,
-      omittedRepositories: matched.length - selected.length,
     },
     totals: {
       compliant: repositories.filter((item) => item.status === "compliant")

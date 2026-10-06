@@ -1,5 +1,4 @@
 import { escapeHtml } from "../oauth-security";
-import { MAX_SETTINGS_DRIFT_REPOSITORIES } from "../drift/limits";
 import { STYLES_PATH } from "../styles";
 
 const HEAD = `<meta charset="utf-8">
@@ -56,15 +55,15 @@ export function renderAppPage(login: string): string {
           <h2 class="panel-title">Policy</h2>
           <div class="field-row">
             <label class="field"><span>Owner</span><input name="owner" value="${user}" autocomplete="off" spellcheck="false" required maxlength="39"></label>
-            <label class="field field-narrow"><span>Repositories</span><input name="limit" type="number" min="1" max="${MAX_SETTINGS_DRIFT_REPOSITORIES}" value="10" required></label>
           </div>
+          <p class="muted">Scan the owner’s repositories one GitHub page at a time. Use the results controls to continue; there is no total repository limit.</p>
           <label class="field"><span>Rules (YAML)</span><textarea name="policy" rows="22" spellcheck="false" autocomplete="off" required></textarea></label>
           <div class="field-row preset-row">
             <label class="field"><span>Add a preset rule</span>
               <select id="preset">
                 <option value="squash">Squash merges only</option>
                 <option value="protect">Protect the default branch</option>
-                <option value="review">Stronger pull request reviews</option>
+                <option value="review">Team review controls</option>
                 <option value="signatures">Require signed commits</option>
                 <option value="security">Security analysis on</option>
                 <option value="tidy">Tidy repository features</option>

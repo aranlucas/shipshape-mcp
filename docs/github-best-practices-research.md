@@ -9,18 +9,20 @@ that the current checker cannot yet evaluate.
 GitHub recommends protecting important branches with pull request reviews and
 required status checks. Its branch protection settings can also enforce rules
 for administrators, require conversation resolution, require signed commits,
-and block force pushes or deletion. Shipshape's default branch preset now asks
-for one approval, dismisses stale approvals, enforces the rule for
-administrators, requires resolved conversations and linear history, and blocks
-force pushes and deletion. The required status check names remain a repository
-choice, so set them explicitly in YAML after confirming the checks the project
-actually runs. [GitHub's repository best practices](https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories),
+and block force pushes or deletion. Shipshape's default branch preset enforces
+the rule for administrators, requires resolved conversations and linear
+history, and blocks force pushes and deletion without requiring an approving
+review, so it also works for solo-maintained repositories. Team repositories
+can add the optional review preset or set their own minimum review count. The
+required status check names remain a repository choice, so set them explicitly
+in YAML after confirming the checks the project actually runs. [GitHub's
+repository best practices](https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories),
 [protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
 
 GitHub says branch protection does not apply to administrators by default;
-enabling admin enforcement extends the protection rules to them. The stronger
-pull request review preset adds approval from a code owner and requires someone
-other than the latest pusher to approve. A code-owner requirement only works
+enabling admin enforcement extends the protection rules to them. The optional
+team pull request review preset adds approval from a code owner and requires
+someone other than the latest pusher to approve. A code-owner requirement only works
 when a valid `CODEOWNERS` file is on the pull request's base branch and the
 listed owners have write access. [Protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches),
 [code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)
