@@ -89,10 +89,6 @@ export const APP_SCRIPT = String.raw`"use strict";
     ],
   };
 
-  const LEGACY_STARTER = ["version: 1", "rules:"]
-    .concat(PRESETS.squash, PRESETS.protect)
-    .join("\n") + "\n";
-
   const STARTER = [
     "version: 1",
     "rules:",
@@ -459,6 +455,11 @@ export const APP_SCRIPT = String.raw`"use strict";
     }
   });
 
+  document.getElementById("load-starter").addEventListener("click", () => {
+    policy.value = STARTER;
+    say("Full starter loaded. Save rules to keep this policy.", "ok");
+  });
+
   document.getElementById("download-rules").addEventListener("click", () => {
     const url = URL.createObjectURL(new Blob([policy.value], { type: "text/yaml" }));
     const link = el("a");
@@ -484,15 +485,7 @@ export const APP_SCRIPT = String.raw`"use strict";
 
   request("/app/api/rules", "GET")
     .then((saved) => {
-      if (saved && saved.policy && saved.policy.trim() === LEGACY_STARTER.trim()) {
-        policy.value = STARTER;
-        say(
-          "The starter policy now includes all built-in checks. Save rules to keep the expanded version.",
-          "ok",
-        );
-      } else {
-        policy.value = saved && saved.policy ? saved.policy : STARTER;
-      }
+      policy.value = saved && saved.policy ? saved.policy : STARTER;
     })
     .catch(() => {
       policy.value = STARTER;
