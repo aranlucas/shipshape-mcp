@@ -74,9 +74,10 @@ repository. See [Settings drift](docs/settings-drift.md).
 
 The same check is available in the browser at
 [`/app`](https://shipshape-mcp.aranlucas.workers.dev/app). Sign in with GitHub,
-edit rules in YAML (or start from presets), see scan progress and results as
-repositories finish, save rules to your account, and copy fix commands from the
-results.
+start new policies with all built-in best-practice checks (team review controls
+remain optional), load that starter into saved policies when you want it, see
+scan progress and results as repositories finish, save rules to your account,
+and copy fix commands from the results.
 
 ## Architecture
 

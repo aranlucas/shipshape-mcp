@@ -89,9 +89,46 @@ export const APP_SCRIPT = String.raw`"use strict";
     ],
   };
 
-  const STARTER = ["version: 1", "rules:"]
-    .concat(PRESETS.squash, PRESETS.protect)
-    .join("\n") + "\n";
+  const STARTER = [
+    "version: 1",
+    "rules:",
+    "  - id: github-best-practices",
+    "    description: GitHub repository baseline covering settings, community files, security, and Actions",
+    "    merge:",
+    "      allowSquash: true",
+    "      allowMergeCommit: false",
+    "      allowRebase: false",
+    "      deleteBranchOnMerge: true",
+    "    branchProtection:",
+    "      enforceAdmins: true",
+    "      requiredConversationResolution: true",
+    "      requiredLinearHistory: true",
+    "      requiredSignatures: true",
+    "      allowForcePushes: false",
+    "      allowDeletions: false",
+    "    security:",
+    "      secretScanning: true",
+    "      pushProtection: true",
+    "      dependabotSecurityUpdates: true",
+    "      privateVulnerabilityReporting: true",
+    "    repositoryFiles:",
+    "      readme: true",
+    "      license: true",
+    "      contributing: true",
+    "      codeOfConduct: true",
+    "      security: true",
+    "      citation: true",
+    "    workflowSecurity:",
+    "      leastPrivilegeToken: true",
+    "      pinnedActions: true",
+    "      dependencyReview: true",
+    "    repositoryRules:",
+    "      activeRuleset: true",
+    "    features:",
+    "      issues: true",
+    "      wiki: false",
+    "      projects: false",
+  ].join("\n") + "\n";
 
   const form = document.getElementById("drift-form");
   const results = document.getElementById("results");
@@ -339,6 +376,7 @@ export const APP_SCRIPT = String.raw`"use strict";
     let coverage = "Page " + scope.page + ": scanned " + scope.scannedRepositories +
       " matching repositories (" + scope.listedRepositories + " listed).";
     if (scope.hasNextPage) coverage += " More repositories are available on the next page.";
+    else if (scope.listingComplete) coverage += " GitHub has no next page for this owner.";
     results.appendChild(el("p", "muted", coverage));
     if (!report.repositories.length && !report.failures.length)
       results.appendChild(el("p", "", scope.hasNextPage
@@ -415,6 +453,11 @@ export const APP_SCRIPT = String.raw`"use strict";
     } catch (error) {
       say(error.message, "error");
     }
+  });
+
+  document.getElementById("load-starter").addEventListener("click", () => {
+    policy.value = STARTER;
+    say("Full starter loaded. Save rules to keep this policy.", "ok");
   });
 
   document.getElementById("download-rules").addEventListener("click", () => {

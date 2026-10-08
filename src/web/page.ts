@@ -58,6 +58,10 @@ export function renderAppPage(login: string): string {
           </div>
           <p class="muted">Scan the owner’s repositories one GitHub page at a time. Use the results controls to continue; there is no total repository limit.</p>
           <label class="field"><span>Rules (YAML)</span><textarea name="policy" rows="22" spellcheck="false" autocomplete="off" required></textarea></label>
+          <p class="muted">The full starter includes every built-in best-practice check; team review controls stay optional. Loading it replaces the YAML in this editor.</p>
+          <div class="button-row">
+            <button id="load-starter" class="button-secondary" type="button">Load full starter</button>
+          </div>
           <div class="field-row preset-row">
             <label class="field"><span>Add a preset rule</span>
               <select id="preset">
