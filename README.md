@@ -132,8 +132,7 @@ Workers Builds runs `pnpm run build`, then `pnpm run deploy:ci` for `main` and
 
 Open `https://shipshape-mcp.localhost/app`, or connect an MCP client to
 `https://shipshape-mcp.localhost/mcp`. The command runs Vite directly so
-Portless can assign its port. Use `pnpm dev:direct` for the original `cf dev`
-behavior without the proxy.
+Portless can assign its port.
 
 During this command, both OAuth resource metadata and the Worker's
 `PUBLIC_ORIGIN` binding use Portless's assigned URL. Register that exact origin

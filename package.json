@@ -17,8 +17,7 @@
     "preview": "cf previews deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "types": "cf workers types",
-    "dev:direct": "cf dev"
+    "types": "cf workers types"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
