@@ -5,10 +5,6 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    ignore:
-      # @cloudflare/vitest-plugin only supports vitest 4; drop once it accepts 5.
-      - dependency-name: vitest
-        update-types: ["version-update:semver-major"]
     groups:
       cloudflare-runtime:
         patterns:
