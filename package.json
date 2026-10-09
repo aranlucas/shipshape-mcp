@@ -17,7 +17,8 @@
     "preview": "cf previews deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "types": "cf workers types"
+    "types": "cf workers types",
+    "dev:portless": "portless run --name shipshape-mcp vite --host 127.0.0.1 --strictPort"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",

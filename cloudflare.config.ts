@@ -1,7 +1,7 @@
 import { bindings, defineConfig } from "cf/config";
 import * as entrypoint from "./src/index" with { type: "cf-worker" };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   worker: {
     name: "shipshape-mcp",
     compatibilityDate: "2026-08-30",
@@ -22,7 +22,9 @@ export default defineConfig({
     env: {
       GITHUB_API_VERSION: bindings.text("2026-03-10"),
       PUBLIC_ORIGIN: bindings.text(
-        "https://shipshape-mcp.aranlucas.workers.dev",
+        mode === "development" && process.env.PORTLESS_URL
+          ? process.env.PORTLESS_URL
+          : "https://shipshape-mcp.aranlucas.workers.dev",
       ),
       GITHUB_CLIENT_ID: bindings.secret(),
       GITHUB_CLIENT_SECRET: bindings.secret(),
@@ -32,4 +34,4 @@ export default defineConfig({
       }),
     },
   },
-});
+}));

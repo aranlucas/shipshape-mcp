@@ -121,6 +121,36 @@ the production OAuth secrets and KV binding described in `cloudflare.config.ts`.
 Workers Builds runs `pnpm run build`, then `pnpm run deploy:ci` for `main` and
 `pnpm run preview` for other branches.
 
+### Optional named HTTPS development URL
+
+[Portless](https://github.com/vercel-labs/portless) can expose the local Worker
+at a stable name. Install its CLI globally with Node.js 24 or newer, then use
+the existing dependency and local secret setup above:
+
+```bash
+npm install -g portless@0.15.7
+pnpm dev:portless
+```
+
+Open `https://shipshape-mcp.localhost/app`, or connect an MCP client to
+`https://shipshape-mcp.localhost/mcp`. The command runs Vite directly so
+Portless can assign its port; `pnpm dev` remains available.
+
+During this command, both OAuth resource metadata and the Worker's
+`PUBLIC_ORIGIN` binding use Portless's assigned URL. Register that exact origin
+with the local GitHub OAuth application's `/callback` route, which is shared
+by MCP and browser logins; keep its client credentials and cookie key in
+`.dev.vars`.
+Do not set `PUBLIC_ORIGIN` to the production URL in `.dev.vars` for this flow.
+Production builds keep the production origin even when `PORTLESS_URL` is
+present in the shell. Preview and deployment commands are unchanged.
+
+Portless prefixes the name in a Git worktree; use the printed URL and its
+matching OAuth callback, and keep local Worker state in the corresponding
+checkout. Its first proxy start can request permission to bind HTTPS and trust
+a local certificate. Run `portless doctor` if routing or trust fails; Ctrl-C
+stops this Worker and removes its route.
+
 ## Status and limits
 
 The public endpoint is deployed at
