@@ -114,6 +114,11 @@ pnpm check
 pnpm dev
 ```
 
+`pnpm dev` serves the Worker at `https://shipshape-mcp.localhost` through [Portless](https://github.com/vercel-labs/portless) (a dev dependency); its first run may ask for `sudo` to bind port 443 and trust a local certificate.
+In development, `PUBLIC_ORIGIN` and the OAuth resource metadata follow that URL, so
+register `https://shipshape-mcp.localhost/callback` with the local GitHub OAuth app
+(a linked worktree gets a branch-prefixed origin and needs its own callback).
+
 `pnpm check` runs type generation, typechecking, linting, formatting, unit
 tests, and a `cf deploy --dry-run`. Deploy with `pnpm deploy` only after configuring
 the production OAuth secrets and KV binding described in `cloudflare.config.ts`.

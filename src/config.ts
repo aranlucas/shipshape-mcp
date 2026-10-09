@@ -1,5 +1,5 @@
 export const PUBLIC_ORIGIN =
-  "https://shipshape-mcp.aranlucas.workers.dev" as const;
+  process.env.PORTLESS_URL || "https://shipshape-mcp.aranlucas.workers.dev";
 
 export const MCP_RESOURCE = `${PUBLIC_ORIGIN}/mcp` as const;
 
