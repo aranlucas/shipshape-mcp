@@ -9,7 +9,7 @@
     "check": "pnpm types && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
     "deploy": "cf deploy",
     "deploy:ci": "cf deploy --prebuilt",
-    "dev": "portless run --name shipshape-mcp vite --host 127.0.0.1 --strictPort",
+    "dev": "portless run vite",
     "dry-run": "cf deploy --dry-run",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
@@ -40,6 +40,7 @@
     "oxfmt": "^0.72.0",
     "oxlint": "1.87.0",
     "oxlint-tsgolint": "^7.0.2003",
+    "portless": "0.15.7",
     "typescript": "7.0.2",
     "vite": "^8.3.2",
     "vitest": "^4.1.11"

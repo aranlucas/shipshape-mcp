@@ -45,10 +45,7 @@ read-only.
 
 ## Develop
 
-Use Node.js 24 or newer and install the Portless CLI globally:
-
 ```bash
-npm install -g portless@0.15.7
 pnpm install --frozen-lockfile
 cp .dev.vars.example .dev.vars
 pnpm types
@@ -106,8 +103,7 @@ flowchart LR
 
 ## Local development
 
-After installing Portless as described above, local OAuth testing needs a
-GitHub OAuth app and a generated cookie key:
+Local OAuth testing needs a GitHub OAuth app and a generated cookie key:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -118,36 +114,17 @@ pnpm check
 pnpm dev
 ```
 
+`pnpm dev` serves the Worker at `https://shipshape-mcp.localhost` through [Portless](https://github.com/vercel-labs/portless) (a dev dependency); its first run may ask for `sudo` to bind port 443 and trust a local certificate.
+In development, `PUBLIC_ORIGIN` and the OAuth resource metadata follow that URL, so
+register `https://shipshape-mcp.localhost/callback` with the local GitHub OAuth app
+(a linked worktree gets a branch-prefixed origin and needs its own callback).
+
 `pnpm check` runs type generation, typechecking, linting, formatting, unit
 tests, and a `cf deploy --dry-run`. Deploy with `pnpm deploy` only after configuring
 the production OAuth secrets and KV binding described in `cloudflare.config.ts`.
 
 Workers Builds runs `pnpm run build`, then `pnpm run deploy:ci` for `main` and
 `pnpm run preview` for other branches.
-
-### Named HTTPS development URL
-
-`pnpm dev` exposes the local Worker through
-[Portless](https://github.com/vercel-labs/portless/tree/v0.15.7) at a stable name.
-
-Open `https://shipshape-mcp.localhost/app`, or connect an MCP client to
-`https://shipshape-mcp.localhost/mcp`. The command runs Vite directly so
-Portless can assign its port.
-
-During this command, both OAuth resource metadata and the Worker's
-`PUBLIC_ORIGIN` binding use Portless's assigned URL. Register that exact origin
-with the local GitHub OAuth application's `/callback` route, which is shared
-by MCP and browser logins; keep its client credentials and cookie key in
-`.dev.vars`.
-Do not set `PUBLIC_ORIGIN` to the production URL in `.dev.vars` for this flow.
-Production builds keep the production origin even when `PORTLESS_URL` is
-present in the shell. Preview and deployment commands are unchanged.
-
-Portless prefixes the name in a Git worktree; use the printed URL and its
-matching OAuth callback, and keep local Worker state in the corresponding
-checkout. Its first proxy start can request permission to bind HTTPS and trust
-a local certificate. Run `portless doctor` if routing or trust fails; Ctrl-C
-stops this Worker and removes its route.
 
 ## Status and limits
 
