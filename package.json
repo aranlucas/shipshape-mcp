@@ -20,7 +20,7 @@
     "types": "cf workers types"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^1.2.1",
+    "@cloudflare/workers-oauth-provider": "^1.2.2",
     "@modelcontextprotocol/server": "2.3.1",
     "agents": "^0.26.0",
     "jsonc-parser": "^3.3.1",
