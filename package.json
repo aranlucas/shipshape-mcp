@@ -9,7 +9,7 @@
     "check": "pnpm types && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
     "deploy": "cf deploy",
     "deploy:ci": "cf deploy --prebuilt",
-    "dev": "cf dev",
+    "dev": "portless run --name shipshape-mcp vite --host 127.0.0.1 --strictPort",
     "dry-run": "cf deploy --dry-run",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
@@ -18,7 +18,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "types": "cf workers types",
-    "dev:portless": "portless run --name shipshape-mcp vite --host 127.0.0.1 --strictPort"
+    "dev:direct": "cf dev"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",

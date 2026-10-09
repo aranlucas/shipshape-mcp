@@ -45,7 +45,10 @@ read-only.
 
 ## Develop
 
+Use Node.js 24 or newer and install the Portless CLI globally:
+
 ```bash
+npm install -g portless@0.15.7
 pnpm install --frozen-lockfile
 cp .dev.vars.example .dev.vars
 pnpm types
@@ -103,7 +106,8 @@ flowchart LR
 
 ## Local development
 
-Local OAuth testing needs a GitHub OAuth app and a generated cookie key:
+After installing Portless as described above, local OAuth testing needs a
+GitHub OAuth app and a generated cookie key:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -121,20 +125,15 @@ the production OAuth secrets and KV binding described in `cloudflare.config.ts`.
 Workers Builds runs `pnpm run build`, then `pnpm run deploy:ci` for `main` and
 `pnpm run preview` for other branches.
 
-### Optional named HTTPS development URL
+### Named HTTPS development URL
 
-[Portless](https://github.com/vercel-labs/portless) can expose the local Worker
-at a stable name. Install its CLI globally with Node.js 24 or newer, then use
-the existing dependency and local secret setup above:
-
-```bash
-npm install -g portless@0.15.7
-pnpm dev:portless
-```
+`pnpm dev` exposes the local Worker through
+[Portless](https://github.com/vercel-labs/portless/tree/v0.15.7) at a stable name.
 
 Open `https://shipshape-mcp.localhost/app`, or connect an MCP client to
 `https://shipshape-mcp.localhost/mcp`. The command runs Vite directly so
-Portless can assign its port; `pnpm dev` remains available.
+Portless can assign its port. Use `pnpm dev:direct` for the original `cf dev`
+behavior without the proxy.
 
 During this command, both OAuth resource metadata and the Worker's
 `PUBLIC_ORIGIN` binding use Portless's assigned URL. Register that exact origin
