@@ -1,4 +1,4 @@
-name: Verify
+name: CI
 
 on:
   workflow_dispatch:
@@ -10,8 +10,12 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  verify:
+  ci:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -26,17 +30,30 @@ jobs:
           cache: true
           require-lockfile: true
 
-      - name: Reject tracked credentials
-        run: |
-          secret_pattern='BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|(cfp_|cf_)[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9_-]{20,}'
-          if matches=$(git grep -l -I -E "$secret_pattern"); then
-            echo "Potential credential material is tracked in:"
-            echo "$matches"
-            exit 1
-          fi
+      - name: Generate Worker types
+        run: pnpm types
 
-      - name: Run all gates
-        run: pnpm check
+      - parallel:
+          - name: Lint
+            run: pnpm lint && pnpm format:check
+
+          - name: Typecheck
+            run: pnpm typecheck
+
+          - name: Test
+            run: pnpm test
+
+          - name: Deploy dry run
+            run: pnpm dry-run
+
+          - name: Reject tracked credentials
+            run: |
+              secret_pattern='BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|(cfp_|cf_)[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9_-]{20,}'
+              if matches=$(git grep -l -I -E "$secret_pattern"); then
+                echo "Potential credential material is tracked in:"
+                echo "$matches"
+                exit 1
+              fi
 
       - name: Check patch hygiene
         run: git diff --check
