@@ -17,8 +17,7 @@
     ".opencode/**",
     ".pi/**",
     ".roo/**",
-    ".windsurf/**",
-    "tools/oxlint/anti-slop/**"
+    ".windsurf/**"
   ],
   "rules": {
     "no-control-regex": "off",
@@ -68,7 +67,7 @@
   "jsPlugins": [
     {
       "name": "anti-slop",
-      "specifier": "./tools/oxlint/anti-slop/index.ts"
+      "specifier": "@aranlucas/oxlint-plugin-anti-slop"
     }
   ]
 }
