@@ -20,30 +20,30 @@
     "types": "cf workers types"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^1.2.2",
+    "@cloudflare/workers-oauth-provider": "^1.2.3",
     "@modelcontextprotocol/server": "2.3.1",
-    "agents": "^0.26.0",
+    "agents": "^0.28.1",
     "jsonc-parser": "^3.3.1",
     "oauth4webapi": "^3.8.8",
     "octokit": "^5.0.5",
     "p-limit": "^7.3.3",
     "yaml": "^2.9.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@aranlucas/oxlint-plugin-anti-slop": "0.1.0",
     "@cloudflare/vite-plugin": "2.0.0-beta.sha-805ec1ff3",
-    "@cloudflare/vitest-plugin": "^1.4.0",
+    "@cloudflare/vitest-plugin": "^1.4.1",
     "@modelcontextprotocol/client": "2.3.1",
-    "@oxlint/plugins": "1.87.0",
-    "@types/node": "^26.6.4",
-    "cf": "1.0.0-beta.12",
-    "oxfmt": "^0.72.0",
-    "oxlint": "1.87.0",
-    "oxlint-tsgolint": "^7.0.2003",
+    "@types/node": "^26.6.5",
+    "cf": "1.0.0-beta.16",
+    "oxfmt": "^0.73.0",
+    "oxlint": "1.88.0",
+    "oxlint-tsgolint": "^7.0.2004",
     "portless": "0.15.7",
     "typescript": "7.0.2",
-    "vite": "^8.3.3",
-    "vitest": "^5.0.3"
+    "vite": "^8.3.4",
+    "vitest": "5.0.3"
   },
-  "packageManager": "pnpm@12.9.1"
+  "packageManager": "pnpm@12.11.2"
 }

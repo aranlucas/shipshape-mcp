@@ -14,11 +14,9 @@ Pull requests should explain the evidence a rule consumes, its score impact,
 and how a maintainer can remediate a failure. Avoid generic GitHub CRUD tools;
 Shipshape's purpose is prioritization and policy evaluation.
 
-The complete anti-slop rule set is vendored under `tools/oxlint/anti-slop`, with
-its upstream revision and licenses preserved. Keep `oxlint` and
-`@oxlint/plugins` pinned to the same version, and fix findings rather than
-suppressing them. Agent assets and the vendored plugin are excluded from local
-formatting and linting.
+The complete anti-slop rule set comes from the
+`@aranlucas/oxlint-plugin-anti-slop` package. Fix findings rather than
+suppressing them. Agent assets are excluded from local formatting and linting.
 
 Tests use synthetic inputs and fail closed on unexpected network traffic.
 MCP contract tests use the real SDK over in-memory transports. OAuth integration
