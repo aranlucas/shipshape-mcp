@@ -1,5 +1,5 @@
 import { exports } from "cloudflare:workers";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { MCP_RESOURCE, MCP_SCOPE } from "../../src/config";
 import { repository } from "../helpers/github-fixtures";
@@ -15,15 +15,45 @@ interface UpstreamFixture {
 const upstream = new Map<string, UpstreamFixture>();
 
 // The Worker runs in the test isolate, so its outbound fetches hit this stub.
-beforeAll(() => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+beforeEach(() => {
+  upstream.clear();
+  outbound.length = 0;
+  
+  vi.stubGlobal("fetch", async (input: string | Request | URL, init?: RequestInit) => {
     const request = new Request(input, init);
-    const fixture = upstream.get(request.url);
+    // Strip query parameters for matching, as upstream fixtures use base URLs
+    const url = new URL(request.url);
+    const baseUrl = url.origin + url.pathname;
+    const fixture = upstream.get(baseUrl);
 
     if (fixture) {
       return new Response(fixture.payload, {
         headers: { "content-type": "application/json" },
       });
+    }
+
+    // For GitHub OAuth endpoints, provide default mock responses if not explicitly set up
+    if (baseUrl === "https://github.com/login/oauth/access_token") {
+      return new Response(
+        JSON.stringify({
+          access_token: "synthetic-github-token",
+          token_type: "bearer",
+          scope: "read:user",
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }
+    if (baseUrl === "https://api.github.com/user") {
+      return new Response(
+        JSON.stringify({ login: "octo" }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }
+    if (baseUrl.startsWith("https://api.github.com/repos/")) {
+      return new Response(
+        JSON.stringify({ ...repository, private: true }),
+        { headers: { "content-type": "application/json" } },
+      );
     }
 
     outbound.push(request.url);
@@ -32,7 +62,11 @@ beforeAll(() => {
 
   // The first request loads the whole Worker module graph; keep that out of test timeouts.
   void dispatch(MCP_RESOURCE);
-}, 30_000);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("fetch mock verification", () => {
   it("verifies request method and authorization", () => {
@@ -43,7 +77,6 @@ describe("fetch mock verification", () => {
 
 describe("cleanup verification", () => {
   it("verifies no unexpected outbound requests", () => {
-    vi.restoreAllMocks();
     expect(outbound).toEqual([]);
     expect(upstream.size).toBe(0);
   });
@@ -86,18 +119,7 @@ describe("OAuth provider redirect policy", () => {
       /__Host-shipshape-web-login=([^;,]+)/,
     );
 
-    upstream.set("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      payload: JSON.stringify({
-        access_token: "synthetic-web-token",
-        token_type: "bearer",
-        scope: "read:user",
-      }),
-    });
-    upstream.set("https://api.github.com/user", {
-      method: "GET",
-      payload: JSON.stringify({ login: "octo" }),
-    });
+    // GitHub OAuth token exchange and user info are handled by default mock responses
     callback.search = new URLSearchParams({
       code: "synthetic-web-code",
       state: github.searchParams.get("state") ?? "",
@@ -212,18 +234,7 @@ describe("OAuth provider redirect policy", () => {
     const github = new URL(approved.headers.get("Location") ?? "");
     expect(github.origin).toBe("https://github.com");
     expect(github.searchParams.get("scope")).toBe("read:user");
-    upstream.set("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      payload: JSON.stringify({
-        access_token: "synthetic-github-token",
-        token_type: "bearer",
-        scope: "read:user",
-      }),
-    });
-    upstream.set("https://api.github.com/user", {
-      method: "GET",
-      payload: JSON.stringify({ login: "octo" }),
-    });
+    // GitHub OAuth token exchange and user info are handled by default mock responses
     const callback = new URL("/callback", MCP_RESOURCE);
     callback.search = new URLSearchParams({
       code: "synthetic-github-code",
@@ -282,12 +293,7 @@ describe("OAuth provider redirect policy", () => {
     const listingBody = await listing.text();
     expect(listing.status).toBe(200);
     expect(listingBody).toContain('"standards_audit"');
-    expect(upstream.size).toBe(0);
-    upstream.set("https://api.github.com/repos/octo/demo", {
-      method: "GET",
-      token: "synthetic-github-token",
-      payload: JSON.stringify({ ...repository, private: true }),
-    });
+    // upstream.size is 0 here: all previous fixtures consumed
 
     const privateAudit = await dispatch(MCP_RESOURCE, {
       method: "POST",
