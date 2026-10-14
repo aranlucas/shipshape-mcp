@@ -1,8 +1,4 @@
-import {
-  healthResponse,
-  landingHandler,
-  privacyPageResponse,
-} from "../src/landing";
+import { healthResponse, landingHandler, privacyPageResponse } from "../src/landing";
 import { describe, expect, it } from "vitest";
 
 describe("public landing handlers", () => {
@@ -20,9 +16,7 @@ describe("public landing handlers", () => {
   });
 
   it("serves the same-origin stylesheet with an explicit content type", async () => {
-    const response = landingHandler(
-      new Request("https://shipshape.example/assets/shipshape.css"),
-    );
+    const response = landingHandler(new Request("https://shipshape.example/assets/shipshape.css"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/css");
@@ -45,16 +39,12 @@ describe("public landing handlers", () => {
   });
 
   it("returns a hardened 404 and rejects non-GET landing requests", async () => {
-    const missing = landingHandler(
-      new Request("https://shipshape.example/nope"),
-    );
+    const missing = landingHandler(new Request("https://shipshape.example/nope"));
 
     expect(missing.status).toBe(404);
     expect(missing.headers.get("X-Content-Type-Options")).toBe("nosniff");
 
-    const post = landingHandler(
-      new Request("https://shipshape.example/", { method: "POST" }),
-    );
+    const post = landingHandler(new Request("https://shipshape.example/", { method: "POST" }));
 
     expect(post.status).toBe(405);
     expect(post.headers.get("Allow")).toBe("GET");

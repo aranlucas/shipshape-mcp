@@ -78,8 +78,7 @@ export const protection = {
 
 export const commit = {
   sha: "b".repeat(40),
-  html_url:
-    "https://github.com/octo/demo/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  html_url: "https://github.com/octo/demo/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   commit: {
     message: "ship it",
     author: { date: "2026-08-29T00:00:00Z" },
@@ -113,11 +112,7 @@ export const workflowRun = {
   html_url: "https://github.com/octo/demo/actions/runs/7",
 };
 
-export function jsonResponse(
-  value: ConfigValue,
-  status = 200,
-  nextUrl?: string,
-): Response {
+export function jsonResponse(value: ConfigValue, status = 200, nextUrl?: string): Response {
   const headers = new Headers({ "content-type": "application/json" });
 
   if (nextUrl) headers.set("link", `<${nextUrl}>; rel="next"`);
@@ -130,16 +125,14 @@ export type Route = (url: URL, init?: RequestInit) => Response;
 export function clientFor(route: Route) {
   const calls: URL[] = [];
 
-  const fetcher = vi.fn(
-    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const url = new URL(String(input));
-      calls.push(url);
-      const response = route(url, init);
-      Object.defineProperty(response, "url", { value: url.toString() });
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input));
+    calls.push(url);
+    const response = route(url, init);
+    Object.defineProperty(response, "url", { value: url.toString() });
 
-      return response;
-    },
-  );
+    return response;
+  });
 
   return {
     client: new Octokit({
@@ -155,8 +148,7 @@ export function fullRoute(url: URL): Response {
 
   if (path === "/repos/octo/demo") return jsonResponse(repository);
 
-  if (path === "/repos/octo/demo/branches/main/protection")
-    return jsonResponse(protection);
+  if (path === "/repos/octo/demo/branches/main/protection") return jsonResponse(protection);
 
   if (path === "/repos/octo/demo/branches/main") return jsonResponse(branch);
 

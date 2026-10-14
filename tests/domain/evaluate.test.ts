@@ -176,9 +176,7 @@ describe("provider fact evaluation", () => {
     }
 
     expect(emitted.has("security.dependabot")).toBe(true);
-    expect(
-      checks.find((check) => check.ruleId === "security.dependabot")?.state,
-    ).toBe("unknown");
+    expect(checks.find((check) => check.ruleId === "security.dependabot")?.state).toBe("unknown");
     expect(scoreChecks(checks)).toMatchObject({
       totalImpact: 220,
       counts: { unknown: 1 },
@@ -207,9 +205,7 @@ describe("provider fact evaluation", () => {
 
     const plan = buildActionPlan(evaluateRepositoryReadiness(passing));
 
-    expect(plan.items.map((item) => item.ruleId)).toEqual([
-      "security.dependabot",
-    ]);
+    expect(plan.items.map((item) => item.ruleId)).toEqual(["security.dependabot"]);
     expect(plan.items[0]?.state).toBe("unknown");
   });
 
@@ -230,9 +226,7 @@ describe("provider fact evaluation", () => {
       checks
         .filter((check) => check.ruleId.startsWith("delivery."))
         .filter(
-          (check) =>
-            check.ruleId.includes("merg") ||
-            check.ruleId.includes("update-branches"),
+          (check) => check.ruleId.includes("merg") || check.ruleId.includes("update-branches"),
         )
         .map((check) => check.state),
     ).toEqual(["unknown", "unknown", "unknown"]);
@@ -245,9 +239,7 @@ describe("provider fact evaluation", () => {
       ciStatus: "healthy",
     });
 
-    expect(
-      checks.find((check) => check.ruleId === "delivery.ci-present")?.state,
-    ).toBe("fail");
+    expect(checks.find((check) => check.ruleId === "delivery.ci-present")?.state).toBe("fail");
   });
 
   it("ignores open security alerts when the code-scanning endpoint is available", () => {
@@ -274,9 +266,7 @@ describe("provider fact evaluation", () => {
       readiness.branchRisk,
     );
 
-    expect(
-      checks.find((check) => check.ruleId === "security.code-scanning")?.state,
-    ).toBe("pass");
+    expect(checks.find((check) => check.ruleId === "security.code-scanning")?.state).toBe("pass");
   });
 
   it("derives product status from domain failures, not collector heuristics", () => {
@@ -347,28 +337,20 @@ describe("provider fact evaluation", () => {
       },
     };
 
-    expect(
-      evaluateRepositoryReadiness(incomplete).some(
-        (check) => check.state === "fail",
-      ),
-    ).toBe(false);
+    expect(evaluateRepositoryReadiness(incomplete).some((check) => check.state === "fail")).toBe(
+      false,
+    );
     expect(repositoryReadinessStatus(incomplete)).toBe("unknown");
   });
 
   it("does not require pull-request approvals for branch security controls", () => {
-    const checks = evaluateSecurityPosture(
-      readiness.securityPosture,
-      readiness.repository,
-      {
-        ...readiness.branchRisk,
-        requiresPullRequestReviews: false,
-        requiredApprovingReviews: 0,
-      },
-    );
+    const checks = evaluateSecurityPosture(readiness.securityPosture, readiness.repository, {
+      ...readiness.branchRisk,
+      requiresPullRequestReviews: false,
+      requiredApprovingReviews: 0,
+    });
 
-    expect(
-      checks.find((check) => check.ruleId === "security.branch-protection"),
-    ).toMatchObject({
+    expect(checks.find((check) => check.ruleId === "security.branch-protection")).toMatchObject({
       state: "pass",
     });
   });

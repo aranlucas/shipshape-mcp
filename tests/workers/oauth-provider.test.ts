@@ -6,10 +6,7 @@ import { repository } from "../helpers/github-fixtures";
 
 const outbound: string[] = [];
 
-const upstream = new Map<
-  string,
-  { method: string; payload: string; token?: string }
->();
+const upstream = new Map<string, UpstreamFixture>();
 
 // The Worker runs in the test isolate, so its outbound fetches hit this stub.
 beforeAll(async () => {
@@ -52,9 +49,7 @@ function dispatch(input: string | URL, init: RequestInit = {}) {
   headers.set("Host", headers.get("X-Fixture-Host") ?? new URL(input).host);
   headers.delete("X-Fixture-Host");
 
-  return exports.default.fetch(
-    new Request(input, { ...init, headers, redirect: "manual" }),
-  );
+  return exports.default.fetch(new Request(input, { ...init, headers, redirect: "manual" }));
 }
 
 function register(redirectUris: string[]) {
@@ -128,10 +123,7 @@ describe("OAuth provider redirect policy", () => {
     ["https://client.example/callback"],
     ["http://127.0.0.1:49152/callback"],
     ["claude://oauth/callback"],
-    [
-      "cursor://anysphere.cursor-mcp/oauth/callback",
-      "http://127.0.0.1:49152/callback",
-    ],
+    ["cursor://anysphere.cursor-mcp/oauth/callback", "http://127.0.0.1:49152/callback"],
   ])("keeps supported client callbacks: %j", async (...redirectUris) => {
     const response = await register(redirectUris);
     expect(response.status).toBe(201);
@@ -154,9 +146,7 @@ describe("OAuth provider redirect policy", () => {
     const response = await dispatch(MCP_RESOURCE);
 
     expect(response.status).toBe(401);
-    expect(response.headers.get("WWW-Authenticate")).toContain(
-      `scope="${MCP_SCOPE}"`,
-    );
+    expect(response.headers.get("WWW-Authenticate")).toContain(`scope="${MCP_SCOPE}"`);
   });
   it("uses the real provider, KV, GitHub OAuth adapter and MCP handler together", async () => {
     const registration = await register(["https://client.example/callback"]);
@@ -165,8 +155,7 @@ describe("OAuth provider redirect policy", () => {
       .object({ client_id: z.string() })
       .parse(await registration.json());
 
-    const verifier =
-      "synthetic-pkce-verifier-which-is-at-least-forty-three-characters";
+    const verifier = "synthetic-pkce-verifier-which-is-at-least-forty-three-characters";
 
     const challenge = Buffer.from(
       await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
@@ -305,9 +294,7 @@ describe("OAuth provider redirect policy", () => {
     });
 
     expect(privateAudit.status).toBe(200);
-    expect(await privateAudit.text()).toContain(
-      "Shipshape only inspects public repositories.",
-    );
+    expect(await privateAudit.text()).toContain("Shipshape only inspects public repositories.");
     expect(upstream.size).toBe(0);
 
     const invalidHost = await dispatch(MCP_RESOURCE, {
@@ -353,7 +340,9 @@ describe("OAuth provider redirect policy", () => {
 function captured(text: string, pattern: RegExp): string {
   const value = pattern.exec(text)?.[1];
 
-  if (!value) throw new Error(`Missing expected OAuth field: ${pattern}`);
+  if (!value) throw new Error(`Missing expected OAuth field: ${String(pattern)}`);
 
   return value;
 }
+
+type UpstreamFixture = { method: string; payload: string; token?: string };

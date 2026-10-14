@@ -8,12 +8,10 @@ import { fullRoute, jsonResponse, repository } from "./helpers/github-fixtures";
 const cleanup: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
-  for (const close of cleanup.splice(0)) await close();
+  await Promise.all(cleanup.splice(0).map((close) => close()));
 });
 
-async function connect(
-  route: (url: URL) => Response | Promise<Response> = auditRoute,
-) {
+async function connect(route: (url: URL) => Response | Promise<Response> = auditRoute) {
   const calls: URL[] = [];
 
   const github = createGitHubOctokit("synthetic-token", async (input, init) => {
@@ -30,8 +28,7 @@ async function connect(
   const server = createPortfolioServer(() => github);
   const client = new Client({ name: "offline-integration", version: "1.0.0" });
 
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
   cleanup.push(async () => {
     await client.close();
@@ -89,7 +86,7 @@ describe("real MCP SDK integration", () => {
   it("exposes exactly eight read-only tools and enforces their input schemas", async () => {
     const { client, calls } = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual([
+    expect(tools.map((tool) => tool.name).toSorted()).toEqual([
       "action_plan",
       "branch_risk",
       "delivery_hygiene",
@@ -198,12 +195,8 @@ describe("real MCP SDK integration", () => {
         ]),
       },
     });
-    expect(
-      calls.some((url) => url.pathname === "/repos/octo/demo/branches/main"),
-    ).toBe(true);
-    expect(
-      calls.some((url) => url.pathname === "/repos/octo/demo/commits/main"),
-    ).toBe(true);
+    expect(calls.some((url) => url.pathname === "/repos/octo/demo/branches/main")).toBe(true);
+    expect(calls.some((url) => url.pathname === "/repos/octo/demo/commits/main")).toBe(true);
   });
 
   it("inspects security posture without collecting readiness history", async () => {
@@ -218,20 +211,12 @@ describe("real MCP SDK integration", () => {
     expect(result.structuredContent).toMatchObject({
       repository: { owner: "octo", repo: "demo" },
     });
-    expect(
-      calls.some((url) =>
-        /\/(commits|pulls|actions\/runs)$/.test(url.pathname),
-      ),
-    ).toBe(false);
-    expect(calls.some((url) => url.pathname.endsWith("/branches/main"))).toBe(
-      true,
-    );
+    expect(calls.some((url) => /\/(commits|pulls|actions\/runs)$/.test(url.pathname))).toBe(false);
+    expect(calls.some((url) => url.pathname.endsWith("/branches/main"))).toBe(true);
   });
 
   it("refuses private repositories before reading their contents", async () => {
-    const { client, calls } = await connect(() =>
-      jsonResponse({ ...repository, private: true }),
-    );
+    const { client, calls } = await connect(() => jsonResponse({ ...repository, private: true }));
 
     const result = await client.callTool({
       name: "standards_audit",
@@ -337,12 +322,10 @@ describe("real MCP SDK integration", () => {
   it("loads a pinned policy file and requires exactly one policy source", async () => {
     const sha = "d".repeat(40);
 
-    const text =
-      "version: 1\nrules:\n  - id: topics\n    topics: {required: [demo]}\n";
+    const text = "version: 1\nrules:\n  - id: topics\n    topics: {required: [demo]}\n";
 
     const { client } = await connect((url) => {
-      if (url.pathname === "/users/octo/repos")
-        return jsonResponse([repository]);
+      if (url.pathname === "/users/octo/repos") return jsonResponse([repository]);
 
       if (url.pathname === "/repos/octo/standards")
         return jsonResponse({ ...repository, name: "standards" });
@@ -391,9 +374,7 @@ describe("real MCP SDK integration", () => {
         kind: "policy",
         url: `https://github.com/octo/standards/blob/${sha}/repo-rules.yml`,
       },
-      repositories: [
-        { repository: "octo/demo", status: "compliant", remediation: [] },
-      ],
+      repositories: [{ repository: "octo/demo", status: "compliant", remediation: [] }],
     });
 
     const neither = await client.callTool({

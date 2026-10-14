@@ -433,17 +433,13 @@ const compareStrings = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
 
 const truncate = (value: string, maxLength: number): string =>
-  value.length > maxLength
-    ? value.slice(0, maxLength - 1).trimEnd() + "…"
-    : value;
+  value.length > maxLength ? value.slice(0, maxLength - 1).trimEnd() + "…" : value;
 
 const canonicalHttpUrl = (value: string): string | null => {
   try {
     const url = new URL(value);
 
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.href
-      : null;
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
   } catch {
     return null;
   }
@@ -482,9 +478,7 @@ const normalizedEvidence = (evidence: Evidence): Evidence | null => {
  * key: duplicate observations are collapsed and the lexicographically stable
  * description wins, regardless of provider response order.
  */
-export const dedupeEvidence = (
-  evidence: readonly Evidence[] | undefined,
-): readonly Evidence[] => {
+export const dedupeEvidence = (evidence: readonly Evidence[] | undefined): readonly Evidence[] => {
   const byUrl = new Map<string, Evidence>();
 
   for (const item of evidence ?? []) {
@@ -508,7 +502,7 @@ export const dedupeEvidence = (
   }
 
   return [...byUrl.values()]
-    .sort((left, right) => compareStrings(left.url, right.url))
+    .toSorted((left, right) => compareStrings(left.url, right.url))
     .slice(0, MAX_EVIDENCE);
 };
 
@@ -549,10 +543,7 @@ export const makeCheck = (input: MakeCheckInput): CheckResult => {
     throw new RangeError(`Invalid confidence: ${String(input.confidence)}`);
   }
 
-  const suppliedRemediation = z
-    .string()
-    .safeParse(input.remediation)
-    .data?.trim();
+  const suppliedRemediation = z.string().safeParse(input.remediation).data?.trim();
 
   const remediation = suppliedRemediation
     ? truncate(suppliedRemediation, MAX_REMEDIATION_LENGTH)

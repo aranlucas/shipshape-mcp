@@ -23,8 +23,7 @@ export const PackagePathSchema = z
   .refine(
     (path) =>
       path === "." ||
-      (/^(?!\/)(?!.*(?:^|\/)\.\.?($|\/))[a-zA-Z0-9_.@/-]+$/.test(path) &&
-        !path.endsWith("/")),
+      (/^(?!\/)(?!.*(?:^|\/)\.\.?($|\/))[a-zA-Z0-9_.@/-]+$/.test(path) && !path.endsWith("/")),
     "Use a repository-relative directory without traversal",
   );
 
@@ -65,10 +64,7 @@ export const PolicySchema = z
           .object({
             rule: z
               .enum(RULE_NAMES)
-              .refine(
-                (rule) => rule !== "baseline",
-                "Baseline adoption cannot be exempted",
-              ),
+              .refine((rule) => rule !== "baseline", "Baseline adoption cannot be exempted"),
             path: PackagePathSchema.default("."),
             reason: z.string().trim().min(10).max(300),
             expires: z.iso.date(),
@@ -80,10 +76,7 @@ export const PolicySchema = z
   })
   .strict()
   .superRefine((policy, context) => {
-    if (
-      new Set(policy.packages.map((pkg) => pkg.path)).size !==
-      policy.packages.length
-    )
+    if (new Set(policy.packages.map((pkg) => pkg.path)).size !== policy.packages.length)
       context.addIssue({ code: "custom", message: "Duplicate package paths" });
     const keys = policy.exceptions.map((item) => `${item.path}:${item.rule}`);
 
@@ -114,8 +107,7 @@ export function parsePolicy(text: string): Policy {
 }
 
 export function mergePolicy(shared: Policy, local: Policy): Policy {
-  if (shared.extends)
-    throw new GitHubInputError("Shared policies cannot extend another policy.");
+  if (shared.extends) throw new GitHubInputError("Shared policies cannot extend another policy.");
   const packages = new Map(shared.packages.map((pkg) => [pkg.path, pkg]));
 
   for (const pkg of local.packages)
@@ -124,12 +116,9 @@ export function mergePolicy(shared: Policy, local: Policy): Policy {
       commands: { ...packages.get(pkg.path)?.commands, ...pkg.commands },
     });
 
-  const exceptions = new Map(
-    shared.exceptions.map((item) => [`${item.path}:${item.rule}`, item]),
-  );
+  const exceptions = new Map(shared.exceptions.map((item) => [`${item.path}:${item.rule}`, item]));
 
-  for (const item of local.exceptions)
-    exceptions.set(`${item.path}:${item.rule}`, item);
+  for (const item of local.exceptions) exceptions.set(`${item.path}:${item.rule}`, item);
 
   return PolicySchema.parse({
     ...local,

@@ -17,10 +17,7 @@ const evidenceFrom = (items: readonly GitHubEvidence[]): readonly Evidence[] =>
     return result;
   });
 
-const observedBoolean = (
-  value: boolean | null,
-  passWhen: boolean,
-): CheckState => {
+const observedBoolean = (value: boolean | null, passWhen: boolean): CheckState => {
   if (value === null) return "unknown";
 
   return value === passWhen ? "pass" : "fail";
@@ -36,9 +33,7 @@ const settingState = (value: string | null): CheckState => {
   return "unknown";
 };
 
-export const evaluateBranchRisk = (
-  branch: BranchRiskFact,
-): readonly CheckResult[] => {
+export const evaluateBranchRisk = (branch: BranchRiskFact): readonly CheckResult[] => {
   const evidence = evidenceFrom(branch.evidence);
   const protectionState = observedBoolean(branch.protected, true);
 
@@ -51,17 +46,11 @@ export const evaluateBranchRisk = (
   ];
 };
 
-export const evaluateDeliveryHygiene = (
-  delivery: DeliveryHygieneFact,
-): readonly CheckResult[] => {
+export const evaluateDeliveryHygiene = (delivery: DeliveryHygieneFact): readonly CheckResult[] => {
   const evidence = evidenceFrom(delivery.evidence);
 
   const ciPresent: CheckState =
-    delivery.workflowRuns === null
-      ? "unknown"
-      : delivery.workflowRuns > 0
-        ? "pass"
-        : "fail";
+    delivery.workflowRuns === null ? "unknown" : delivery.workflowRuns > 0 ? "pass" : "fail";
 
   const ciGreen: CheckState =
     delivery.ciStatus === "healthy"
@@ -71,8 +60,7 @@ export const evaluateDeliveryHygiene = (
         : "unknown";
 
   const remediation =
-    ciGreen === "unknown" &&
-    delivery.coverage.workflowRuns.status === "truncated"
+    ciGreen === "unknown" && delivery.coverage.workflowRuns.status === "truncated"
       ? "Inspect additional workflow history before concluding CI is healthy; the bounded sample may omit other workflows."
       : undefined;
 
@@ -92,21 +80,13 @@ export const evaluateSecurityPosture = (
   repository: RepositoryReadiness["repository"],
   branch: BranchRiskFact,
 ): readonly CheckResult[] => {
-  const evidence = evidenceFrom([
-    ...security.evidence,
-    ...repository.evidence,
-    ...branch.evidence,
-  ]);
+  const evidence = evidenceFrom([...security.evidence, ...repository.evidence, ...branch.evidence]);
 
   const codeScanning: CheckState =
     security.codeScanning.status === "available" ? "pass" : "unknown";
 
   const branchControls: CheckState =
-    branch.status !== "available"
-      ? "unknown"
-      : branch.protected === true
-        ? "pass"
-        : "fail";
+    branch.status !== "available" ? "unknown" : branch.protected === true ? "pass" : "fail";
 
   return [
     makeCheck({

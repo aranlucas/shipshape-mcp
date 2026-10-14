@@ -1,8 +1,6 @@
-import { z } from "zod";
-import pLimit from "p-limit";
-
-import { repositoryReadinessStatus } from "../domain/evaluate";
 import {
+  type GitHubResult,
+  type PaginationOptions,
   GitHubInputError,
   MAX_ALLOWED_CONCURRENCY,
   PrivateRepositoryError,
@@ -11,6 +9,10 @@ import {
   paginationLimits,
   type GitHubOctokit,
 } from "./client";
+import { z } from "zod";
+import pLimit from "p-limit";
+
+import { repositoryReadinessStatus } from "../domain/evaluate";
 import {
   GitHubBranchProtectionSchema,
   GitHubBranchSchema,
@@ -58,7 +60,7 @@ export interface PortfolioSnapshotOptions extends CollectorOptions {
   /** Explicit repositories avoid a second owner listing request. */
   repositories?: readonly RepositoryCoordinates[];
   /** Owner-listing bounds are separate from each repository's deep scan. */
-  listing?: { maxPages?: number; perPage?: number };
+  listing?: PaginationOptions;
   limit?: number;
   includeForks?: boolean;
   includeArchived?: boolean;
@@ -72,7 +74,7 @@ type EndpointResult<T> = {
 
 function observationScope(
   result: Pick<EndpointResult<readonly unknown[]>, "value" | "metadata">,
-  options: { maxPages?: number; perPage?: number },
+  options: PaginationOptions,
 ): ObservationScope {
   const available = result.value !== null;
   const nextUrl = result.metadata?.nextUrl ?? null;
@@ -118,11 +120,7 @@ function branchEvidence(
   };
 }
 
-function featureEvidence(
-  url: string,
-  label: string,
-  collectedAt: string,
-): Evidence {
+function featureEvidence(url: string, label: string, collectedAt: string): Evidence {
   return { url, label, collectedAt };
 }
 
@@ -143,10 +141,7 @@ function errorReason(cause: unknown): string {
   return "GitHub feature could not be collected";
 }
 
-function featureFailure<T>(
-  cause: unknown,
-  evidence: Evidence[],
-): FeatureResult<T> {
+function featureFailure<T>(cause: unknown, evidence: Evidence[]): FeatureResult<T> {
   return {
     status: "unknown",
     value: null,
@@ -170,9 +165,7 @@ function featureSuccess<T>(
   };
 }
 
-async function endpoint<T>(
-  worker: () => Promise<{ data: T; metadata: GitHubResponseMetadata }>,
-): Promise<EndpointResult<T>> {
+async function endpoint<T>(worker: () => Promise<GitHubResult<T>>): Promise<EndpointResult<T>> {
   try {
     const response = await worker();
 
@@ -199,11 +192,7 @@ function repositoryFact(
     archived: value.archived,
     fork: value.fork,
     language: value.language ?? null,
-    license:
-      value.license?.spdx_id ??
-      value.license?.key ??
-      value.license?.name ??
-      null,
+    license: value.license?.spdx_id ?? value.license?.key ?? value.license?.name ?? null,
     topics: value.topics ?? [],
     stars: value.stargazers_count ?? null,
     forks: value.forks_count ?? null,
@@ -221,13 +210,7 @@ function repositoryFact(
       secretScanning: security?.secret_scanning?.status ?? null,
       pushProtection: security?.secret_scanning_push_protection?.status ?? null,
     },
-    evidence: [
-      featureEvidence(
-        value.html_url,
-        `${value.full_name} repository`,
-        collectedAt,
-      ),
-    ],
+    evidence: [featureEvidence(value.html_url, `${value.full_name} repository`, collectedAt)],
   };
 }
 
@@ -310,10 +293,7 @@ export async function collectBranchRisk(
       allowsDeletions: null,
       status: "partial",
       reason: errorReason(protectionResult.error),
-      evidence: [
-        ...evidence,
-        branchProtectionEvidence(coordinates, ref, collectedAt),
-      ],
+      evidence: [...evidence, branchProtectionEvidence(coordinates, ref, collectedAt)],
     };
   }
 
@@ -332,19 +312,14 @@ export async function collectBranchRisk(
     allowsDeletions: protection.allow_deletions ?? null,
     status: "available",
     reason: null,
-    evidence: [
-      ...evidence,
-      branchProtectionEvidence(coordinates, ref, collectedAt),
-    ],
+    evidence: [...evidence, branchProtectionEvidence(coordinates, ref, collectedAt)],
   };
 }
 
 function recentSince(options: CollectorOptions): string {
   if (options.since) return options.since;
 
-  return new Date(
-    Date.now() - DEFAULT_RECENT_DAYS * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  return new Date(Date.now() - DEFAULT_RECENT_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
 
 export async function collectDeliveryHygiene(
@@ -453,37 +428,25 @@ export async function collectDeliveryHygiene(
   const pullItems = pullRequests.value ?? [];
   const runItems = workflowRuns.value ?? [];
 
-  const failedConclusions = new Set([
-    "action_required",
-    "failure",
-    "startup_failure",
-    "timed_out",
-  ]);
+  const failedConclusions = new Set(["action_required", "failure", "startup_failure", "timed_out"]);
 
   const failedWorkflowRuns = runItems.filter(
     (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
   ).length;
 
-  const cancelledWorkflowRuns = runItems.filter(
-    (run) => run.conclusion === "cancelled",
-  ).length;
+  const cancelledWorkflowRuns = runItems.filter((run) => run.conclusion === "cancelled").length;
 
   const inProgressWorkflowRuns = runItems.filter(
     (run) => run.status !== null && run.status !== "completed",
   ).length;
 
-  const successfulWorkflowRuns = runItems.filter(
-    (run) => run.conclusion === "success",
-  ).length;
+  const successfulWorkflowRuns = runItems.filter((run) => run.conclusion === "success").length;
 
   const latestCommitAt =
     commitItems
-      .map(
-        (commit) =>
-          commit.commit.author?.date ?? commit.commit.committer?.date ?? null,
-      )
+      .map((commit) => commit.commit.author?.date ?? commit.commit.committer?.date ?? null)
       .filter((date): date is string => date !== null)
-      .sort()
+      .toSorted()
       .at(-1) ?? null;
 
   const latestRun = runItems[0];
@@ -508,21 +471,16 @@ export async function collectDeliveryHygiene(
     if (run.status !== "completed" || run.conclusion === "cancelled") continue;
     const workflow = run.name ?? run.html_url;
 
-    if (!latestCompletedByWorkflow.has(workflow))
-      latestCompletedByWorkflow.set(workflow, run);
+    if (!latestCompletedByWorkflow.has(workflow)) latestCompletedByWorkflow.set(workflow, run);
   }
 
   const failingWorkflowRuns = [...latestCompletedByWorkflow.values()]
-    .filter(
-      (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
-    )
+    .filter((run) => run.conclusion != null && failedConclusions.has(run.conclusion))
     .slice(0, 5)
     .map(summarizeRun);
 
   if (latestRun?.html_url)
-    evidence.push(
-      featureEvidence(latestRun.html_url, "Latest workflow run", collectedAt),
-    );
+    evidence.push(featureEvidence(latestRun.html_url, "Latest workflow run", collectedAt));
 
   for (const run of failingWorkflowRuns) {
     evidence.push(
@@ -535,9 +493,7 @@ export async function collectDeliveryHygiene(
   }
 
   if (commitItems[0]?.html_url)
-    evidence.push(
-      featureEvidence(commitItems[0].html_url, "Latest commit", collectedAt),
-    );
+    evidence.push(featureEvidence(commitItems[0].html_url, "Latest commit", collectedAt));
 
   let ciStatus: DeliveryHygieneFact["ciStatus"] = "unknown";
 
@@ -595,10 +551,7 @@ function securityFeatureEvidence(
   const details = {
     codeScanning: [`${root}/security/code-scanning`, "Code scanning alerts"],
     dependabot: [`${root}/security/dependabot`, "Dependabot alerts"],
-    secretScanning: [
-      `${root}/security/secret-scanning`,
-      "Secret scanning alerts",
-    ],
+    secretScanning: [`${root}/security/secret-scanning`, "Secret scanning alerts"],
   } as const;
 
   const [url, label] = details[feature];
@@ -611,12 +564,8 @@ async function collectCodeScanning(
   repository: RepositoryCoordinates,
   options: CollectorOptions,
   collectedAt: string,
-): Promise<FeatureResult<{ openAlerts: number; highSeverityAlerts: number }>> {
-  const evidence = securityFeatureEvidence(
-    repository,
-    "codeScanning",
-    collectedAt,
-  );
+): Promise<FeatureResult<CodeScanningSummary>> {
+  const evidence = securityFeatureEvidence(repository, "codeScanning", collectedAt);
 
   const result = await endpoint(() =>
     octokitPaginate(
@@ -635,15 +584,12 @@ async function collectCodeScanning(
   );
 
   const highSeverityAlerts = open.filter((alert) => {
-    const severity =
-      alert.rule?.security_severity_level ?? alert.rule?.severity ?? "";
+    const severity = alert.rule?.security_severity_level ?? alert.rule?.severity ?? "";
 
-    return (
-      severity.toLowerCase() === "high" || severity.toLowerCase() === "critical"
-    );
+    return severity.toLowerCase() === "high" || severity.toLowerCase() === "critical";
   }).length;
 
-  return featureSuccess<{ openAlerts: number; highSeverityAlerts: number }>(
+  return featureSuccess<CodeScanningSummary>(
     { openAlerts: open.length, highSeverityAlerts },
     result.metadata,
     evidence,
@@ -655,12 +601,8 @@ async function collectDependabot(
   repository: RepositoryCoordinates,
   options: CollectorOptions,
   collectedAt: string,
-): Promise<FeatureResult<{ openAlerts: number; criticalAlerts: number }>> {
-  const evidence = securityFeatureEvidence(
-    repository,
-    "dependabot",
-    collectedAt,
-  );
+): Promise<FeatureResult<DependabotSummary>> {
+  const evidence = securityFeatureEvidence(repository, "dependabot", collectedAt);
 
   const result = await endpoint(() =>
     octokitPaginate(
@@ -682,7 +624,7 @@ async function collectDependabot(
     (alert) => alert.security_advisory?.severity?.toLowerCase() === "critical",
   ).length;
 
-  return featureSuccess<{ openAlerts: number; criticalAlerts: number }>(
+  return featureSuccess<DependabotSummary>(
     { openAlerts: open.length, criticalAlerts },
     result.metadata,
     evidence,
@@ -694,12 +636,8 @@ async function collectSecretScanning(
   repository: RepositoryCoordinates,
   options: CollectorOptions,
   collectedAt: string,
-): Promise<FeatureResult<{ openAlerts: number }>> {
-  const evidence = securityFeatureEvidence(
-    repository,
-    "secretScanning",
-    collectedAt,
-  );
+): Promise<FeatureResult<SecretScanningSummary>> {
+  const evidence = securityFeatureEvidence(repository, "secretScanning", collectedAt);
 
   const result = await endpoint(() =>
     octokitPaginate(
@@ -717,11 +655,7 @@ async function collectSecretScanning(
     (alert: GitHubSecretScanningAlert) => alert.state.toLowerCase() === "open",
   ).length;
 
-  return featureSuccess<{ openAlerts: number }>(
-    { openAlerts },
-    result.metadata,
-    evidence,
-  );
+  return featureSuccess<SecretScanningSummary>({ openAlerts }, result.metadata, evidence);
 }
 
 export async function collectSecurityPosture(
@@ -736,9 +670,7 @@ export async function collectSecurityPosture(
   const [codeScanning, dependabot, secretScanning] = await Promise.all([
     limit(() => collectCodeScanning(client, coordinates, options, collectedAt)),
     limit(() => collectDependabot(client, coordinates, options, collectedAt)),
-    limit(() =>
-      collectSecretScanning(client, coordinates, options, collectedAt),
-    ),
+    limit(() => collectSecretScanning(client, coordinates, options, collectedAt)),
   ]);
 
   const features = [codeScanning, dependabot, secretScanning];
@@ -748,9 +680,7 @@ export async function collectSecurityPosture(
     (dependabot.value?.openAlerts ?? 0) > 0 ||
     (secretScanning.value?.openAlerts ?? 0) > 0;
 
-  const allAvailable = features.every(
-    (feature) => feature.status === "available",
-  );
+  const allAvailable = features.every((feature) => feature.status === "available");
 
   const overallStatus: SecurityPostureFact["overallStatus"] = hasOpenAlerts
     ? "needs-attention"
@@ -781,8 +711,7 @@ export async function collectPublicRepository(
     GitHubRepositorySchema,
   );
 
-  if (repositoryResponse.data.private)
-    throw new PrivateRepositoryError(coordinates);
+  if (repositoryResponse.data.private) throw new PrivateRepositoryError(coordinates);
 
   return repositoryFact(coordinates, repositoryResponse.data, nowIso());
 }
@@ -836,10 +765,7 @@ export async function collectPortfolioSnapshot(
     includeArchived: options.includeArchived ?? true,
   };
 
-  if (
-    options.limit !== undefined &&
-    (!Number.isInteger(options.limit) || options.limit <= 0)
-  )
+  if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit <= 0))
     throw new GitHubInputError("limit must be a positive integer");
 
   let scope: PortfolioScope = {
@@ -896,9 +822,7 @@ export async function collectPortfolioSnapshot(
       const eligible = response.data
         .filter((repository) => !repository.private)
         .filter((repository) => filters.includeForks || !repository.fork)
-        .filter(
-          (repository) => filters.includeArchived || !repository.archived,
-        );
+        .filter((repository) => filters.includeArchived || !repository.archived);
 
       scope = {
         ...scope,
@@ -907,8 +831,7 @@ export async function collectPortfolioSnapshot(
         eligibleRepositories: eligible.length,
       };
       repositories = eligible.map((repository) => {
-        const [repositoryOwner, repositoryName] =
-          repository.full_name.split("/");
+        const [repositoryOwner, repositoryName] = repository.full_name.split("/");
 
         return RepositoryCoordinatesSchema.parse({
           owner: repositoryOwner ?? validatedOwner,
@@ -917,11 +840,7 @@ export async function collectPortfolioSnapshot(
       });
       listingEvidence = [
         ...listingEvidence,
-        featureEvidence(
-          response.metadata.url,
-          "GitHub repository listing API",
-          collectedAt,
-        ),
+        featureEvidence(response.metadata.url, "GitHub repository listing API", collectedAt),
       ];
     }
 
@@ -948,11 +867,7 @@ export async function collectPortfolioSnapshot(
       collectedAt,
       evidence: [
         ...listingEvidence,
-        featureEvidence(
-          errorUrl(error),
-          "Repository listing unavailable",
-          collectedAt,
-        ),
+        featureEvidence(errorUrl(error), "Repository listing unavailable", collectedAt),
       ],
     };
   }
@@ -962,11 +877,7 @@ export async function collectPortfolioSnapshot(
   const results = await limit.map(repositories, async (repository) => {
     try {
       return {
-        readiness: await collectRepositoryReadiness(
-          client,
-          repository,
-          options,
-        ),
+        readiness: await collectRepositoryReadiness(client, repository, options),
         error: null,
       };
     } catch (error) {
@@ -976,14 +887,11 @@ export async function collectPortfolioSnapshot(
     }
   });
 
-  const readiness = results.flatMap((result) =>
-    result.readiness ? [result.readiness] : [],
-  );
+  const readiness = results.flatMap((result) => (result.readiness ? [result.readiness] : []));
 
   const failed = results.filter((result) => result.error !== null);
 
-  const anyUnknown =
-    failed.length > 0 || readiness.some((item) => item.status === "unknown");
+  const anyUnknown = failed.length > 0 || readiness.some((item) => item.status === "unknown");
 
   const anyPartial =
     scope.status === "truncated" ||
@@ -1007,11 +915,7 @@ export async function collectPortfolioSnapshot(
         0,
       );
 
-  const status: CollectionStatus = anyUnknown
-    ? "unknown"
-    : anyPartial
-      ? "partial"
-      : "available";
+  const status: CollectionStatus = anyUnknown ? "unknown" : anyPartial ? "partial" : "available";
 
   return {
     owner: validatedOwner,
@@ -1019,9 +923,7 @@ export async function collectPortfolioSnapshot(
     repositories: readiness,
     totals: {
       repositories: repositories.length,
-      needsAttention: readiness.filter(
-        (item) => item.status === "needs-attention",
-      ).length,
+      needsAttention: readiness.filter((item) => item.status === "needs-attention").length,
       unknown:
         repositories.length -
         readiness.length +
@@ -1030,10 +932,7 @@ export async function collectPortfolioSnapshot(
     },
     status,
     collectedAt,
-    evidence: [
-      ...listingEvidence,
-      ...readiness.flatMap((item) => item.evidence),
-    ],
+    evidence: [...listingEvidence, ...readiness.flatMap((item) => item.evidence)],
   };
 }
 
@@ -1049,21 +948,23 @@ function paginationOptions(options: CollectorOptions) {
 }
 
 function securityFeatureUnavailable(posture: SecurityPostureFact): boolean {
-  return [
-    posture.codeScanning,
-    posture.dependabot,
-    posture.secretScanning,
-  ].some((feature) => feature.status !== "available");
+  return [posture.codeScanning, posture.dependabot, posture.secretScanning].some(
+    (feature) => feature.status !== "available",
+  );
 }
 
 function errorUrl(cause: unknown): string {
   if (cause instanceof Error) {
-    const parsed = z
-      .object({ response: z.object({ url: z.string() }) })
-      .safeParse(cause);
+    const parsed = z.object({ response: z.object({ url: z.string() }) }).safeParse(cause);
 
     if (parsed.success) return parsed.data.response.url;
   }
 
   return "https://docs.github.com/en/rest";
 }
+
+type CodeScanningSummary = { openAlerts: number; highSeverityAlerts: number };
+
+type DependabotSummary = { openAlerts: number; criticalAlerts: number };
+
+type SecretScanningSummary = { openAlerts: number };

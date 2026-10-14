@@ -41,19 +41,13 @@ describe("OAuth security primitives", () => {
     };
 
     await putBrowserBoundState(kv, "state-token-123456", record, "browser-a");
-    expect(
-      await consumeBrowserBoundState(kv, "state-token-123456", "browser-b"),
-    ).toBeNull();
-    expect(
-      await consumeBrowserBoundState(kv, "state-token-123456", "browser-a"),
-    ).toMatchObject({
+    expect(await consumeBrowserBoundState(kv, "state-token-123456", "browser-b")).toBeNull();
+    expect(await consumeBrowserBoundState(kv, "state-token-123456", "browser-a")).toMatchObject({
       kind: record.kind,
       createdAt: record.createdAt,
       oauthRequest: record.oauthRequest,
     });
-    expect(
-      await consumeBrowserBoundState(kv, "state-token-123456", "browser-a"),
-    ).toBeNull();
+    expect(await consumeBrowserBoundState(kv, "state-token-123456", "browser-a")).toBeNull();
   });
 
   it("signs approved clients and rejects tampering and expiry", async () => {
@@ -64,35 +58,19 @@ describe("OAuth security primitives", () => {
       scope: "portfolio:read",
     };
 
-    const cookie = await createSignedApprovalCookie(
-      record,
-      "test-cookie-secret",
-    );
+    const cookie = await createSignedApprovalCookie(record, "test-cookie-secret");
 
+    expect(await parseSignedApprovalCookie(cookie, "test-cookie-secret")).toEqual(record);
+    expect(await parseSignedApprovalCookie(`${cookie}tampered`, "test-cookie-secret")).toBeNull();
     expect(
-      await parseSignedApprovalCookie(cookie, "test-cookie-secret"),
-    ).toEqual(record);
-    expect(
-      await parseSignedApprovalCookie(
-        `${cookie}tampered`,
-        "test-cookie-secret",
-      ),
-    ).toBeNull();
-    expect(
-      await parseSignedApprovalCookie(
-        cookie,
-        "test-cookie-secret",
-        record.expiresAt + 1,
-      ),
+      await parseSignedApprovalCookie(cookie, "test-cookie-secret", record.expiresAt + 1),
     ).toBeNull();
   });
 
   it("escapes metadata and allows only HTTP(S) links", () => {
     expect(safeHttpUrl("javascript:alert(1)")).toBeUndefined();
     expect(safeHttpUrl("data:text/html,unsafe")).toBeUndefined();
-    expect(safeHttpUrl("https://client.example/app")).toBe(
-      "https://client.example/app",
-    );
+    expect(safeHttpUrl("https://client.example/app")).toBe("https://client.example/app");
 
     const metadata = sanitizeClientMetadata({
       clientId: "client-1",

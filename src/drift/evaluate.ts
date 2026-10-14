@@ -109,8 +109,7 @@ export const REPOSITORY_FILE_SETTINGS = [
   { id: "repositoryFiles.citation", key: "citation" },
 ] as const;
 
-export type RepositoryFileSettingId =
-  (typeof REPOSITORY_FILE_SETTINGS)[number]["id"];
+export type RepositoryFileSettingId = (typeof REPOSITORY_FILE_SETTINGS)[number]["id"];
 
 export const WORKFLOW_SECURITY_SETTINGS = [
   { id: "workflowSecurity.leastPrivilegeToken", key: "leastPrivilegeToken" },
@@ -118,15 +117,13 @@ export const WORKFLOW_SECURITY_SETTINGS = [
   { id: "workflowSecurity.dependencyReview", key: "dependencyReview" },
 ] as const;
 
-export type WorkflowSecuritySettingId =
-  (typeof WORKFLOW_SECURITY_SETTINGS)[number]["id"];
+export type WorkflowSecuritySettingId = (typeof WORKFLOW_SECURITY_SETTINGS)[number]["id"];
 
 export const REPOSITORY_RULE_SETTINGS = [
   { id: "repositoryRules.activeRuleset", key: "activeRuleset" },
 ] as const;
 
-export type RepositoryRuleSettingId =
-  (typeof REPOSITORY_RULE_SETTINGS)[number]["id"];
+export type RepositoryRuleSettingId = (typeof REPOSITORY_RULE_SETTINGS)[number]["id"];
 
 const PROTECTION_FLAGS = [
   "requiredSignatures",
@@ -184,15 +181,9 @@ export interface RepositorySettingsFacts {
   readonly archived: boolean;
   /** Null means GitHub did not disclose the value to this credential. */
   readonly settings: Readonly<Record<RepositorySettingId, boolean | null>>;
-  readonly repositoryFiles: Readonly<
-    Record<RepositoryFileSettingId, boolean | null>
-  >;
-  readonly workflowSecurity: Readonly<
-    Record<WorkflowSecuritySettingId, boolean | null>
-  >;
-  readonly repositoryRules: Readonly<
-    Record<RepositoryRuleSettingId, boolean | null>
-  >;
+  readonly repositoryFiles: Readonly<Record<RepositoryFileSettingId, boolean | null>>;
+  readonly workflowSecurity: Readonly<Record<WorkflowSecuritySettingId, boolean | null>>;
+  readonly repositoryRules: Readonly<Record<RepositoryRuleSettingId, boolean | null>>;
   readonly privateVulnerabilityReporting: boolean | null;
   readonly topics: readonly string[];
   readonly branches: ReadonlyMap<string, BranchProtectionFact>;
@@ -310,7 +301,7 @@ type Expectation =
 /** The branches a policy needs protection evidence for, per repository. */
 export function protectedBranchesFor(
   policy: DriftPolicy,
-  repository: { name: string; fork: boolean; archived: boolean },
+  repository: PolicyRepository,
   defaultBranch: string,
 ): string[] {
   const branches = new Set<string>();
@@ -319,7 +310,7 @@ export function protectedBranchesFor(
     if (rule.branchProtection && ruleSelects(rule, repository))
       branches.add(rule.branchProtection.branch ?? defaultBranch);
 
-  return [...branches].sort();
+  return [...branches].toSorted();
 }
 
 function expectations(rule: DriftRule, defaultBranch: string): Expectation[] {
@@ -413,8 +404,7 @@ function expectations(rule: DriftRule, defaultBranch: string): Expectation[] {
   for (const setting of PROTECTION_FLAGS) {
     const value = protection[setting];
 
-    if (value !== undefined)
-      result.push({ kind: "flag", rule: rule.id, setting, branch, value });
+    if (value !== undefined) result.push({ kind: "flag", rule: rule.id, setting, branch, value });
   }
 
   if (protection.requiredApprovingReviews !== undefined)
@@ -459,14 +449,11 @@ function protectionState(fact: BranchProtectionFact | undefined) {
 }
 
 function flagValue(state: ProtectionState, flag: ProtectionFlag) {
-  if (flag === "dismissStaleReviews")
-    return state.reviews?.dismissStaleReviews ?? false;
+  if (flag === "dismissStaleReviews") return state.reviews?.dismissStaleReviews ?? false;
 
-  if (flag === "requireCodeOwnerReviews")
-    return state.reviews?.requireCodeOwnerReviews ?? false;
+  if (flag === "requireCodeOwnerReviews") return state.reviews?.requireCodeOwnerReviews ?? false;
 
-  if (flag === "requireLastPushApproval")
-    return state.reviews?.requireLastPushApproval ?? false;
+  if (flag === "requireLastPushApproval") return state.reviews?.requireLastPushApproval ?? false;
 
   return state[flag];
 }
@@ -491,9 +478,7 @@ function compare(
     const actual = facts.settings[expectation.setting];
 
     if (actual === null)
-      return unknown(
-        "GitHub only discloses this setting to repository administrators.",
-      );
+      return unknown("GitHub only discloses this setting to repository administrators.");
 
     return verdict(actual === expectation.value, actual);
   }
@@ -501,8 +486,7 @@ function compare(
   if (expectation.kind === "file") {
     const actual = facts.repositoryFiles[expectation.setting];
 
-    if (actual === null)
-      return unknown("The repository tree was incomplete or unavailable.");
+    if (actual === null) return unknown("The repository tree was incomplete or unavailable.");
 
     return verdict(actual === expectation.value, actual);
   }
@@ -511,9 +495,7 @@ function compare(
     const actual = facts.workflowSecurity[expectation.setting];
 
     if (actual === null)
-      return unknown(
-        "One or more GitHub Actions workflow files could not be inspected.",
-      );
+      return unknown("One or more GitHub Actions workflow files could not be inspected.");
 
     return verdict(actual === expectation.value, actual);
   }
@@ -522,9 +504,7 @@ function compare(
     const actual = facts.privateVulnerabilityReporting;
 
     if (actual === null)
-      return unknown(
-        "GitHub did not expose private vulnerability reporting to this credential.",
-      );
+      return unknown("GitHub did not expose private vulnerability reporting to this credential.");
 
     return verdict(actual === expectation.value, actual);
   }
@@ -533,9 +513,7 @@ function compare(
     const actual = facts.repositoryRules[expectation.setting];
 
     if (actual === null)
-      return unknown(
-        "GitHub did not expose active repository rulesets to this credential.",
-      );
+      return unknown("GitHub did not expose active repository rulesets to this credential.");
 
     return verdict(actual === expectation.value, actual);
   }
@@ -544,9 +522,7 @@ function compare(
     const present = new Set(facts.topics);
 
     const offending = expectation.value.filter((topic) =>
-      expectation.setting === "topics.required"
-        ? !present.has(topic)
-        : present.has(topic),
+      expectation.setting === "topics.required" ? !present.has(topic) : present.has(topic),
     );
 
     return verdict(offending.length === 0, facts.topics);
@@ -557,16 +533,13 @@ function compare(
 
   if (!state)
     return unknown(
-      fact?.status === "unknown"
-        ? fact.reason
-        : "Branch protection was not collected.",
+      fact?.status === "unknown" ? fact.reason : "Branch protection was not collected.",
     );
 
   if (expectation.kind === "flag") {
     const actual = flagValue(state, expectation.setting);
 
-    if (actual === null)
-      return unknown("GitHub did not report this protection setting.");
+    if (actual === null) return unknown("GitHub did not report this protection setting.");
 
     return verdict(actual === expectation.value, actual);
   }
@@ -577,9 +550,7 @@ function compare(
     return verdict(actual >= expectation.value, actual);
   }
 
-  const contexts = (state.statusChecks?.checks ?? []).map(
-    (check) => check.context,
-  );
+  const contexts = (state.statusChecks?.checks ?? []).map((check) => check.context);
 
   return verdict(
     expectation.value.every((context) => contexts.includes(context)),
@@ -599,11 +570,9 @@ function evidenceUrl(facts: RepositorySettingsFacts, expectation: Expectation) {
   if (expectation.kind === "privateVulnerabilityReporting")
     return `${facts.url}/settings/security_analysis`;
 
-  if (expectation.kind === "repositoryRule")
-    return `${facts.url}/settings/rules`;
+  if (expectation.kind === "repositoryRule") return `${facts.url}/settings/rules`;
 
-  if (expectation.kind !== "repository")
-    return `${facts.url}/settings/branches`;
+  if (expectation.kind !== "repository") return `${facts.url}/settings/branches`;
 
   return expectation.setting.startsWith("security.")
     ? `${facts.url}/settings/security_analysis`
@@ -623,7 +592,7 @@ function branchOf(expectation: Expectation): string | null {
 
 /** Single-quote a word for POSIX shells. */
 function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
+  return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 function step(
@@ -640,10 +609,7 @@ function step(
     method,
     path,
     body,
-    command:
-      body === null
-        ? base
-        : `${base} --input - <<'JSON'\n${JSON.stringify(body)}\nJSON`,
+    command: body === null ? base : `${base} --input - <<'JSON'\n${JSON.stringify(body)}\nJSON`,
     settings,
   };
 }
@@ -710,9 +676,7 @@ function desiredState(all: readonly Expectation[]) {
       desired.repository.set(expectation.setting, expectation.value);
     } else if (expectation.kind === "topics") {
       const target =
-        expectation.setting === "topics.required"
-          ? desired.required
-          : desired.forbidden;
+        expectation.setting === "topics.required" ? desired.required : desired.forbidden;
 
       for (const topic of expectation.value) target.add(topic);
     } else if (expectation.kind === "flag") {
@@ -742,8 +706,7 @@ function desiredState(all: readonly Expectation[]) {
     }
   }
 
-  for (const topic of desired.required)
-    if (desired.forbidden.has(topic)) conflicts.add("topics");
+  for (const topic of desired.required) if (desired.forbidden.has(topic)) conflicts.add("topics");
 
   return { desired, conflicts };
 }
@@ -803,9 +766,7 @@ function protectionBody(
   const existing = current.statusChecks?.checks ?? [];
 
   const missing = [...wanted.checks].flatMap((context) =>
-    existing.some((check) => check.context === context)
-      ? []
-      : [{ context, appId: null }],
+    existing.some((check) => check.context === context) ? [] : [{ context, appId: null }],
   );
 
   const checks = [...existing, ...missing];
@@ -825,10 +786,7 @@ function protectionBody(
     enforce_admins: flag("enforceAdmins", current.enforceAdmins),
     required_pull_request_reviews: reviews,
     restrictions: null,
-    required_linear_history: flag(
-      "requiredLinearHistory",
-      current.requiredLinearHistory,
-    ),
+    required_linear_history: flag("requiredLinearHistory", current.requiredLinearHistory),
     allow_force_pushes: flag("allowForcePushes", current.allowForcePushes),
     allow_deletions: flag("allowDeletions", current.allowDeletions),
     required_conversation_resolution: flag(
@@ -892,17 +850,14 @@ export function evaluateRepositoryDrift(
   const remediation: RemediationStep[] = [];
   const manual: ManualStep[] = [];
   const repositoryPath = `/repos/${facts.owner}/${facts.repo}`;
-  const patch: { [key: string]: RemediationBody } = {};
-  const security: { [key: string]: RemediationBody } = {};
+  const patch: RemediationFields = {};
+  const security: RemediationFields = {};
   const patched: string[] = [];
 
   for (const [index, expectation] of all.entries()) {
-    if (expectation.kind !== "repository" || !open(expectation, index))
-      continue;
+    if (expectation.kind !== "repository" || !open(expectation, index)) continue;
 
-    const definition = REPOSITORY_SETTINGS.find(
-      (item) => item.id === expectation.setting,
-    );
+    const definition = REPOSITORY_SETTINGS.find((item) => item.id === expectation.setting);
 
     if (!definition || patched.includes(definition.id)) continue;
 
@@ -918,15 +873,7 @@ export function evaluateRepositoryDrift(
   if (Object.keys(security).length) patch.security_and_analysis = security;
 
   if (patched.length)
-    remediation.push(
-      step(
-        "Update repository settings",
-        "PATCH",
-        repositoryPath,
-        patch,
-        patched,
-      ),
-    );
+    remediation.push(step("Update repository settings", "PATCH", repositoryPath, patch, patched));
 
   for (const [index, expectation] of all.entries()) {
     if (
@@ -966,8 +913,7 @@ export function evaluateRepositoryDrift(
   }
 
   const topicsOpen = all.some(
-    (expectation, index) =>
-      expectation.kind === "topics" && open(expectation, index),
+    (expectation, index) => expectation.kind === "topics" && open(expectation, index),
   );
 
   if (topicsOpen) {
@@ -977,21 +923,13 @@ export function evaluateRepositoryDrift(
     ];
 
     remediation.push(
-      step(
-        "Replace repository topics",
-        "PUT",
-        `${repositoryPath}/topics`,
-        { names },
-        ["topics"],
-      ),
+      step("Replace repository topics", "PUT", `${repositoryPath}/topics`, { names }, ["topics"]),
     );
   }
 
   for (const [branch, wanted] of desired.branches) {
     const branchChecks = all.flatMap((expectation, index) =>
-      branchOf(expectation) === branch && open(expectation, index)
-        ? [expectation]
-        : [],
+      branchOf(expectation) === branch && open(expectation, index) ? [expectation] : [],
     );
 
     if (!branchChecks.length) continue;
@@ -1081,3 +1019,7 @@ export function evaluateRepositoryDrift(
     manual,
   };
 }
+
+type PolicyRepository = { name: string; fork: boolean; archived: boolean };
+
+type RemediationFields = { [key: string]: RemediationBody };

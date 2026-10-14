@@ -65,19 +65,13 @@ async function sessionKey(secret: string) {
 
 /** The token key derives from the cookie secret, so KV alone cannot decrypt. */
 async function tokenKey(secret: string) {
-  return crypto.subtle.importKey(
-    "raw",
-    await digest("token", secret),
-    "AES-GCM",
-    false,
-    ["encrypt", "decrypt"],
-  );
+  return crypto.subtle.importKey("raw", await digest("token", secret), "AES-GCM", false, [
+    "encrypt",
+    "decrypt",
+  ]);
 }
 
-export async function createSession(
-  kv: OAuthStateStore,
-  session: WebSession,
-): Promise<string> {
+export async function createSession(kv: OAuthStateStore, session: WebSession): Promise<string> {
   const secret = randomToken(32);
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
@@ -139,20 +133,14 @@ export async function readSession(
   }
 }
 
-export async function deleteSession(
-  kv: OAuthStateStore,
-  request: Request,
-): Promise<void> {
+export async function deleteSession(kv: OAuthStateStore, request: Request): Promise<void> {
   const secret = getCookie(request, SESSION_COOKIE_NAME);
 
-  if (secret !== null && isSafeToken(secret))
-    await kv.delete(await sessionKey(secret));
+  if (secret !== null && isSafeToken(secret)) await kv.delete(await sessionKey(secret));
 }
 
 /** One-time login state, bound to a browser cookie to stop login CSRF. */
-export async function createLoginState(
-  kv: OAuthStateStore,
-): Promise<{ state: string; browser: string }> {
+export async function createLoginState(kv: OAuthStateStore): Promise<LoginState> {
   const state = WEB_LOGIN_STATE_PREFIX + randomToken(32);
   const browser = randomToken(32);
 
@@ -173,12 +161,7 @@ export async function consumeLoginState(
   state: string | null,
   browser: string | null,
 ): Promise<boolean> {
-  if (
-    state === null ||
-    browser === null ||
-    !isSafeToken(state) ||
-    !isSafeToken(browser)
-  )
+  if (state === null || browser === null || !isSafeToken(state) || !isSafeToken(browser))
     return false;
 
   const key = `web:state:${state}`;
@@ -191,18 +174,18 @@ export async function consumeLoginState(
   const parsed = LoginStateSchema.safeParse(
     (() => {
       try {
-        return JSON.parse(serialized);
+        const value: unknown = JSON.parse(serialized);
+        return value;
       } catch {
         return null;
       }
     })(),
   );
 
-  if (
-    !parsed.success ||
-    parsed.data.createdAt + LOGIN_STATE_TTL_SECONDS * 1_000 < Date.now()
-  )
+  if (!parsed.success || parsed.data.createdAt + LOGIN_STATE_TTL_SECONDS * 1_000 < Date.now())
     return false;
 
   return constantTimeEqual(parsed.data.binding, await browserBinding(browser));
 }
+
+type LoginState = { state: string; browser: string };

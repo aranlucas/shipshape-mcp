@@ -1,3 +1,4 @@
+import { Script } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import type { OAuthEnv } from "../src/oauth";
 import { isWebPath, webHandler } from "../src/web/routes";
@@ -72,12 +73,7 @@ async function signIn(env: OAuthEnv) {
   };
 }
 
-function api(
-  path: string,
-  method: string,
-  session: string | null,
-  body?: string,
-) {
+function api(path: string, method: string, session: string | null, body?: string) {
   const headers = new Headers({
     Origin: ORIGIN,
     "Content-Type": "application/json",
@@ -116,15 +112,12 @@ describe("website companion", () => {
     expect(login.status).toBe(302);
     expect(authorize.origin).toBe("https://github.com");
     expect(authorize.searchParams.get("scope")).toBe("read:user");
-    expect(authorize.searchParams.get("redirect_uri")).toBe(
-      `${ORIGIN}/callback`,
-    );
+    expect(authorize.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/callback`);
     expect(callback.status).toBe(302);
     expect(callback.headers.get("Location")).toBe("/app");
     expect(callback.headers.get("Set-Cookie")).toContain("HttpOnly");
 
-    for (const [, value] of put.mock.calls)
-      expect(value).not.toContain("gho_synthetic_web_token");
+    for (const [, value] of put.mock.calls) expect(value).not.toContain("gho_synthetic_web_token");
 
     const page = await webHandler(
       new Request(`${ORIGIN}/app`, { headers: { Cookie: session } }),
@@ -140,9 +133,7 @@ describe("website companion", () => {
     const { env } = environment();
     const login = await webHandler(new Request(`${ORIGIN}/app/login`), env);
 
-    const state = new URL(login.headers.get("Location") ?? "").searchParams.get(
-      "state",
-    );
+    const state = new URL(login.headers.get("Location") ?? "").searchParams.get("state");
 
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
@@ -175,10 +166,7 @@ describe("website companion", () => {
     const { session } = await signIn(env);
     const body = JSON.stringify({ owner: "octo", policy: "version: 1" });
 
-    const anonymous = await webHandler(
-      api("/app/api/drift", "POST", null, body),
-      env,
-    );
+    const anonymous = await webHandler(api("/app/api/drift", "POST", null, body), env);
 
     expect(anonymous.status).toBe(401);
 
@@ -186,10 +174,7 @@ describe("website companion", () => {
     crossSite.headers.set("Origin", "https://evil.example");
     expect((await webHandler(crossSite, env)).status).toBe(403);
 
-    const invalid = await webHandler(
-      api("/app/api/drift", "POST", session, body),
-      env,
-    );
+    const invalid = await webHandler(api("/app/api/drift", "POST", session, body), env);
 
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toMatchObject({
@@ -202,25 +187,20 @@ describe("website companion", () => {
     const { session } = await signIn(env);
     const authorizations: string[] = [];
 
-    vi.stubGlobal(
-      "fetch",
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = new URL(String(input));
-        authorizations.push(
-          new Headers(init?.headers).get("authorization") ?? "",
-        );
-        expect(init?.method ?? "GET").toBe("GET");
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      authorizations.push(new Headers(init?.headers).get("authorization") ?? "");
+      expect(init?.method ?? "GET").toBe("GET");
 
-        const response =
-          url.pathname === "/users/octo/repos"
-            ? jsonResponse([{ ...repository, has_wiki: true }])
-            : jsonResponse({ ...repository, has_wiki: true });
+      const response =
+        url.pathname === "/users/octo/repos"
+          ? jsonResponse([{ ...repository, has_wiki: true }])
+          : jsonResponse({ ...repository, has_wiki: true });
 
-        Object.defineProperty(response, "url", { value: url.href });
+      Object.defineProperty(response, "url", { value: url.href });
 
-        return response;
-      },
-    );
+      return response;
+    });
 
     const response = await webHandler(
       api(
@@ -229,8 +209,7 @@ describe("website companion", () => {
         session,
         JSON.stringify({
           owner: "octo",
-          policy:
-            "version: 1\nrules:\n  - id: tidy\n    features: {wiki: false}\n",
+          policy: "version: 1\nrules:\n  - id: tidy\n    features: {wiki: false}\n",
           limit: 5,
         }),
       ),
@@ -247,27 +226,17 @@ describe("website companion", () => {
         },
       ],
     });
-    expect(
-      authorizations.every(
-        (value) => value === "token gho_synthetic_web_token",
-      ),
-    ).toBe(true);
+    expect(authorizations.every((value) => value === "token gho_synthetic_web_token")).toBe(true);
   });
 
   it("saves valid rules per account and signs out", async () => {
     const { env } = environment();
     const { session } = await signIn(env);
 
-    const policy =
-      "version: 1\nrules:\n  - id: tidy\n    features: {wiki: false}\n";
+    const policy = "version: 1\nrules:\n  - id: tidy\n    features: {wiki: false}\n";
 
     const invalid = await webHandler(
-      api(
-        "/app/api/rules",
-        "PUT",
-        session,
-        JSON.stringify({ policy: "rules: []" }),
-      ),
+      api("/app/api/rules", "PUT", session, JSON.stringify({ policy: "rules: []" })),
       env,
     );
 
@@ -294,13 +263,11 @@ describe("website companion", () => {
     const { env } = environment();
     const response = await webHandler(new Request(`${ORIGIN}/app/app.js`), env);
 
-    expect(response.headers.get("Content-Type")).toBe(
-      "text/javascript; charset=utf-8",
-    );
+    expect(response.headers.get("Content-Type")).toBe("text/javascript; charset=utf-8");
     const script = await response.text();
 
     // Parsing (not running) the script catches template-string escaping mistakes.
-    expect(() => new Function(script)).not.toThrow();
+    expect(() => new Script(script)).not.toThrow();
     expect(script).toContain("textContent");
     expect(script).not.toContain("innerHTML");
   });

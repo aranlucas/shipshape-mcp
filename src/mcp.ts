@@ -1,13 +1,9 @@
 import { collectPortfolioReport } from "./github/portfolio";
 import { collectStandards } from "./standards/collect";
-import {
-  PolicySourceSchema,
-  collectSettingsDrift,
-  readPinnedPolicy,
-} from "./drift/collect";
+import { PolicySourceSchema, collectSettingsDrift, readPinnedPolicy } from "./drift/collect";
 import { SETTINGS_DRIFT_PAGE_SIZE } from "./drift/limits";
 import { DriftPolicySchema } from "./drift/policy";
-import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import {
@@ -39,9 +35,7 @@ import {
 
 const CoordinatesSchema = RepositoryCoordinatesSchema.extend({
   owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
-  repo: RepositoryCoordinatesSchema.shape.repo.describe(
-    "Public GitHub repository name",
-  ),
+  repo: RepositoryCoordinatesSchema.shape.repo.describe("Public GitHub repository name"),
 });
 
 const READ_ONLY_ANNOTATIONS = {
@@ -51,13 +45,11 @@ const READ_ONLY_ANNOTATIONS = {
   openWorldHint: true,
 } as const;
 
-type ToolPayload = NonNullable<CallToolResult["structuredContent"]>;
+type ToolPayload = object;
 
 function jsonResult(payload: ToolPayload) {
   return {
-    content: [
-      { type: "text" as const, text: JSON.stringify(payload, null, 2) },
-    ],
+    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
     structuredContent: payload,
   };
 }
@@ -106,9 +98,7 @@ function categoryResult(
   };
 }
 
-export function createPortfolioServer(
-  githubClient: () => GitHubOctokit,
-): McpServer {
+export function createPortfolioServer(githubClient: () => GitHubOctokit): McpServer {
   const server = new McpServer({
     name: "Shipshape",
     version: "0.1.0",
@@ -149,15 +139,11 @@ export function createPortfolioServer(
     },
     async (repository) =>
       safely(async () => {
-        const readiness = await collectRepositoryReadiness(
-          githubClient(),
-          repository,
-          {
-            maxPages: 2,
-            perPage: 25,
-            concurrency: 3,
-          },
-        );
+        const readiness = await collectRepositoryReadiness(githubClient(), repository, {
+          maxPages: 2,
+          perPage: 25,
+          concurrency: 3,
+        });
 
         const checks = evaluateRepositoryReadiness(readiness);
 
@@ -181,11 +167,7 @@ export function createPortfolioServer(
     },
     async ({ owner, repo, branch }) =>
       safely(async () => {
-        const risk = await collectBranchRisk(
-          githubClient(),
-          { owner, repo },
-          branch,
-        );
+        const risk = await collectBranchRisk(githubClient(), { owner, repo }, branch);
 
         const checks = evaluateBranchRisk(risk);
 
@@ -211,17 +193,12 @@ export function createPortfolioServer(
     },
     async ({ owner, repo, branch, recentDays }) =>
       safely(async () => {
-        const delivery = await collectDeliveryHygiene(
-          githubClient(),
-          { owner, repo },
-          branch,
-          {
-            since: new Date(Date.now() - recentDays * 86_400_000).toISOString(),
-            maxPages: 2,
-            perPage: 25,
-            concurrency: 3,
-          },
-        );
+        const delivery = await collectDeliveryHygiene(githubClient(), { owner, repo }, branch, {
+          since: new Date(Date.now() - recentDays * 86_400_000).toISOString(),
+          maxPages: 2,
+          perPage: 25,
+          concurrency: 3,
+        });
 
         const checks = evaluateDeliveryHygiene(delivery);
 
@@ -287,9 +264,7 @@ export function createPortfolioServer(
         "Compare one page of an owner's public repositories with declarative GitHub best-practice rules for repository settings, community files, Actions workflow security, active rulesets, and branch protection. Pass increasing page values until scope.hasNextPage is false to scan every page. Returns per-setting drift, manual guidance, and reviewable gh api remediation commands; nothing is ever changed. Supply inline rules or a policy file pinned to a commit.",
       inputSchema: z.object({
         owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
-        rules: DriftPolicySchema.optional().describe(
-          "Inline policy: { version: 1, rules: [...] }",
-        ),
+        rules: DriftPolicySchema.optional().describe("Inline policy: { version: 1, rules: [...] }"),
         policy: PolicySourceSchema.optional().describe(
           "A YAML policy in a public repository, pinned to a full commit SHA",
         ),
@@ -358,10 +333,7 @@ export function createPortfolioServer(
           collectStandards(client, repository),
         ]);
 
-        const checks = [
-          ...evaluateRepositoryReadiness(readiness),
-          ...standards.audit.checks,
-        ];
+        const checks = [...evaluateRepositoryReadiness(readiness), ...standards.audit.checks];
 
         return {
           repository: readiness.repository,

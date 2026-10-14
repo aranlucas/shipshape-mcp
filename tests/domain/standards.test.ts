@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  evaluateStandards,
-  type StandardsSource,
-} from "../../src/standards/evaluate";
+import { evaluateStandards, type StandardsSource } from "../../src/standards/evaluate";
 import { mergePolicy, parsePolicy } from "../../src/standards/policy";
 
 const policy = () => parsePolicy("baseline: shipshape/recommended@1");
@@ -58,9 +55,7 @@ describe("standards audit", () => {
       "ci-gates",
     ])
       expect(state(source, rule)).toBe("pass");
-    expect(evaluateStandards(source).limitations[0]).toContain(
-      "never executed",
-    );
+    expect(evaluateStandards(source).limitations[0]).toContain("never executed");
   });
   it("does not mistake echo, comments, or disabled steps for CI wiring", () => {
     for (const run of ["echo pnpm check", "# pnpm check", "pnpm check || true"])
@@ -77,10 +72,7 @@ describe("standards audit", () => {
       state(
         fixture({
           "package.json": manifest,
-          ".github/workflows/ci.yml": workflow.replace(
-            "- run:",
-            "- if: false\n        run:",
-          ),
+          ".github/workflows/ci.yml": workflow.replace("- run:", "- if: false\n        run:"),
         }),
         "ci-gates",
       ),
@@ -88,17 +80,13 @@ describe("standards audit", () => {
   });
   it("preserves unknown for inherited strictness and unreadable manifests", () => {
     expect(state(fixture({ "package.json": null }), "test")).toBe("unknown");
-    expect(
-      state(
-        fixture({ "tsconfig.json": '{"extends":"@org/tsconfig"}' }),
-        "strict",
-      ),
-    ).toBe("unknown");
+    expect(state(fixture({ "tsconfig.json": '{"extends":"@org/tsconfig"}' }), "strict")).toBe(
+      "unknown",
+    );
     expect(
       state(
         fixture({
-          "tsconfig.json":
-            '{"extends":"./base.json", "compilerOptions":{"strict":false}}',
+          "tsconfig.json": '{"extends":"./base.json", "compilerOptions":{"strict":false}}',
         }),
         "strict",
       ),
@@ -106,10 +94,7 @@ describe("standards audit", () => {
   });
   it("does not treat an ancestor lockfile as confirmed workspace membership", () => {
     expect(
-      state(
-        fixture({ "apps/web/package.json": manifest, "pnpm-lock.yaml": null }),
-        "lockfile",
-      ),
+      state(fixture({ "apps/web/package.json": manifest, "pnpm-lock.yaml": null }), "lockfile"),
     ).toBe("unknown");
   });
   it("retains package failures in the repository summary", () => {
@@ -118,13 +103,10 @@ describe("standards audit", () => {
     );
 
     expect(result.packages).toHaveLength(2);
-    expect(
-      result.audit.checks.find((check) => check.ruleId === "standards.test")
-        ?.state,
-    ).toBe("fail");
-    expect(
-      result.plan.items.some((item) => item.remediation.startsWith("apps/b:")),
-    ).toBe(true);
+    expect(result.audit.checks.find((check) => check.ruleId === "standards.test")?.state).toBe(
+      "fail",
+    );
+    expect(result.plan.items.some((item) => item.remediation.startsWith("apps/b:"))).toBe(true);
   });
   it("only matches commands in the package working directory", () => {
     const source = fixture({
@@ -158,9 +140,8 @@ describe("standards audit", () => {
     const result = evaluateStandards(source);
     expect(result.packages[0]?.profiles).toEqual(["go"]);
     expect(
-      result.packages[0]?.audit.checks.find(
-        (check) => check.ruleId === "standards.typecheck",
-      )?.state,
+      result.packages[0]?.audit.checks.find((check) => check.ruleId === "standards.typecheck")
+        ?.state,
     ).toBe("not_applicable");
     expect(result.packages[1]?.profiles).toEqual(["python"]);
     expect(state(source, "lockfile")).toBe("fail");
@@ -192,11 +173,9 @@ describe("standards audit", () => {
       policyState: "unknown" as const,
     };
 
-    expect(
-      evaluateStandards(source).audit.checks.every(
-        (check) => check.state === "unknown",
-      ),
-    ).toBe(true);
+    expect(evaluateStandards(source).audit.checks.every((check) => check.state === "unknown")).toBe(
+      true,
+    );
     expect(evaluateStandards(source).complete).toBe(false);
   });
 });
@@ -210,13 +189,11 @@ describe("shared policy boundary", () => {
       "baseline: shipshape/recommended@1\npackages:\n - path: .\n   commands: {}\n - path: .\n   commands: {}",
       "baseline: shipshape/recommended@1\nextends: {owner: octo, repo: demo, ref: main, path: policy.yml}",
     ])
-      expect(() => parsePolicy(text)).toThrow();
+      expect(() => parsePolicy(text)).toThrow(Error);
   });
   it("merges commands and exceptions by exact package/rule identity", () => {
     const shared = policy();
-    shared.packages = [
-      { path: ".", commands: { test: "go test ./...", lint: "go vet ./..." } },
-    ];
+    shared.packages = [{ path: ".", commands: { test: "go test ./...", lint: "go vet ./..." } }];
     const local = policy();
     local.packages = [{ path: ".", commands: { test: "go test -race ./..." } }];
     expect(mergePolicy(shared, local).packages[0]?.commands).toEqual({
@@ -240,8 +217,7 @@ it("keeps referenced TypeScript project strictness unknown", () => {
   expect(
     state(
       fixture({
-        "tsconfig.json":
-          '{"files":[],"references":[{"path":"./tsconfig.app.json"}]}',
+        "tsconfig.json": '{"files":[],"references":[{"path":"./tsconfig.app.json"}]}',
       }),
       "strict",
     ),

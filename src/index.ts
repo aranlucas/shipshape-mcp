@@ -18,8 +18,7 @@ const AuthPropsSchema = z.object({
 function githubClient() {
   const parsed = AuthPropsSchema.safeParse(getMcpAuthContext()?.props);
 
-  if (!parsed.success)
-    throw new GitHubInputError("GitHub authorization is required");
+  if (!parsed.success) throw new GitHubInputError("GitHub authorization is required");
 
   return createGitHubOctokit(parsed.data.accessToken);
 }
@@ -33,9 +32,9 @@ const protectedHandler = {
   fetch(request, env, ctx) {
     return apiHandler(request, env, ctx);
   },
-} satisfies { fetch: ExportedHandlerFetchHandler<OAuthEnv> };
+} satisfies ProtectedHandler;
 
-export default new OAuthProvider<OAuthEnv>({
+const provider = new OAuthProvider<OAuthEnv>({
   apiRoute: "/mcp",
   apiHandler: protectedHandler,
   defaultHandler,
@@ -54,3 +53,7 @@ export default new OAuthProvider<OAuthEnv>({
   },
   clientIdMetadataDocumentEnabled: true,
 });
+
+type ProtectedHandler = { fetch: ExportedHandlerFetchHandler<OAuthEnv> };
+
+export default provider;

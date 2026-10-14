@@ -7,7 +7,7 @@ import { collectPortfolioSnapshot } from "./collectors";
 export async function collectPortfolioReport(
   client: GitHubOctokit,
   owner: string,
-  options: { limit: number; includeForks: boolean; includeArchived: boolean },
+  options: PortfolioOptions,
 ) {
   const snapshot = await collectPortfolioSnapshot(client, owner, {
     ...options,
@@ -47,3 +47,5 @@ export async function collectPortfolioReport(
     collectedAt: snapshot.collectedAt,
   };
 }
+
+type PortfolioOptions = { limit: number; includeForks: boolean; includeArchived: boolean };
