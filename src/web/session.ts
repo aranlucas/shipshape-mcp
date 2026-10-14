@@ -42,7 +42,7 @@ export interface WebSession {
 function base64Url(bytes: ArrayBuffer | Uint8Array): string {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 
-  return btoa(String.fromCharCode(...view))
+  return btoa(String.fromCodePoint(...view))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/u, "");
@@ -51,10 +51,10 @@ function base64Url(bytes: ArrayBuffer | Uint8Array): string {
 function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/"));
 
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return Uint8Array.from(binary, (char) => char.codePointAt(0) ?? 0);
 }
 
-async function digest(label: string, secret: string) {
+function digest(label: string, secret: string) {
   return crypto.subtle.digest("SHA-256", encoder.encode(`${label}:${secret}`));
 }
 
@@ -101,11 +101,15 @@ export async function readSession(
 ): Promise<WebSession | null> {
   const secret = getCookie(request, SESSION_COOKIE_NAME);
 
-  if (secret === null || !isSafeToken(secret)) return null;
+  if (secret === null || !isSafeToken(secret)) {
+    return null;
+  }
 
   const serialized = await kv.get(await sessionKey(secret));
 
-  if (serialized === null || serialized.length > 16_000) return null;
+  if (serialized === null || serialized.length > 16_000) {
+    return null;
+  }
 
   let record: z.infer<typeof SessionRecordSchema>;
 
@@ -115,7 +119,9 @@ export async function readSession(
     return null;
   }
 
-  if (record.createdAt + SESSION_TTL_SECONDS * 1_000 < Date.now()) return null;
+  if (record.createdAt + SESSION_TTL_SECONDS * 1_000 < Date.now()) {
+    return null;
+  }
 
   try {
     const token = await crypto.subtle.decrypt(
@@ -136,7 +142,9 @@ export async function readSession(
 export async function deleteSession(kv: OAuthStateStore, request: Request): Promise<void> {
   const secret = getCookie(request, SESSION_COOKIE_NAME);
 
-  if (secret !== null && isSafeToken(secret)) await kv.delete(await sessionKey(secret));
+  if (secret !== null && isSafeToken(secret)) {
+    await kv.delete(await sessionKey(secret));
+  }
 }
 
 /** One-time login state, bound to a browser cookie to stop login CSRF. */
@@ -161,13 +169,16 @@ export async function consumeLoginState(
   state: string | null,
   browser: string | null,
 ): Promise<boolean> {
-  if (state === null || browser === null || !isSafeToken(state) || !isSafeToken(browser))
+  if (state === null || browser === null || !isSafeToken(state) || !isSafeToken(browser)) {
     return false;
+  }
 
   const key = `web:state:${state}`;
   const serialized = await kv.get(key);
 
-  if (serialized === null || serialized.length > 1_000) return false;
+  if (serialized === null || serialized.length > 1_000) {
+    return false;
+  }
 
   await kv.delete(key);
 
@@ -175,6 +186,7 @@ export async function consumeLoginState(
     (() => {
       try {
         const value: unknown = JSON.parse(serialized);
+
         return value;
       } catch {
         return null;
@@ -182,8 +194,9 @@ export async function consumeLoginState(
     })(),
   );
 
-  if (!parsed.success || parsed.data.createdAt + LOGIN_STATE_TTL_SECONDS * 1_000 < Date.now())
+  if (!parsed.success || parsed.data.createdAt + LOGIN_STATE_TTL_SECONDS * 1_000 < Date.now()) {
     return false;
+  }
 
   return constantTimeEqual(parsed.data.binding, await browserBinding(browser));
 }

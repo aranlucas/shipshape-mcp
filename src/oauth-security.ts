@@ -1,3 +1,4 @@
+import { hasControlCharacters, stripControlCharacters } from "./control-characters";
 import type { AuthRequest, ClientInfo } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 
@@ -21,7 +22,7 @@ const safeClientStringSchema = z
   .string()
   .min(1)
   .max(2_048)
-  .refine((value) => !/[\u0000-\u001F\u007F]/.test(value));
+  .refine((value) => !hasControlCharacters(value));
 
 const safeScopeSchema = z
   .string()
@@ -124,7 +125,9 @@ export async function putBrowserBoundState(
   browserToken: string,
   expirationTtl = AUTHORIZATION_STATE_TTL_SECONDS,
 ): Promise<void> {
-  if (!isSafeToken(state)) throw new Error("Invalid OAuth state");
+  if (!isSafeToken(state)) {
+    throw new Error("Invalid OAuth state");
+  }
 
   const value: OAuthStateRecord = {
     ...record,
@@ -150,11 +153,15 @@ export async function consumeBrowserBoundState(
   state: string,
   browserToken: string,
 ): Promise<OAuthStateRecord | null> {
-  if (!isSafeToken(state)) return null;
+  if (!isSafeToken(state)) {
+    return null;
+  }
 
   const serialized = await kv.get(stateKey(state));
 
-  if (serialized === null || serialized.length > MAX_STATE_RECORD_LENGTH) return null;
+  if (serialized === null || serialized.length > MAX_STATE_RECORD_LENGTH) {
+    return null;
+  }
 
   let parsed: unknown;
 
@@ -164,12 +171,19 @@ export async function consumeBrowserBoundState(
     return null;
   }
 
-  if (!isOAuthStateRecord(parsed)) return null;
+  if (!isOAuthStateRecord(parsed)) {
+    return null;
+  }
 
-  if (parsed.createdAt + AUTHORIZATION_STATE_TTL_SECONDS * 1_000 < Date.now()) return null;
+  if (parsed.createdAt + AUTHORIZATION_STATE_TTL_SECONDS * 1_000 < Date.now()) {
+    return null;
+  }
+
   const expectedBinding = await browserBinding(browserToken);
 
-  if (!(await constantTimeEqual(parsed.browserBinding, expectedBinding))) return null;
+  if (!(await constantTimeEqual(parsed.browserBinding, expectedBinding))) {
+    return null;
+  }
 
   await kv.delete(stateKey(state));
 
@@ -207,13 +221,20 @@ export async function parseSignedApprovalCookie(
 
   const separator = cookieValue.indexOf(".");
 
-  if (separator <= 0 || separator !== cookieValue.lastIndexOf(".")) return null;
+  if (separator <= 0 || separator !== cookieValue.lastIndexOf(".")) {
+    return null;
+  }
+
   const payload = cookieValue.slice(0, separator);
   const signature = cookieValue.slice(separator + 1);
 
-  if (!isBase64Url(payload) || !isBase64Url(signature)) return null;
+  if (!isBase64Url(payload) || !isBase64Url(signature)) {
+    return null;
+  }
 
-  if (!(await verify(payload, signature, secret))) return null;
+  if (!(await verify(payload, signature, secret))) {
+    return null;
+  }
 
   let parsed: unknown;
 
@@ -223,7 +244,9 @@ export async function parseSignedApprovalCookie(
     return null;
   }
 
-  if (!isApprovedClientRecord(parsed) || parsed.expiresAt <= now) return null;
+  if (!isApprovedClientRecord(parsed) || parsed.expiresAt <= now) {
+    return null;
+  }
 
   return parsed;
 }
@@ -233,7 +256,9 @@ export function approvalMatches(
   request: Pick<AuthRequest, "clientId" | "redirectUri" | "scope">,
   now = Date.now(),
 ): boolean {
-  if (record === null || record.expiresAt <= now) return false;
+  if (record === null || record.expiresAt <= now) {
+    return false;
+  }
 
   return (
     record.clientId === request.clientId &&
@@ -249,12 +274,17 @@ export function canonicalScope(scope: readonly string[]): string {
 export function getCookie(request: Request, name: string): string | null {
   const header = request.headers.get("Cookie");
 
-  if (header === null) return null;
+  if (header === null) {
+    return null;
+  }
 
   for (const part of header.split(";")) {
     const separator = part.indexOf("=");
 
-    if (separator < 0) continue;
+    if (separator < 0) {
+      continue;
+    }
+
     const cookieName = part.slice(0, separator).trim();
 
     if (cookieName === name) {
@@ -274,8 +304,9 @@ export function appendSetCookie(headers: Headers, cookie: string): void {
 export function makeCookie(name: string, value: string, options: CookieOptions = {}): string {
   const attributes = ["Path=/", "HttpOnly", "Secure", `SameSite=${options.sameSite ?? "Lax"}`];
 
-  if (options.maxAge !== undefined)
+  if (options.maxAge !== undefined) {
     attributes.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`);
+  }
 
   return `${name}=${value}; ${attributes.join("; ")}`;
 }
@@ -285,19 +316,20 @@ export function clearCookie(name: string): string {
 }
 
 export function escapeHtml(value: string): string {
-  return value
+  return stripControlCharacters(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#x27;")
-    .replaceAll(/[\u0000-\u001F\u007F]/g, "");
+    .replaceAll("'", "&#x27;");
 }
 
 export function safeHttpUrl(value: string | undefined, maxLength = 2_048): string | undefined {
   const parsedText = z.string().min(1).max(maxLength).safeParse(value);
 
-  if (!parsedText.success) return undefined;
+  if (!parsedText.success) {
+    return undefined;
+  }
 
   try {
     const parsed = new URL(parsedText.data);
@@ -390,9 +422,11 @@ function stateKey(state: string): string {
 function sanitizeText(value: string | undefined, fallback: string, maxLength: number): string {
   const text = z.string().min(1).safeParse(value);
 
-  if (!text.success) return fallback;
+  if (!text.success) {
+    return fallback;
+  }
 
-  const withoutControls = text.data.replaceAll(/[\u0000-\u001F\u007F]/g, "").trim();
+  const withoutControls = stripControlCharacters(text.data).trim();
 
   return withoutControls.length > 0 ? withoutControls.slice(0, maxLength) : fallback;
 }
@@ -417,7 +451,7 @@ function isOAuthStateRecord(value: unknown): value is OAuthStateRecord {
 }
 
 function isSafeClientString(value: string): boolean {
-  return value.length > 0 && value.length <= 2_048 && !/[\u0000-\u001F\u007F]/.test(value);
+  return value.length > 0 && value.length <= 2_048 && !hasControlCharacters(value);
 }
 
 function isSafeScope(scope: string): boolean {
@@ -436,7 +470,9 @@ function encodeBase64Url(bytes: ArrayBuffer | Uint8Array): string {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let binary = "";
 
-  for (const byte of view) binary += String.fromCharCode(byte);
+  for (const byte of view) {
+    binary += String.fromCodePoint(byte);
+  }
 
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
@@ -448,7 +484,9 @@ function decodeBase64Url(value: string): ArrayBuffer {
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
 
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.codePointAt(index) ?? 0;
+  }
 
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
@@ -474,9 +512,11 @@ async function verify(payload: string, signature: string, secret: string): Promi
   }
 }
 
-async function signingKey(secret: string, usages: KeyUsage[]): Promise<CryptoKey> {
-  if (secret.length === 0 || secret.length > 4_096)
-    throw new Error("Invalid cookie signing secret");
+function signingKey(secret: string, usages: KeyUsage[]): Promise<CryptoKey> {
+  if (secret.length === 0 || secret.length > 4_096) {
+    return Promise.reject(new Error("Invalid cookie signing secret"));
+  }
+
   const encoded = encoder.encode(secret);
 
   const raw = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
@@ -494,8 +534,9 @@ export async function constantTimeEqual(left: string, right: string): Promise<bo
   const rightBytes = new Uint8Array(rightHash);
   let difference = 0;
 
-  for (let index = 0; index < leftBytes.length; index += 1)
+  for (let index = 0; index < leftBytes.length; index += 1) {
     difference |= leftBytes[index] ^ rightBytes[index];
+  }
 
   return difference === 0;
 }

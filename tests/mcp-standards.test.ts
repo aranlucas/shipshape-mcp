@@ -15,7 +15,7 @@ async function connect(route: (url: URL) => Response | Promise<Response> = audit
   const calls: URL[] = [];
 
   const github = createGitHubOctokit("synthetic-token", async (input, init) => {
-    const url = new URL(String(input));
+    const url = new URL(input instanceof Request ? input.url : input.toString());
     expect(url.origin).toBe("https://api.github.com");
     expect(init?.method ?? "GET").toBe("GET");
     calls.push(url);
@@ -41,8 +41,9 @@ async function connect(route: (url: URL) => Response | Promise<Response> = audit
 }
 
 function auditRoute(url: URL): Response {
-  if (url.pathname === "/repos/octo/demo/commits/main")
+  if (url.pathname === "/repos/octo/demo/commits/main") {
     return jsonResponse({ sha: "a".repeat(40) });
+  }
 
   if (url.pathname === `/repos/octo/demo/git/trees/${"a".repeat(40)}`) {
     return jsonResponse({
@@ -76,8 +77,9 @@ function auditRoute(url: URL): Response {
     });
   }
 
-  if (url.pathname === `/repos/octo/demo/git/blobs/${"c".repeat(40)}`)
+  if (url.pathname === `/repos/octo/demo/git/blobs/${"c".repeat(40)}`) {
     return jsonResponse({ encoding: "base64", content: btoa("{}"), size: 2 });
+  }
 
   return fullRoute(url);
 }
@@ -97,11 +99,12 @@ describe("real MCP SDK integration", () => {
       "standards_audit",
     ]);
 
-    for (const tool of tools)
+    for (const tool of tools) {
       expect(tool.annotations).toMatchObject({
         readOnlyHint: true,
         destructiveHint: false,
       });
+    }
 
     const invalid = await client.callTool({
       name: "standards_audit",
@@ -156,28 +159,35 @@ describe("real MCP SDK integration", () => {
     });
 
     expect(result.isError).not.toBe(true);
+
+    const expectedMatcher1: unknown = expect.arrayContaining([
+      expect.objectContaining({ ruleId: "standards.test", state: "fail" }),
+    ]);
+
     expect(result.structuredContent).toMatchObject({
       baseline: "shipshape/recommended@1",
       commit: "a".repeat(40),
       audit: {
-        checks: expect.arrayContaining([
-          expect.objectContaining({ ruleId: "standards.test", state: "fail" }),
-        ]),
+        checks: expectedMatcher1,
       },
     });
   });
 
   it("includes standards failures in action_plan and starts both collections concurrently", async () => {
-    let releaseReadiness = () => {};
+    let releaseReadiness: (() => void) | undefined;
 
     const gate = new Promise<void>((resolve) => {
       releaseReadiness = resolve;
     });
 
     const { client, calls } = await connect(async (url) => {
-      if (url.pathname === "/repos/octo/demo/branches/main") await gate;
+      if (url.pathname === "/repos/octo/demo/branches/main") {
+        await gate;
+      }
 
-      if (url.pathname === "/repos/octo/demo/commits/main") releaseReadiness();
+      if (url.pathname === "/repos/octo/demo/commits/main") {
+        releaseReadiness?.();
+      }
 
       return auditRoute(url);
     });
@@ -188,11 +198,14 @@ describe("real MCP SDK integration", () => {
     });
 
     expect(result.isError).not.toBe(true);
+
+    const expectedMatcher2: unknown = expect.arrayContaining([
+      expect.objectContaining({ ruleId: "standards.test", state: "fail" }),
+    ]);
+
     expect(result.structuredContent).toMatchObject({
       plan: {
-        items: expect.arrayContaining([
-          expect.objectContaining({ ruleId: "standards.test", state: "fail" }),
-        ]),
+        items: expectedMatcher2,
       },
     });
     expect(calls.some((url) => url.pathname === "/repos/octo/demo/branches/main")).toBe(true);
@@ -232,7 +245,7 @@ describe("real MCP SDK integration", () => {
 
   it("reports settings drift with reviewable remediation and no writes", async () => {
     const { client, calls } = await connect((url) => {
-      if (url.pathname === "/users/octo/repos")
+      if (url.pathname === "/users/octo/repos") {
         return jsonResponse([
           {
             ...repository,
@@ -241,15 +254,17 @@ describe("real MCP SDK integration", () => {
           },
           { ...repository, name: "fork", full_name: "octo/fork", fork: true },
         ]);
+      }
 
-      if (url.pathname === "/repos/octo/demo")
+      if (url.pathname === "/repos/octo/demo") {
         return jsonResponse({
           ...repository,
           allow_squash_merge: false,
           delete_branch_on_merge: true,
         });
+      }
 
-      if (url.pathname === "/repos/octo/demo/branches/main/protection")
+      if (url.pathname === "/repos/octo/demo/branches/main/protection") {
         return jsonResponse({
           required_status_checks: null,
           enforce_admins: {
@@ -265,6 +280,7 @@ describe("real MCP SDK integration", () => {
           allow_deletions: { enabled: false },
           required_conversation_resolution: { enabled: false },
         });
+      }
 
       return auditRoute(url);
     });
@@ -325,12 +341,15 @@ describe("real MCP SDK integration", () => {
     const text = "version: 1\nrules:\n  - id: topics\n    topics: {required: [demo]}\n";
 
     const { client } = await connect((url) => {
-      if (url.pathname === "/users/octo/repos") return jsonResponse([repository]);
+      if (url.pathname === "/users/octo/repos") {
+        return jsonResponse([repository]);
+      }
 
-      if (url.pathname === "/repos/octo/standards")
+      if (url.pathname === "/repos/octo/standards") {
         return jsonResponse({ ...repository, name: "standards" });
+      }
 
-      if (url.pathname === `/repos/octo/standards/git/trees/${sha}`)
+      if (url.pathname === `/repos/octo/standards/git/trees/${sha}`) {
         return jsonResponse({
           truncated: false,
           tree: [
@@ -343,13 +362,15 @@ describe("real MCP SDK integration", () => {
             },
           ],
         });
+      }
 
-      if (url.pathname === `/repos/octo/standards/git/blobs/${"e".repeat(40)}`)
+      if (url.pathname === `/repos/octo/standards/git/blobs/${"e".repeat(40)}`) {
         return jsonResponse({
           encoding: "base64",
           content: btoa(text),
           size: text.length,
         });
+      }
 
       return auditRoute(url);
     });

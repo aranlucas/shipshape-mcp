@@ -76,12 +76,15 @@ export const PolicySchema = z
   })
   .strict()
   .superRefine((policy, context) => {
-    if (new Set(policy.packages.map((pkg) => pkg.path)).size !== policy.packages.length)
+    if (new Set(policy.packages.map((pkg) => pkg.path)).size !== policy.packages.length) {
       context.addIssue({ code: "custom", message: "Duplicate package paths" });
+    }
+
     const keys = policy.exceptions.map((item) => `${item.path}:${item.rule}`);
 
-    if (new Set(keys).size !== keys.length)
+    if (new Set(keys).size !== keys.length) {
       context.addIssue({ code: "custom", message: "Duplicate exceptions" });
+    }
   });
 
 export type Policy = z.infer<typeof PolicySchema>;
@@ -91,7 +94,9 @@ export type Commands = z.infer<typeof CommandsSchema>;
 export function parseYaml(text: string): ConfigValue {
   const doc = parseDocument(text, { uniqueKeys: true });
 
-  if (doc.errors.length) throw new Error("Invalid YAML");
+  if (doc.errors.length) {
+    throw new Error("Invalid YAML");
+  }
 
   return ConfigValueSchema.parse(doc.toJS({ maxAliasCount: 20 }));
 }
@@ -107,18 +112,24 @@ export function parsePolicy(text: string): Policy {
 }
 
 export function mergePolicy(shared: Policy, local: Policy): Policy {
-  if (shared.extends) throw new GitHubInputError("Shared policies cannot extend another policy.");
+  if (shared.extends) {
+    throw new GitHubInputError("Shared policies cannot extend another policy.");
+  }
+
   const packages = new Map(shared.packages.map((pkg) => [pkg.path, pkg]));
 
-  for (const pkg of local.packages)
+  for (const pkg of local.packages) {
     packages.set(pkg.path, {
       ...pkg,
       commands: { ...packages.get(pkg.path)?.commands, ...pkg.commands },
     });
+  }
 
   const exceptions = new Map(shared.exceptions.map((item) => [`${item.path}:${item.rule}`, item]));
 
-  for (const item of local.exceptions) exceptions.set(`${item.path}:${item.rule}`, item);
+  for (const item of local.exceptions) {
+    exceptions.set(`${item.path}:${item.rule}`, item);
+  }
 
   return PolicySchema.parse({
     ...local,

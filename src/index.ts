@@ -18,7 +18,9 @@ const AuthPropsSchema = z.object({
 function githubClient() {
   const parsed = AuthPropsSchema.safeParse(getMcpAuthContext()?.props);
 
-  if (!parsed.success) throw new GitHubInputError("GitHub authorization is required");
+  if (!parsed.success) {
+    throw new GitHubInputError("GitHub authorization is required");
+  }
 
   return createGitHubOctokit(parsed.data.accessToken);
 }

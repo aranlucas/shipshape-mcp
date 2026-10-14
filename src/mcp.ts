@@ -45,7 +45,28 @@ const READ_ONLY_ANNOTATIONS = {
   openWorldHint: true,
 } as const;
 
-type ToolPayload = object;
+type ToolPayload =
+  | Awaited<ReturnType<typeof collectPortfolioReport>>
+  | Awaited<ReturnType<typeof collectStandards>>
+  | Awaited<ReturnType<typeof collectSettingsDrift>>
+  | {
+      readiness: Awaited<ReturnType<typeof collectRepositoryReadiness>>;
+      audit: ReturnType<typeof scoreChecks>;
+    }
+  | {
+      repository: z.infer<typeof RepositoryCoordinatesSchema>;
+      risk?: Awaited<ReturnType<typeof collectBranchRisk>>;
+      delivery?: Awaited<ReturnType<typeof collectDeliveryHygiene>>;
+      security?: Awaited<ReturnType<typeof collectSecurityPosture>>;
+      branch?: string;
+      audit: ReturnType<typeof categoryResult>;
+    }
+  | {
+      repository: Awaited<ReturnType<typeof collectRepositoryReadiness>>["repository"];
+      standards: Awaited<ReturnType<typeof collectStandards>>;
+      score: ReturnType<typeof scoreChecks>;
+      plan: ReturnType<typeof buildActionPlan>;
+    };
 
 function jsonResult(payload: ToolPayload) {
   return {
@@ -118,7 +139,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, limit, includeForks, includeArchived }) =>
+    ({ owner, limit, includeForks, includeArchived }) =>
       safely(() =>
         collectPortfolioReport(githubClient(), owner, {
           limit,
@@ -137,7 +158,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       inputSchema: CoordinatesSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async (repository) =>
+    (repository) =>
       safely(async () => {
         const readiness = await collectRepositoryReadiness(githubClient(), repository, {
           maxPages: 2,
@@ -165,7 +186,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, repo, branch }) =>
+    ({ owner, repo, branch }) =>
       safely(async () => {
         const risk = await collectBranchRisk(githubClient(), { owner, repo }, branch);
 
@@ -191,7 +212,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, repo, branch, recentDays }) =>
+    ({ owner, repo, branch, recentDays }) =>
       safely(async () => {
         const delivery = await collectDeliveryHygiene(githubClient(), { owner, repo }, branch, {
           since: new Date(Date.now() - recentDays * 86_400_000).toISOString(),
@@ -220,7 +241,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       inputSchema: CoordinatesSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async (repository) =>
+    (repository) =>
       safely(async () => {
         const client = githubClient();
         const fact = await collectPublicRepository(client, repository);
@@ -250,7 +271,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       inputSchema: CoordinatesSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async (repository) =>
+    (repository) =>
       safely(async () => ({
         ...(await collectStandards(githubClient(), repository)),
       })),
@@ -284,21 +305,27 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, rules, policy, page, limit }) =>
+    ({ owner, rules, policy, page, limit }) =>
       safely(async () => {
-        if ((rules === undefined) === (policy === undefined))
+        if ((rules === undefined) === (policy === undefined)) {
           throw new GitHubInputError("Provide exactly one of rules or policy.");
+        }
 
         const client = githubClient();
 
-        if (rules)
+        if (rules) {
           return collectSettingsDrift(client, owner, rules, {
             page,
             perPage: limit,
             source: { kind: "inline" },
           });
+        }
 
-        const pinned = await readPinnedPolicy(client, policy!);
+        if (policy === undefined) {
+          throw new GitHubInputError("Provide exactly one of rules or policy.");
+        }
+
+        const pinned = await readPinnedPolicy(client, policy);
 
         return collectSettingsDrift(client, owner, pinned.policy, {
           page,
@@ -319,7 +346,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, repo, limit }) =>
+    ({ owner, repo, limit }) =>
       safely(async () => {
         const client = githubClient();
         const repository = { owner, repo };

@@ -454,7 +454,10 @@ const normalizedEvidence = (evidence: Evidence): Evidence | null => {
     })
     .safeParse(evidence);
 
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
+
   const rawUrl = parsed.data.url.trim();
   const url = canonicalHttpUrl(rawUrl);
 
@@ -468,7 +471,9 @@ const normalizedEvidence = (evidence: Evidence): Evidence | null => {
 
   const result = { url, label: truncate(label || url, MAX_LABEL_LENGTH) };
 
-  if (detail) return { ...result, detail: truncate(detail, MAX_DETAIL_LENGTH) };
+  if (detail) {
+    return { ...result, detail: truncate(detail, MAX_DETAIL_LENGTH) };
+  }
 
   return result;
 };

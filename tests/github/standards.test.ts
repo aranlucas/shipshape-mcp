@@ -19,23 +19,24 @@ const repository = {
 };
 
 function client(options: ClientOptions = {}) {
-  const fetch = vi.fn(async (input: RequestInfo | URL) => {
-    const url = new URL(String(input));
+  const fetch = vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
     let data: ConfigValue = {};
     let status = 200;
     const shared = url.pathname.startsWith("/repos/octo/policy");
 
-    if (/\/repos\/octo\/(demo|policy)$/.test(url.pathname))
+    if (/\/repos\/octo\/(demo|policy)$/.test(url.pathname)) {
       data = {
         ...repository,
         private: shared ? (options.sharedPrivate ?? false) : (options.private ?? false),
       };
-    else if (url.pathname.endsWith("/commits/main")) data = { sha };
-    else if (url.pathname.includes("/git/trees/")) {
+    } else if (url.pathname.endsWith("/commits/main")) {
+      data = { sha };
+    } else if (url.pathname.includes("/git/trees/")) {
       if (options.treeError) {
         status = 403;
         data = { message: "Forbidden" };
-      } else
+      } else {
         data = {
           truncated: options.truncated ?? false,
           tree: shared
@@ -69,6 +70,7 @@ function client(options: ClientOptions = {}) {
                   : []),
               ],
         };
+      }
     } else if (url.pathname.includes("/git/blobs/")) {
       if (options.blobError) {
         status = 403;
@@ -94,7 +96,7 @@ function client(options: ClientOptions = {}) {
 
     Object.defineProperty(response, "url", { value: url.toString() });
 
-    return response;
+    return Promise.resolve(response);
   });
 
   return {
@@ -117,9 +119,9 @@ describe("standards collection", () => {
     const result = await collectStandards(octokit, coordinates);
     expect(result.commit).toBe(sha);
     expect(result.status).toBe("needs-attention");
-    expect(fetch.mock.calls.map(([input]) => String(input))).toContain(
-      `https://api.github.com/repos/octo/demo/git/trees/${sha}?recursive=1`,
-    );
+    expect(
+      fetch.mock.calls.map(([input]) => (input instanceof Request ? input.url : input.toString())),
+    ).toContain(`https://api.github.com/repos/octo/demo/git/trees/${sha}?recursive=1`);
     expect(
       result.audit.checks
         .flatMap((check) => check.evidence)
@@ -172,7 +174,9 @@ describe("standards collection", () => {
     expect((await collectStandards(symlink.octokit, coordinates)).status).toBe("unknown");
     expect(
       symlink.fetch.mock.calls.some(([input]) =>
-        String(input).includes("/repos/octo/policy/git/blobs/"),
+        (input instanceof Request ? input.url : input.toString()).includes(
+          "/repos/octo/policy/git/blobs/",
+        ),
       ),
     ).toBe(false);
   });

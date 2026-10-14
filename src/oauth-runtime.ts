@@ -14,8 +14,9 @@ export const defaultHandler: ExportedHandler<OAuthEnv> = {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (!isWebPath(url.pathname, url.searchParams.get("state")))
+    if (!isWebPath(url.pathname, url.searchParams.get("state"))) {
       return oauthHandler.defaultHandler.fetch(request, env);
+    }
 
     try {
       return await webHandler(request, env);

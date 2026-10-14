@@ -43,7 +43,7 @@ const selected = (path: string) =>
 
 export function decode(content: string) {
   return new TextDecoder("utf-8", { fatal: true }).decode(
-    Uint8Array.from(atob(content.replaceAll(/\s/g, "")), (char) => char.charCodeAt(0)),
+    Uint8Array.from(atob(content.replaceAll(/\s/g, "")), (char) => char.codePointAt(0) ?? 0),
   );
 }
 
@@ -54,7 +54,9 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
     await octokitGet(client, "GET /repos/{owner}/{repo}", coordinates, GitHubRepositorySchema)
   ).data;
 
-  if (repo.private) throw new PrivateRepositoryError(coordinates);
+  if (repo.private) {
+    throw new PrivateRepositoryError(coordinates);
+  }
 
   const commit = (
     await octokitGet(
@@ -95,19 +97,24 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
     entries = tree.tree.filter((entry) => entry.type === "blob" && entry.mode !== "120000");
     source.complete = !tree.truncated;
 
-    for (const entry of entries) source.files[entry.path] = null;
+    for (const entry of entries) {
+      source.files[entry.path] = null;
+    }
   } catch {
     return evaluateStandards(source);
   }
 
   const config = entries.find((entry) => entry.path === ".shipshape.yml");
 
-  if (!config) source.policyState = source.complete ? "fail" : "unknown";
-  else {
+  if (!config) {
+    source.policyState = source.complete ? "fail" : "unknown";
+  } else {
     let local: Policy | undefined;
 
     try {
-      if ((config.size ?? 0) > 128_000) throw new Error("Too large");
+      if ((config.size ?? 0) > 128_000) {
+        throw new Error("Too large");
+      }
 
       const blob = (
         await octokitGet(
@@ -122,7 +129,9 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
       source.files[config.path] = text;
       local = parsePolicy(text);
     } catch (error) {
-      if (error instanceof GitHubInputError) throw error;
+      if (error instanceof GitHubInputError) {
+        throw error;
+      }
     }
 
     if (local) {
@@ -152,7 +161,9 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
   await Promise.all(
     reads.map((entry) =>
       limit(async () => {
-        if ((entry.size ?? 0) > 128_000) return;
+        if ((entry.size ?? 0) > 128_000) {
+          return;
+        }
 
         try {
           const blob = (
@@ -176,7 +187,10 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
 }
 
 async function applySharedPolicy(client: GitHubOctokit, local: Policy, source: StandardsSource) {
-  if (!local.extends) return;
+  if (!local.extends) {
+    return;
+  }
+
   const shared = local.extends;
 
   try {
@@ -189,7 +203,9 @@ async function applySharedPolicy(client: GitHubOctokit, local: Policy, source: S
       )
     ).data;
 
-    if (sharedRepo.private) throw new PrivateRepositoryError(shared);
+    if (sharedRepo.private) {
+      throw new PrivateRepositoryError(shared);
+    }
 
     const sharedTree = (
       await octokitGet(
@@ -209,7 +225,9 @@ async function applySharedPolicy(client: GitHubOctokit, local: Policy, source: S
       (item) => item.path === shared.path && item.type === "blob" && item.mode !== "120000",
     );
 
-    if (!entry || (entry.size ?? 0) > 128_000) throw new Error("Shared policy unavailable");
+    if (!entry || (entry.size ?? 0) > 128_000) {
+      throw new Error("Shared policy unavailable");
+    }
 
     const file = (
       await octokitGet(
@@ -223,7 +241,10 @@ async function applySharedPolicy(client: GitHubOctokit, local: Policy, source: S
     source.policy = mergePolicy(parsePolicy(decode(file.content)), local);
     source.policyEvidence = `https://github.com/${shared.owner}/${shared.repo}/blob/${shared.ref}/${shared.path}`;
   } catch (error) {
-    if (error instanceof PrivateRepositoryError || error instanceof GitHubInputError) throw error;
+    if (error instanceof PrivateRepositoryError || error instanceof GitHubInputError) {
+      throw error;
+    }
+
     source.policyState = "unknown";
   }
 }

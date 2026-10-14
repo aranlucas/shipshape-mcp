@@ -1,3 +1,4 @@
+import { hasControlCharacters } from "./control-characters";
 import type { AuthRequest, ClientInfo, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import * as oauth from "oauth4webapi";
 import { z } from "zod";
@@ -102,16 +103,20 @@ export function createOAuthHandler(runtime: OAuthRuntime) {
   };
 }
 
-async function handleDefaultRequest(
+function handleDefaultRequest(
   request: Request,
   env: OAuthEnv,
   runtime: OAuthRuntime,
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
 
-  if (pathname === AUTHORIZE_PATH) return handleAuthorize(request, env, runtime);
+  if (pathname === AUTHORIZE_PATH) {
+    return handleAuthorize(request, env, runtime);
+  }
 
-  if (pathname === CALLBACK_PATH) return handleCallback(request, env);
+  if (pathname === CALLBACK_PATH) {
+    return handleCallback(request, env);
+  }
 
   if (
     pathname === "/" ||
@@ -119,22 +124,26 @@ async function handleDefaultRequest(
     pathname === "/privacy" ||
     pathname === STYLES_PATH
   ) {
-    return landingHandler(request);
+    return Promise.resolve(landingHandler(request));
   }
 
-  return notFoundResponse();
+  return Promise.resolve(notFoundResponse());
 }
 
-async function handleAuthorize(
+function handleAuthorize(
   request: Request,
   env: OAuthEnv,
   runtime: OAuthRuntime,
 ): Promise<Response> {
-  if (request.method === "GET") return handleAuthorizeGet(request, env, runtime);
+  if (request.method === "GET") {
+    return handleAuthorizeGet(request, env, runtime);
+  }
 
-  if (request.method === "POST") return handleAuthorizePost(request, env);
+  if (request.method === "POST") {
+    return handleAuthorizePost(request, env);
+  }
 
-  return methodNotAllowed("GET, POST");
+  return Promise.resolve(methodNotAllowed("GET, POST"));
 }
 
 async function handleAuthorizeGet(
@@ -158,7 +167,9 @@ async function handleAuthorizeGet(
     return genericErrorResponse(500);
   }
 
-  if (client === null) return genericErrorResponse(400);
+  if (client === null) {
+    return genericErrorResponse(400);
+  }
 
   let browserToken = getCookie(request, BROWSER_COOKIE_NAME);
   const cookies: string[] = [];
@@ -194,7 +205,9 @@ async function handleAuthorizeGet(
   headers.set("Cache-Control", "no-store");
   appendSetCookie(headers, makeCookie(CSRF_COOKIE_NAME, csrfToken));
 
-  for (const cookie of cookies) appendSetCookie(headers, cookie);
+  for (const cookie of cookies) {
+    appendSetCookie(headers, cookie);
+  }
 
   return new Response(renderConsentDialog(client, oauthRequest, state, csrfToken), {
     status: 200,
@@ -276,13 +289,17 @@ async function beginGitHubAuthorization(
 
   const response = redirectResponse(githubUrl.toString());
 
-  for (const cookie of cookies) appendSetCookie(response.headers, cookie);
+  for (const cookie of cookies) {
+    appendSetCookie(response.headers, cookie);
+  }
 
   return response;
 }
 
 async function handleCallback(request: Request, env: OAuthEnv): Promise<Response> {
-  if (request.method !== "GET") return methodNotAllowed();
+  if (request.method !== "GET") {
+    return methodNotAllowed();
+  }
 
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
@@ -381,7 +398,9 @@ async function handleCallback(request: Request, env: OAuthEnv): Promise<Response
 
   const approvalCookie = await makeApprovalCookie(stateRecord.oauthRequest, env);
 
-  if (approvalCookie !== null) appendSetCookie(response.headers, approvalCookie);
+  if (approvalCookie !== null) {
+    appendSetCookie(response.headers, approvalCookie);
+  }
 
   return response;
 }
@@ -567,20 +586,32 @@ async function responseBodyExceedsLimit(response: Response): Promise<boolean> {
     return true;
   }
 
-  if (response.body === null) return false;
+  if (response.body === null) {
+    return false;
+  }
 
   try {
     const reader = response.clone().body?.getReader();
 
-    if (reader === undefined) return false;
+    if (reader === undefined) {
+      return false;
+    }
+
     let bytesRead = 0;
 
     while (true) {
       const result = await reader.read();
 
-      if (result.done) return false;
+      if (result.done) {
+        return false;
+      }
+
       const chunk: unknown = result.value;
-      if (!(chunk instanceof Uint8Array)) throw new Error("Expected a byte stream");
+
+      if (!(chunk instanceof Uint8Array)) {
+        throw new Error("Expected a byte stream");
+      }
+
       bytesRead += chunk.byteLength;
 
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
@@ -607,7 +638,9 @@ async function readJson(response: Response): Promise<z.infer<typeof GitHubUserSc
       return null;
     }
 
-    if (response.body === null) return null;
+    if (response.body === null) {
+      return null;
+    }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -617,9 +650,16 @@ async function readJson(response: Response): Promise<z.infer<typeof GitHubUserSc
     while (true) {
       const result = await reader.read();
 
-      if (result.done) break;
+      if (result.done) {
+        break;
+      }
+
       const chunk: unknown = result.value;
-      if (!(chunk instanceof Uint8Array)) throw new Error("Expected a byte stream");
+
+      if (!(chunk instanceof Uint8Array)) {
+        throw new Error("Expected a byte stream");
+      }
+
       bytesRead += chunk.byteLength;
 
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
@@ -633,7 +673,9 @@ async function readJson(response: Response): Promise<z.infer<typeof GitHubUserSc
 
     body += decoder.decode();
 
-    if (body.length === 0) return null;
+    if (body.length === 0) {
+      return null;
+    }
 
     return GitHubUserSchema.safeParse(JSON.parse(body)).data ?? null;
   } catch {
@@ -660,8 +702,10 @@ export async function fetchWithTimeout(input: string, init: RequestInit): Promis
 export function callbackUrl(request: Request, env: OAuthEnv, path: string = CALLBACK_PATH): URL {
   const requestOrigin = new URL(request.url).origin;
   const configured = env.PUBLIC_ORIGIN?.trim();
+
   const configuredOrigin =
     configured !== undefined && configured.length > 0 ? configured : requestOrigin;
+
   const origin = new URL(configuredOrigin);
 
   if (
@@ -697,7 +741,9 @@ export async function completeGitHubLogin(
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
 
-  if (url.searchParams.has("error") || code === null || !isSafeUpstreamValue(code)) return null;
+  if (url.searchParams.has("error") || code === null || !isSafeUpstreamValue(code)) {
+    return null;
+  }
 
   let callbackParameters: URLSearchParams;
 
@@ -716,7 +762,9 @@ export async function completeGitHubLogin(
 
   const accessToken = await exchangeGitHubCode(callbackParameters, request, env, callbackPath);
 
-  if (accessToken === null) return null;
+  if (accessToken === null) {
+    return null;
+  }
 
   const login = await fetchAndValidateGitHubUser(accessToken, env, request.signal);
 
@@ -730,12 +778,15 @@ export async function completeGitHubLogin(
 }
 
 function reportOAuthFailure(stage: string): void {
+  // Operational OAuth failures must remain observable; only the stage is logged, never credentials.
+  // oxlint-disable-next-line no-console
   console.warn("OAuth callback could not be completed", { stage });
 }
 
 async function makeApprovalCookie(request: AuthRequest, env: OAuthEnv): Promise<string | null> {
-  if (env.COOKIE_ENCRYPTION_KEY === undefined || env.COOKIE_ENCRYPTION_KEY.length === 0)
+  if (env.COOKIE_ENCRYPTION_KEY === undefined || env.COOKIE_ENCRYPTION_KEY.length === 0) {
     return null;
+  }
 
   const record: ApprovedClientRecord = {
     clientId: request.clientId,
@@ -756,18 +807,26 @@ async function makeApprovalCookie(request: AuthRequest, env: OAuthEnv): Promise<
 }
 
 function authorizationParseError(error: AuthorizationFailure | null): Response {
-  if (error === null) return genericErrorResponse(500);
+  if (error === null) {
+    return genericErrorResponse(500);
+  }
 
-  if (error.redirectUri === undefined) return genericErrorResponse(400);
+  if (error.redirectUri === undefined) {
+    return genericErrorResponse(400);
+  }
 
   try {
     const redirect = new URL(error.redirectUri);
     redirect.searchParams.set("error", error.code);
     redirect.searchParams.set("error_description", GENERIC_AUTHORIZATION_ERROR);
 
-    if (error.state !== undefined) redirect.searchParams.set("state", error.state);
+    if (error.state !== undefined) {
+      redirect.searchParams.set("state", error.state);
+    }
 
-    if (error.issuer !== undefined) redirect.searchParams.set("iss", error.issuer);
+    if (error.issuer !== undefined) {
+      redirect.searchParams.set("iss", error.issuer);
+    }
 
     return redirectResponse(redirect.toString());
   } catch {
@@ -787,9 +846,13 @@ function oauthErrorRedirect(
       error === "access_denied" ? "Authorization was cancelled." : GENERIC_UPSTREAM_ERROR,
     );
 
-    if (request.state !== "") redirect.searchParams.set("state", request.state);
+    if (request.state !== "") {
+      redirect.searchParams.set("state", request.state);
+    }
 
-    if (request.issuer !== undefined) redirect.searchParams.set("iss", request.issuer);
+    if (request.issuer !== undefined) {
+      redirect.searchParams.set("iss", request.issuer);
+    }
 
     return redirectResponse(redirect.toString());
   } catch {
@@ -819,7 +882,9 @@ function redirectResponse(location: string): Response {
 }
 
 function withCookies(response: Response, cookies: string[]): Response {
-  for (const cookie of cookies) appendSetCookie(response.headers, cookie);
+  for (const cookie of cookies) {
+    appendSetCookie(response.headers, cookie);
+  }
 
   return response;
 }
@@ -832,18 +897,15 @@ function formValue(form: FormData, key: string): string | null {
     value instanceof File ||
     value.length === 0 ||
     value.length > MAX_OAUTH_VALUE_LENGTH
-  )
+  ) {
     return null;
+  }
 
   return value;
 }
 
 function isSafeUpstreamValue(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value.length <= MAX_OAUTH_VALUE_LENGTH &&
-    !/[\u0000-\u001F\u007F]/.test(value)
-  );
+  return value.length > 0 && value.length <= MAX_OAUTH_VALUE_LENGTH && !hasControlCharacters(value);
 }
 
 type GitHubLogin = { accessToken: string; login: string };

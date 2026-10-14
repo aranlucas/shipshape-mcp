@@ -1,9 +1,15 @@
 import { GitHubPayloadError } from "./payload-error";
+
 export { GitHubPayloadError };
+
 import { PrivateRepositoryError } from "./private-repository-error";
+
 export { PrivateRepositoryError };
+
 import { GitHubInputError } from "./input-error";
+
 export { GitHubInputError };
+
 import { Octokit } from "octokit";
 import { z, type ZodType } from "zod";
 
@@ -38,7 +44,9 @@ export function createGitHubOctokit(auth: string, fetch?: typeof globalThis.fetc
     timeout: GITHUB_REQUEST_TIMEOUT_MS,
   };
 
-  if (fetch) request.fetch = fetch;
+  if (fetch) {
+    request.fetch = fetch;
+  }
 
   const octokit = new Octokit({
     auth,
@@ -75,21 +83,30 @@ function links(value: string | undefined) {
   let nextUrl: string | null = null;
   let previousUrl: string | null = null;
 
-  if (!value) return { nextUrl, previousUrl };
+  if (!value) {
+    return { nextUrl, previousUrl };
+  }
 
   for (const part of value.split(",")) {
     const match = part.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"/u);
 
-    if (match?.[2] === "next") nextUrl = match[1] ?? null;
+    if (match?.[2] === "next") {
+      nextUrl = match[1] ?? null;
+    }
 
-    if (match?.[2] === "prev") previousUrl = match[1] ?? null;
+    if (match?.[2] === "prev") {
+      previousUrl = match[1] ?? null;
+    }
   }
 
   return { nextUrl, previousUrl };
 }
 
 const headerNumber = (value: string | undefined): number | null => {
-  if (!value || !/^\d+(?:\.\d+)?$/u.test(value.trim())) return null;
+  if (!value || !/^\d+(?:\.\d+)?$/u.test(value.trim())) {
+    return null;
+  }
+
   const parsed = Number(value);
 
   return Number.isFinite(parsed) ? parsed : null;
@@ -189,10 +206,14 @@ export async function octokitPaginate<T>(
     data.push(...parseGitHubResponse(pageSchema, response));
     metadata = responseMetadata(response);
 
-    if (page >= maxPages) break;
+    if (page >= maxPages) {
+      break;
+    }
   }
 
-  if (!metadata) throw new GitHubInputError("Pagination produced no request");
+  if (!metadata) {
+    throw new GitHubInputError("Pagination produced no request");
+  }
 
   return { data, metadata };
 }

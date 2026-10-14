@@ -306,9 +306,11 @@ export function protectedBranchesFor(
 ): string[] {
   const branches = new Set<string>();
 
-  for (const rule of policy.rules)
-    if (rule.branchProtection && ruleSelects(rule, repository))
+  for (const rule of policy.rules) {
+    if (rule.branchProtection && ruleSelects(rule, repository)) {
       branches.add(rule.branchProtection.branch ?? defaultBranch);
+    }
+  }
 
   return [...branches].toSorted();
 }
@@ -327,87 +329,99 @@ function expectations(rule: DriftRule, defaultBranch: string): Expectation[] {
       ([name]) => name === definition.key,
     )?.[1];
 
-    if (value !== undefined)
+    if (value !== undefined) {
       result.push({
         kind: "repository",
         rule: rule.id,
         setting: definition.id,
         value,
       });
+    }
   }
 
   for (const definition of REPOSITORY_FILE_SETTINGS) {
     const value = rule.repositoryFiles?.[definition.key];
 
-    if (value !== undefined)
+    if (value !== undefined) {
       result.push({
         kind: "file",
         rule: rule.id,
         setting: definition.id,
         value,
       });
+    }
   }
 
   for (const definition of WORKFLOW_SECURITY_SETTINGS) {
     const value = rule.workflowSecurity?.[definition.key];
 
-    if (value !== undefined)
+    if (value !== undefined) {
       result.push({
         kind: "workflow",
         rule: rule.id,
         setting: definition.id,
         value,
       });
+    }
   }
 
   for (const definition of REPOSITORY_RULE_SETTINGS) {
     const value = rule.repositoryRules?.[definition.key];
 
-    if (value !== undefined)
+    if (value !== undefined) {
       result.push({
         kind: "repositoryRule",
         rule: rule.id,
         setting: definition.id,
         value,
       });
+    }
   }
 
-  if (rule.security?.privateVulnerabilityReporting !== undefined)
+  if (rule.security?.privateVulnerabilityReporting !== undefined) {
     result.push({
       kind: "privateVulnerabilityReporting",
       rule: rule.id,
       setting: "privateVulnerabilityReporting",
       value: rule.security.privateVulnerabilityReporting,
     });
+  }
 
-  if (rule.topics?.required.length)
+  if (rule.topics?.required.length) {
     result.push({
       kind: "topics",
       rule: rule.id,
       setting: "topics.required",
       value: rule.topics.required,
     });
+  }
 
-  if (rule.topics?.forbidden.length)
+  if (rule.topics?.forbidden.length) {
     result.push({
       kind: "topics",
       rule: rule.id,
       setting: "topics.forbidden",
       value: rule.topics.forbidden,
     });
+  }
 
   const protection = rule.branchProtection;
 
-  if (!protection) return result;
+  if (!protection) {
+    return result;
+  }
+
   const branch = protection.branch ?? defaultBranch;
 
   for (const setting of PROTECTION_FLAGS) {
     const value = protection[setting];
 
-    if (value !== undefined) result.push({ kind: "flag", rule: rule.id, setting, branch, value });
+    if (value !== undefined) {
+      result.push({ kind: "flag", rule: rule.id, setting, branch, value });
+    }
   }
 
-  if (protection.requiredApprovingReviews !== undefined)
+  if (protection.requiredApprovingReviews !== undefined) {
     result.push({
       kind: "approvals",
       rule: rule.id,
@@ -415,8 +429,9 @@ function expectations(rule: DriftRule, defaultBranch: string): Expectation[] {
       branch,
       value: protection.requiredApprovingReviews,
     });
+  }
 
-  if (protection.requiredStatusChecks?.length)
+  if (protection.requiredStatusChecks?.length) {
     result.push({
       kind: "checks",
       rule: rule.id,
@@ -424,6 +439,7 @@ function expectations(rule: DriftRule, defaultBranch: string): Expectation[] {
       branch,
       value: protection.requiredStatusChecks,
     });
+  }
 
   return result;
 }
@@ -441,19 +457,29 @@ const UNPROTECTED: ProtectionState = {
 };
 
 function protectionState(fact: BranchProtectionFact | undefined) {
-  if (!fact) return null;
+  if (!fact) {
+    return null;
+  }
 
-  if (fact.status === "unprotected") return UNPROTECTED;
+  if (fact.status === "unprotected") {
+    return UNPROTECTED;
+  }
 
   return fact.status === "protected" ? fact.protection : null;
 }
 
 function flagValue(state: ProtectionState, flag: ProtectionFlag) {
-  if (flag === "dismissStaleReviews") return state.reviews?.dismissStaleReviews ?? false;
+  if (flag === "dismissStaleReviews") {
+    return state.reviews?.dismissStaleReviews ?? false;
+  }
 
-  if (flag === "requireCodeOwnerReviews") return state.reviews?.requireCodeOwnerReviews ?? false;
+  if (flag === "requireCodeOwnerReviews") {
+    return state.reviews?.requireCodeOwnerReviews ?? false;
+  }
 
-  if (flag === "requireLastPushApproval") return state.reviews?.requireLastPushApproval ?? false;
+  if (flag === "requireLastPushApproval") {
+    return state.reviews?.requireLastPushApproval ?? false;
+  }
 
   return state[flag];
 }
@@ -462,23 +488,12 @@ function compare(
   facts: RepositorySettingsFacts,
   expectation: Expectation,
 ): Pick<DriftCheck, "state" | "actual" | "reason"> {
-  const unknown = (reason: string) => ({
-    state: "unknown" as const,
-    actual: null,
-    reason,
-  });
-
-  const verdict = (passed: boolean, actual: DriftValue) => ({
-    state: passed ? ("pass" as const) : ("fail" as const),
-    actual,
-    reason: null,
-  });
-
   if (expectation.kind === "repository") {
     const actual = facts.settings[expectation.setting];
 
-    if (actual === null)
+    if (actual === null) {
       return unknown("GitHub only discloses this setting to repository administrators.");
+    }
 
     return verdict(actual === expectation.value, actual);
   }
@@ -486,7 +501,9 @@ function compare(
   if (expectation.kind === "file") {
     const actual = facts.repositoryFiles[expectation.setting];
 
-    if (actual === null) return unknown("The repository tree was incomplete or unavailable.");
+    if (actual === null) {
+      return unknown("The repository tree was incomplete or unavailable.");
+    }
 
     return verdict(actual === expectation.value, actual);
   }
@@ -494,8 +511,9 @@ function compare(
   if (expectation.kind === "workflow") {
     const actual = facts.workflowSecurity[expectation.setting];
 
-    if (actual === null)
+    if (actual === null) {
       return unknown("One or more GitHub Actions workflow files could not be inspected.");
+    }
 
     return verdict(actual === expectation.value, actual);
   }
@@ -503,8 +521,9 @@ function compare(
   if (expectation.kind === "privateVulnerabilityReporting") {
     const actual = facts.privateVulnerabilityReporting;
 
-    if (actual === null)
+    if (actual === null) {
       return unknown("GitHub did not expose private vulnerability reporting to this credential.");
+    }
 
     return verdict(actual === expectation.value, actual);
   }
@@ -512,8 +531,9 @@ function compare(
   if (expectation.kind === "repositoryRule") {
     const actual = facts.repositoryRules[expectation.setting];
 
-    if (actual === null)
+    if (actual === null) {
       return unknown("GitHub did not expose active repository rulesets to this credential.");
+    }
 
     return verdict(actual === expectation.value, actual);
   }
@@ -531,15 +551,18 @@ function compare(
   const fact = facts.branches.get(expectation.branch);
   const state = protectionState(fact);
 
-  if (!state)
+  if (!state) {
     return unknown(
       fact?.status === "unknown" ? fact.reason : "Branch protection was not collected.",
     );
+  }
 
   if (expectation.kind === "flag") {
     const actual = flagValue(state, expectation.setting);
 
-    if (actual === null) return unknown("GitHub did not report this protection setting.");
+    if (actual === null) {
+      return unknown("GitHub did not report this protection setting.");
+    }
 
     return verdict(actual === expectation.value, actual);
   }
@@ -559,20 +582,29 @@ function compare(
 }
 
 function evidenceUrl(facts: RepositorySettingsFacts, expectation: Expectation) {
-  if (expectation.kind === "topics") return facts.url;
+  if (expectation.kind === "topics") {
+    return facts.url;
+  }
 
-  if (expectation.kind === "file")
+  if (expectation.kind === "file") {
     return `${facts.url}/tree/${encodeURIComponent(facts.defaultBranch)}`;
+  }
 
-  if (expectation.kind === "workflow")
+  if (expectation.kind === "workflow") {
     return `${facts.url}/tree/${encodeURIComponent(facts.defaultBranch)}/.github/workflows`;
+  }
 
-  if (expectation.kind === "privateVulnerabilityReporting")
+  if (expectation.kind === "privateVulnerabilityReporting") {
     return `${facts.url}/settings/security_analysis`;
+  }
 
-  if (expectation.kind === "repositoryRule") return `${facts.url}/settings/rules`;
+  if (expectation.kind === "repositoryRule") {
+    return `${facts.url}/settings/rules`;
+  }
 
-  if (expectation.kind !== "repository") return `${facts.url}/settings/branches`;
+  if (expectation.kind !== "repository") {
+    return `${facts.url}/settings/branches`;
+  }
 
   return expectation.setting.startsWith("security.")
     ? `${facts.url}/settings/security_analysis`
@@ -671,14 +703,18 @@ function desiredState(all: readonly Expectation[]) {
     if (expectation.kind === "repository") {
       const previous = desired.repository.get(expectation.setting);
 
-      if (previous !== undefined && previous !== expectation.value)
+      if (previous !== undefined && previous !== expectation.value) {
         conflicts.add(expectation.setting);
+      }
+
       desired.repository.set(expectation.setting, expectation.value);
     } else if (expectation.kind === "topics") {
       const target =
         expectation.setting === "topics.required" ? desired.required : desired.forbidden;
 
-      for (const topic of expectation.value) target.add(topic);
+      for (const topic of expectation.value) {
+        target.add(topic);
+      }
     } else if (expectation.kind === "flag") {
       const target = branch(expectation.branch);
       const previous = target.flags.get(expectation.setting);
@@ -695,34 +731,46 @@ function desiredState(all: readonly Expectation[]) {
     } else if (expectation.kind === "checks") {
       const target = branch(expectation.branch);
 
-      for (const context of expectation.value) target.checks.add(context);
+      for (const context of expectation.value) {
+        target.checks.add(context);
+      }
     } else {
       const previous = desired.other.get(expectation.setting);
 
-      if (previous !== undefined && previous !== expectation.value)
+      if (previous !== undefined && previous !== expectation.value) {
         conflicts.add(expectation.setting);
+      }
 
       desired.other.set(expectation.setting, expectation.value);
     }
   }
 
-  for (const topic of desired.required) if (desired.forbidden.has(topic)) conflicts.add("topics");
+  for (const topic of desired.required) {
+    if (desired.forbidden.has(topic)) {
+      conflicts.add("topics");
+    }
+  }
 
   return { desired, conflicts };
 }
 
 function conflictKey(expectation: Expectation): string {
-  if (expectation.kind === "repository") return expectation.setting;
+  if (expectation.kind === "repository") {
+    return expectation.setting;
+  }
 
-  if (expectation.kind === "topics") return "topics";
+  if (expectation.kind === "topics") {
+    return "topics";
+  }
 
   if (
     expectation.kind === "file" ||
     expectation.kind === "workflow" ||
     expectation.kind === "privateVulnerabilityReporting" ||
     expectation.kind === "repositoryRule"
-  )
+  ) {
     return expectation.setting;
+  }
 
   return `${expectation.branch}:${expectation.setting}`;
 }
@@ -808,7 +856,9 @@ export function evaluateRepositoryDrift(
     }),
   );
 
-  if (!rules.length) return null;
+  if (!rules.length) {
+    return null;
+  }
 
   const all = rules.flatMap((rule) => expectations(rule, facts.defaultBranch));
 
@@ -829,7 +879,10 @@ export function evaluateRepositoryDrift(
   for (const [index, expectation] of all.entries()) {
     const key = conflictKey(expectation);
 
-    if (!conflicts.has(key) || reported.has(key)) continue;
+    if (!conflicts.has(key) || reported.has(key)) {
+      continue;
+    }
+
     reported.add(key);
     conflictSteps.push({
       setting: expectation.kind === "topics" ? "topics" : expectation.setting,
@@ -855,25 +908,34 @@ export function evaluateRepositoryDrift(
   const patched: string[] = [];
 
   for (const [index, expectation] of all.entries()) {
-    if (expectation.kind !== "repository" || !open(expectation, index)) continue;
+    if (expectation.kind !== "repository" || !open(expectation, index)) {
+      continue;
+    }
 
     const definition = REPOSITORY_SETTINGS.find((item) => item.id === expectation.setting);
 
-    if (!definition || patched.includes(definition.id)) continue;
+    if (!definition || patched.includes(definition.id)) {
+      continue;
+    }
 
     patched.push(definition.id);
 
-    if (definition.security)
+    if (definition.security) {
       security[definition.field] = {
         status: expectation.value ? "enabled" : "disabled",
       };
-    else patch[definition.field] = expectation.value;
+    } else {
+      patch[definition.field] = expectation.value;
+    }
   }
 
-  if (Object.keys(security).length) patch.security_and_analysis = security;
+  if (Object.keys(security).length) {
+    patch.security_and_analysis = security;
+  }
 
-  if (patched.length)
+  if (patched.length) {
     remediation.push(step("Update repository settings", "PATCH", repositoryPath, patch, patched));
+  }
 
   for (const [index, expectation] of all.entries()) {
     if (
@@ -882,8 +944,9 @@ export function evaluateRepositoryDrift(
         expectation.kind !== "privateVulnerabilityReporting" &&
         expectation.kind !== "repositoryRule") ||
       !open(expectation, index)
-    )
+    ) {
       continue;
+    }
 
     const reason =
       expectation.kind === "file"
@@ -932,7 +995,10 @@ export function evaluateRepositoryDrift(
       branchOf(expectation) === branch && open(expectation, index) ? [expectation] : [],
     );
 
-    if (!branchChecks.length) continue;
+    if (!branchChecks.length) {
+      continue;
+    }
+
     const protectionPath = `${repositoryPath}/branches/${encodeURIComponent(branch)}/protection`;
     const evidence = `${facts.url}/settings/branches`;
     const fact = facts.branches.get(branch);
@@ -945,7 +1011,7 @@ export function evaluateRepositoryDrift(
     const settings = [...new Set(replaced.map((item) => item.setting))];
 
     if (replaced.length && (!current || current.restricted)) {
-      for (const setting of settings)
+      for (const setting of settings) {
         manual.push({
           setting,
           branch,
@@ -954,6 +1020,7 @@ export function evaluateRepositoryDrift(
             : "Branch protection is not visible to this credential, so a safe replacement body cannot be built. An administrator should review it in settings.",
           evidence,
         });
+      }
     } else if (replaced.length && current) {
       remediation.push(
         step(
@@ -970,9 +1037,11 @@ export function evaluateRepositoryDrift(
       (expectation) => expectation.setting === "requiredSignatures",
     );
 
-    if (signatures?.kind !== "flag") continue;
+    if (signatures?.kind !== "flag") {
+      continue;
+    }
 
-    if (signatures.value && fact?.status === "unprotected" && !replaced.length)
+    if (signatures.value && fact?.status === "unprotected" && !replaced.length) {
       remediation.push(
         step(
           `Protect ${branch}`,
@@ -987,6 +1056,7 @@ export function evaluateRepositoryDrift(
           ["requiredSignatures"],
         ),
       );
+    }
 
     remediation.push(
       step(
@@ -1001,7 +1071,9 @@ export function evaluateRepositoryDrift(
 
   const counts = { pass: 0, fail: 0, unknown: 0 };
 
-  for (const check of checks) counts[check.state] += 1;
+  for (const check of checks) {
+    counts[check.state] += 1;
+  }
 
   return {
     repository: facts.fullName,
@@ -1023,3 +1095,15 @@ export function evaluateRepositoryDrift(
 type PolicyRepository = { name: string; fork: boolean; archived: boolean };
 
 type RemediationFields = { [key: string]: RemediationBody };
+
+const verdict = (passed: boolean, actual: DriftValue) => ({
+  state: passed ? ("pass" as const) : ("fail" as const),
+  actual,
+  reason: null,
+});
+
+const unknown = (reason: string) => ({
+  state: "unknown" as const,
+  actual: null,
+  reason,
+});
