@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { evaluateStandards, type StandardsSource } from "../../src/standards/evaluate";
-import { mergePolicy, parsePolicy } from "../../src/standards/policy";
+import { evaluateStandards, type StandardsSource } from "@/standards/evaluate";
+import { mergePolicy, parsePolicy } from "@/standards/policy";
 
 const policy = () => parsePolicy("baseline: shipshape/recommended@1");
 

@@ -1,4 +1,4 @@
-import type { ConfigValue } from "../../src/standards/config-value";
+import type { ConfigValue } from "@/standards/config-value";
 import { vi } from "vitest";
 import { Octokit } from "octokit";
 

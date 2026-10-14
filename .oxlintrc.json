@@ -2,8 +2,7 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": [
     "./node_modules/@aranlucas/oxforge/configs/recommended.json",
-    "./node_modules/@aranlucas/oxforge/configs/vitest.json",
-    "./node_modules/@aranlucas/oxforge/configs/type-aware.json"
+    "./node_modules/@aranlucas/oxforge/configs/vitest.json"
   ],
   "ignorePatterns": [
     "worker-configuration.d.ts",

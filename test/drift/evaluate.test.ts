@@ -9,8 +9,8 @@ import {
   type RepositoryRuleSettingId,
   type WorkflowSecuritySettingId,
   type RepositorySettingsFacts,
-} from "../../src/drift/evaluate";
-import { DriftPolicySchema } from "../../src/drift/policy";
+} from "@/drift/evaluate";
+import { DriftPolicySchema } from "@/drift/policy";
 
 // SAFETY: fromEntries receives exactly one entry per REPOSITORY_SETTINGS id.
 const unknownSettings = Object.fromEntries(

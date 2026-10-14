@@ -6,8 +6,8 @@ import {
   requireRuleDefinition,
   RULE_DEFINITIONS,
   RULE_IDS,
-} from "../../src/domain/rules";
-import { RULE_CATEGORIES, type Evidence } from "../../src/domain/types";
+} from "@/domain/rules";
+import { RULE_CATEGORIES, type Evidence } from "@/domain/types";
 
 describe("rule catalog", () => {
   it("keeps stable identifiers unique and budgets each category to 100 points", () => {

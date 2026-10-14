@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { hasControlCharacters, stripControlCharacters } from "../src/control-characters";
-import { GitHubRefInputSchema } from "../src/github/schemas";
-import { escapeHtml } from "../src/oauth-security";
+import { hasControlCharacters, stripControlCharacters } from "@/control-characters";
+import { GitHubRefInputSchema } from "@/github/schemas";
+import { escapeHtml } from "@/oauth-security";
 
 const controls = [...Array.from({ length: 32 }, (_, index) => index), 127];
 

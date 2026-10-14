@@ -8,8 +8,8 @@ import {
   createGitHubOctokit,
   octokitGet,
   octokitPaginate,
-} from "../../src/github/client";
-import { GitHubRefInputSchema, RepositoryCoordinatesSchema } from "../../src/github/schemas";
+} from "@/github/client";
+import { GitHubRefInputSchema, RepositoryCoordinatesSchema } from "@/github/schemas";
 
 describe("GitHub API boundaries", () => {
   it("uses shared Zod schemas for repository coordinates and refs", () => {

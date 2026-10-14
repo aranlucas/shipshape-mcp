@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PrivateRepositoryError } from "../../src/github/client";
+import { PrivateRepositoryError } from "@/github/client";
 import {
   collectBranchRisk,
   collectDeliveryHygiene,
@@ -8,11 +8,11 @@ import {
   collectPublicRepository,
   collectRepositoryReadiness,
   collectSecurityPosture,
-} from "../../src/github/collectors";
+} from "@/github/collectors";
 
-import { collectPortfolioReport } from "../../src/github/portfolio";
-import { evaluateDeliveryHygiene } from "../../src/domain/evaluate";
-import { buildActionPlan } from "../../src/domain/scoring";
+import { collectPortfolioReport } from "@/github/portfolio";
+import { evaluateDeliveryHygiene } from "@/domain/evaluate";
+import { buildActionPlan } from "@/domain/scoring";
 
 import {
   type Route,
@@ -26,7 +26,7 @@ import {
   jsonResponse,
   clientFor,
   fullRoute,
-} from "../helpers/github-fixtures";
+} from "@test/helpers/github-fixtures";
 
 describe("GitHub collectors", () => {
   it("does not treat cancellations as failures and reports failing run details", async () => {

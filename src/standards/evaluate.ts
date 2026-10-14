@@ -21,7 +21,7 @@ export interface StandardsSource {
 const join = (path: string, name: string) => (path === "." ? name : `${path}/${name}`);
 
 function json(text: string | null | undefined): ConfigDocument | null {
-  if (text == null) {
+  if (text === null || text === undefined) {
     return null;
   }
 
@@ -59,7 +59,8 @@ export function evaluateStandards(source: StandardsSource) {
     try {
       return {
         path,
-        value: files[path] == null ? null : object(parseYaml(files[path])),
+        value:
+          files[path] === null || files[path] === undefined ? null : object(parseYaml(files[path])),
       };
     } catch {
       return { path, value: null };

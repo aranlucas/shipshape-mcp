@@ -13,9 +13,9 @@ import {
   sanitizeClientMetadata,
   safeHttpUrl,
   securityHeaders,
-} from "../src/oauth-security";
+} from "@/oauth-security";
 
-import { memoryKv } from "./helpers/oauth-state";
+import { memoryKv } from "@test/helpers/oauth-state";
 
 function authRequest(): AuthRequest {
   return {
