@@ -98,7 +98,7 @@ flowchart LR
 - `src/github/` collects public API evidence and validates response schemas.
 - `src/domain/` evaluates checks, scores categories, and builds action plans.
 - `src/standards/` collects package manifests and applies the pinned policy.
-- `tests/` covers domain scoring, collectors, standards, OAuth, and landing
+- `test/` covers domain scoring, collectors, standards, OAuth, and landing
   pages.
 
 ## Local development

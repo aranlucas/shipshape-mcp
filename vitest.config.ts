@@ -2,16 +2,19 @@ import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: { tsconfigPaths: true },
   test: {
     projects: [
       {
+        extends: true,
         test: {
           name: "node",
-          include: ["tests/**/*.test.ts"],
-          exclude: ["tests/workers/**"],
+          include: ["test/**/*.test.ts"],
+          exclude: ["test/workers/**"],
         },
       },
       {
+        extends: true,
         plugins: [
           cloudflareTest({
             experimental: { newConfig: true },
@@ -26,7 +29,7 @@ export default defineConfig({
         ],
         test: {
           name: "workers",
-          include: ["tests/workers/**/*.test.ts"],
+          include: ["test/workers/**/*.test.ts"],
         },
       },
     ],

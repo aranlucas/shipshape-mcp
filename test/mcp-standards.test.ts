@@ -1,9 +1,9 @@
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { createPortfolioServer } from "../src/mcp";
-import { createGitHubOctokit } from "../src/github/client";
-import { fullRoute, jsonResponse, repository } from "./helpers/github-fixtures";
+import { createPortfolioServer } from "@/mcp";
+import { createGitHubOctokit } from "@/github/client";
+import { fullRoute, jsonResponse, repository } from "@test/helpers/github-fixtures";
 
 const cleanup: Array<() => Promise<void>> = [];
 

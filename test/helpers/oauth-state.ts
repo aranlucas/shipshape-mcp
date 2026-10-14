@@ -1,4 +1,4 @@
-import type { OAuthStateStore } from "../../src/oauth-security";
+import type { OAuthStateStore } from "@/oauth-security";
 
 export function memoryKv(): OAuthStateStore {
   const values = new Map<string, StoredValue>();

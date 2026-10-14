@@ -1,13 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { makeCheck } from "../../src/domain/rules";
-import {
-  buildActionPlan,
-  categoryRollup,
-  normalizeChecks,
-  scoreChecks,
-} from "../../src/domain/scoring";
-import type { CheckResult } from "../../src/domain/types";
+import { makeCheck } from "@/domain/rules";
+import { buildActionPlan, categoryRollup, normalizeChecks, scoreChecks } from "@/domain/scoring";
+import type { CheckResult } from "@/domain/types";
 
 describe("scoreChecks", () => {
   it("returns a transparent weighted score and category rollups", () => {

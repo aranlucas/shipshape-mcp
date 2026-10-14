@@ -1,7 +1,7 @@
-import type { ConfigValue } from "../../src/standards/config-value";
+import type { ConfigValue } from "@/standards/config-value";
 import { Octokit } from "octokit";
 import { describe, expect, it, vi } from "vitest";
-import { collectStandards } from "../../src/standards/collect";
+import { collectStandards } from "@/standards/collect";
 
 const sha = "a".repeat(40);
 

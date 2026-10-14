@@ -1,7 +1,7 @@
 import type { AuthRequest, ClientInfo } from "@cloudflare/workers-oauth-provider";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchWithTimeout, createOAuthHandler, type OAuthEnv } from "../src/oauth";
+import { fetchWithTimeout, createOAuthHandler, type OAuthEnv } from "@/oauth";
 
 const { handleDefaultRequest } = createOAuthHandler({
   authorizationError() {
@@ -9,7 +9,7 @@ const { handleDefaultRequest } = createOAuthHandler({
   },
 });
 
-import { memoryKv } from "./helpers/oauth-state";
+import { memoryKv } from "@test/helpers/oauth-state";
 
 const requestDetails: AuthRequest = {
   clientId: "client-1",

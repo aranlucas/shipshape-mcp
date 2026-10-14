@@ -1,8 +1,8 @@
 import { exports } from "cloudflare:workers";
 import { assert, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { MCP_RESOURCE, MCP_SCOPE } from "../../src/config";
-import { repository } from "../helpers/github-fixtures";
+import { MCP_RESOURCE, MCP_SCOPE } from "@/config";
+import { repository } from "@test/helpers/github-fixtures";
 
 const outbound: string[] = [];
 

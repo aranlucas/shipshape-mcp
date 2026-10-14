@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  DriftPolicySchema,
-  globMatches,
-  parseDriftPolicy,
-  ruleSelects,
-} from "../../src/drift/policy";
-import { GitHubInputError } from "../../src/github/client";
+import { DriftPolicySchema, globMatches, parseDriftPolicy, ruleSelects } from "@/drift/policy";
+import { GitHubInputError } from "@/github/client";
 
 describe("settings policy", () => {
   it("parses YAML rules and applies selector defaults", () => {

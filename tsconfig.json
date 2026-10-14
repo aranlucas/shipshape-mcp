@@ -11,7 +11,11 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "vitest/globals", "@cloudflare/vitest-plugin/types"]
+    "types": ["node", "vitest/globals", "@cloudflare/vitest-plugin/types"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@test/*": ["./test/*"]
+    }
   },
-  "include": ["src", "tests", "cloudflare.config.ts", "vite.config.ts", ".cloudflare/types"]
+  "include": ["src", "test", "cloudflare.config.ts", "vite.config.ts", ".cloudflare/types"]
 }

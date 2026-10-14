@@ -1,9 +1,9 @@
 import { Script } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
-import type { OAuthEnv } from "../src/oauth";
-import { isWebPath, webHandler } from "../src/web/routes";
-import { memoryKv } from "./helpers/oauth-state";
-import { jsonResponse, repository } from "./helpers/github-fixtures";
+import type { OAuthEnv } from "@/oauth";
+import { isWebPath, webHandler } from "@/web/routes";
+import { memoryKv } from "@test/helpers/oauth-state";
+import { jsonResponse, repository } from "@test/helpers/github-fixtures";
 
 const ORIGIN = "https://shipshape.example";
 

@@ -6,9 +6,9 @@ import {
   evaluateRepositoryReadiness,
   repositoryReadinessStatus,
   type RepositoryAuditInput,
-} from "../../src/domain/evaluate";
-import { RULE_IDS } from "../../src/domain/rules";
-import { buildActionPlan, scoreChecks } from "../../src/domain/scoring";
+} from "@/domain/evaluate";
+import { RULE_IDS } from "@/domain/rules";
+import { buildActionPlan, scoreChecks } from "@/domain/scoring";
 
 const unimplementedRuleIds = [
   "public.readme",

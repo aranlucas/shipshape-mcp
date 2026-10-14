@@ -438,7 +438,10 @@ export async function collectDeliveryHygiene(
   const failedConclusions = new Set(["action_required", "failure", "startup_failure", "timed_out"]);
 
   const failedWorkflowRuns = runItems.filter(
-    (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
+    (run) =>
+      run.conclusion !== null &&
+      run.conclusion !== undefined &&
+      failedConclusions.has(run.conclusion),
   ).length;
 
   const cancelledWorkflowRuns = runItems.filter((run) => run.conclusion === "cancelled").length;
@@ -474,7 +477,12 @@ export async function collectDeliveryHygiene(
   }
 
   const failingWorkflowRuns = [...latestCompletedByWorkflow.values()]
-    .filter((run) => run.conclusion != null && failedConclusions.has(run.conclusion))
+    .filter(
+      (run) =>
+        run.conclusion !== null &&
+        run.conclusion !== undefined &&
+        failedConclusions.has(run.conclusion),
+    )
     .slice(0, 5)
     .map(summarizeRun);
 
@@ -500,7 +508,10 @@ export async function collectDeliveryHygiene(
 
   if (workflowRuns.value && latestCompletedByWorkflow.size > 0) {
     ciStatus = [...latestCompletedByWorkflow.values()].some(
-      (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
+      (run) =>
+        run.conclusion !== null &&
+        run.conclusion !== undefined &&
+        failedConclusions.has(run.conclusion),
     )
       ? "degraded"
       : coverage.workflowRuns.status === "complete"

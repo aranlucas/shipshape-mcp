@@ -1,4 +1,4 @@
-import { healthResponse, landingHandler, privacyPageResponse } from "../src/landing";
+import { healthResponse, landingHandler, privacyPageResponse } from "@/landing";
 import { describe, expect, it } from "vitest";
 
 describe("public landing handlers", () => {
