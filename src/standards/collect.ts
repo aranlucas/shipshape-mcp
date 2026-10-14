@@ -43,10 +43,72 @@ const selected = (path: string) =>
 
 export function decode(content: string) {
   return new TextDecoder("utf-8", { fatal: true }).decode(
-    Uint8Array.from(atob(content.replace(/\s/g, "")), (char) =>
+    Uint8Array.from(atob(content.replaceAll(/\s/g, "")), (char) =>
       char.charCodeAt(0),
     ),
   );
+}
+
+interface SharedPolicyRef {
+  owner: string;
+  repo: string;
+  ref: string;
+  path: string;
+}
+
+async function loadSharedPolicy(
+  client: GitHubOctokit,
+  shared: SharedPolicyRef,
+  coordinates: RepositoryCoordinates,
+  local: Policy,
+  source: StandardsSource,
+): Promise<void> {
+  const sharedRepo = (
+    await octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}",
+      { owner: shared.owner, repo: shared.repo },
+      GitHubRepositorySchema,
+    )
+  ).data;
+
+  if (sharedRepo.private) throw new PrivateRepositoryError(shared);
+
+  const sharedTree = (
+    await octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
+      {
+        owner: shared.owner,
+        repo: shared.repo,
+        tree_sha: shared.ref,
+        recursive: "1",
+      },
+      TreeSchema,
+    )
+  ).data;
+
+  const entry = sharedTree.tree.find(
+    (item) =>
+      item.path === shared.path &&
+      item.type === "blob" &&
+      item.mode !== "120000",
+  );
+
+  if (!entry || (entry.size ?? 0) > 128_000)
+    throw new Error("Shared policy unavailable");
+
+  const file = (
+    await octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/git/blobs/{file_sha}",
+      { owner: shared.owner, repo: shared.repo, file_sha: entry.sha },
+      BlobSchema,
+    )
+  ).data;
+
+  source.policy = mergePolicy(parsePolicy(decode(file.content)), local);
+  source.policyEvidence = `https://github.com/${shared.owner}/${shared.repo}/blob/${shared.ref}/${shared.path}`;
 }
 
 export async function collectStandards(
@@ -142,55 +204,8 @@ export async function collectStandards(
       source.policyState = "pass";
 
       if (local.extends) {
-        const shared = local.extends;
-
         try {
-          const sharedRepo = (
-            await octokitGet(
-              client,
-              "GET /repos/{owner}/{repo}",
-              { owner: shared.owner, repo: shared.repo },
-              GitHubRepositorySchema,
-            )
-          ).data;
-
-          if (sharedRepo.private) throw new PrivateRepositoryError(shared);
-
-          const sharedTree = (
-            await octokitGet(
-              client,
-              "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
-              {
-                owner: shared.owner,
-                repo: shared.repo,
-                tree_sha: shared.ref,
-                recursive: "1",
-              },
-              TreeSchema,
-            )
-          ).data;
-
-          const entry = sharedTree.tree.find(
-            (item) =>
-              item.path === shared.path &&
-              item.type === "blob" &&
-              item.mode !== "120000",
-          );
-
-          if (!entry || (entry.size ?? 0) > 128_000)
-            throw new Error("Shared policy unavailable");
-
-          const file = (
-            await octokitGet(
-              client,
-              "GET /repos/{owner}/{repo}/git/blobs/{file_sha}",
-              { owner: shared.owner, repo: shared.repo, file_sha: entry.sha },
-              BlobSchema,
-            )
-          ).data;
-
-          source.policy = mergePolicy(parsePolicy(decode(file.content)), local);
-          source.policyEvidence = `https://github.com/${shared.owner}/${shared.repo}/blob/${shared.ref}/${shared.path}`;
+          await loadSharedPolicy(client, local.extends, coordinates, local, source);
         } catch (error) {
           if (
             error instanceof PrivateRepositoryError ||
@@ -205,7 +220,7 @@ export async function collectStandards(
 
   const candidates = entries
     .filter((entry) => selected(entry.path))
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .toSorted((a, b) => a.path.localeCompare(b.path));
 
   // Bound decoded input to 2 MB and 80 requests, with at most four in flight.
   let bytes = 0;

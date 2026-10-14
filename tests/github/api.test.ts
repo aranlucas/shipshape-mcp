@@ -21,8 +21,8 @@ describe("GitHub API boundaries", () => {
     ).toEqual({ owner: "octo", repo: "demo.js" });
     expect(() =>
       RepositoryCoordinatesSchema.parse({ owner: "../octo", repo: "demo" }),
-    ).toThrow();
-    expect(() => GitHubRefInputSchema.parse("feature/../main")).toThrow();
+    ).toThrow(/Invalid|valid/);
+    expect(() => GitHubRefInputSchema.parse("feature/../main")).toThrow(/Invalid|valid/);
   });
 
   it("turns invalid GitHub payloads into a boundary error", async () => {

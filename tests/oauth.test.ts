@@ -309,7 +309,7 @@ describe("OAuth proxy flow", () => {
     let fetchSignal: AbortSignal | undefined;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
         fetchSignal = init?.signal ?? undefined;
 
         return new Response("ok");

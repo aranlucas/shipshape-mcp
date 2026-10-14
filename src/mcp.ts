@@ -128,7 +128,7 @@ export function createPortfolioServer(
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, limit, includeForks, includeArchived }) =>
+    ({ owner, limit, includeForks, includeArchived }) =>
       safely(() =>
         collectPortfolioReport(githubClient(), owner, {
           limit,
@@ -147,7 +147,7 @@ export function createPortfolioServer(
       inputSchema: CoordinatesSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async (repository) =>
+    (repository) =>
       safely(async () => {
         const readiness = await collectRepositoryReadiness(
           githubClient(),
@@ -179,7 +179,7 @@ export function createPortfolioServer(
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, repo, branch }) =>
+    ({ owner, repo, branch }) =>
       safely(async () => {
         const risk = await collectBranchRisk(
           githubClient(),
@@ -209,7 +209,7 @@ export function createPortfolioServer(
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, repo, branch, recentDays }) =>
+    ({ owner, repo, branch, recentDays }) =>
       safely(async () => {
         const delivery = await collectDeliveryHygiene(
           githubClient(),
@@ -243,7 +243,7 @@ export function createPortfolioServer(
       inputSchema: CoordinatesSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async (repository) =>
+    (repository) =>
       safely(async () => {
         const client = githubClient();
         const fact = await collectPublicRepository(client, repository);
@@ -273,7 +273,7 @@ export function createPortfolioServer(
       inputSchema: CoordinatesSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async (repository) =>
+    (repository) =>
       safely(async () => ({
         ...(await collectStandards(githubClient(), repository)),
       })),
@@ -309,7 +309,7 @@ export function createPortfolioServer(
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, rules, policy, page, limit }) =>
+    ({ owner, rules, policy, page, limit }) =>
       safely(async () => {
         if ((rules === undefined) === (policy === undefined))
           throw new GitHubInputError("Provide exactly one of rules or policy.");
@@ -344,7 +344,7 @@ export function createPortfolioServer(
       }),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ owner, repo, limit }) =>
+    ({ owner, repo, limit }) =>
       safely(async () => {
         const client = githubClient();
         const repository = { owner, repo };

@@ -8,7 +8,7 @@ import { fullRoute, jsonResponse, repository } from "./helpers/github-fixtures";
 const cleanup: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
-  for (const close of cleanup.splice(0)) await close();
+  await Promise.all(cleanup.splice(0).map((close) => close()));
 });
 
 async function connect(
@@ -89,7 +89,7 @@ describe("real MCP SDK integration", () => {
   it("exposes exactly eight read-only tools and enforces their input schemas", async () => {
     const { client, calls } = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual([
+    expect(tools.map((tool) => tool.name).toSorted()).toEqual([
       "action_plan",
       "branch_risk",
       "delivery_hygiene",

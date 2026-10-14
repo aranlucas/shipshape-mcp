@@ -483,7 +483,7 @@ export async function collectDeliveryHygiene(
           commit.commit.author?.date ?? commit.commit.committer?.date ?? null,
       )
       .filter((date): date is string => date !== null)
-      .sort()
+      .toSorted()
       .at(-1) ?? null;
 
   const latestRun = runItems[0];

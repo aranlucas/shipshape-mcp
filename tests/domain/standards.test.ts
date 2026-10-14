@@ -210,7 +210,7 @@ describe("shared policy boundary", () => {
       "baseline: shipshape/recommended@1\npackages:\n - path: .\n   commands: {}\n - path: .\n   commands: {}",
       "baseline: shipshape/recommended@1\nextends: {owner: octo, repo: demo, ref: main, path: policy.yml}",
     ])
-      expect(() => parsePolicy(text)).toThrow();
+      expect(() => parsePolicy(text)).toThrow("Invalid .shipshape.yml");
   });
   it("merges commands and exceptions by exact package/rule identity", () => {
     const shared = policy();

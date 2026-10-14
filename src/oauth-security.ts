@@ -4,6 +4,11 @@ import type {
 } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 
+interface CookieOptions {
+  maxAge?: number;
+  sameSite?: "Strict" | "Lax" | "None";
+}
+
 export const BROWSER_COOKIE_NAME = "__Host-shipshape-browser";
 
 export const CSRF_COOKIE_NAME = "__Host-shipshape-csrf";
@@ -24,7 +29,7 @@ const safeClientStringSchema = z
   .string()
   .min(1)
   .max(2_048)
-  .refine((value) => !/[\u0000-\u001f\u007f]/.test(value));
+  .refine((value) => !/[\u0000-\u001F\u007F]/.test(value));
 
 const safeScopeSchema = z
   .string()
@@ -255,7 +260,7 @@ export function approvalMatches(
 }
 
 export function canonicalScope(scope: readonly string[]): string {
-  return [...new Set(scope)].sort().join(" ");
+  return [...new Set(scope)].toSorted().join(" ");
 }
 
 export function getCookie(request: Request, name: string): string | null {
@@ -286,7 +291,7 @@ export function appendSetCookie(headers: Headers, cookie: string): void {
 export function makeCookie(
   name: string,
   value: string,
-  options: { maxAge?: number; sameSite?: "Strict" | "Lax" | "None" } = {},
+  options: CookieOptions = {},
 ): string {
   const attributes = [
     "Path=/",
@@ -312,7 +317,7 @@ export function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#x27;")
-    .replace(/[\u0000-\u001f\u007f]/g, "");
+    .replaceAll(/[\u0000-\u001F\u007F]/g, "");
 }
 
 export function safeHttpUrl(
@@ -430,7 +435,7 @@ function sanitizeText(
   if (!text.success) return fallback;
 
   const withoutControls = text.data
-    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replaceAll(/[\u0000-\u001F\u007F]/g, "")
     .trim();
 
   return withoutControls.length > 0
@@ -461,7 +466,7 @@ function isSafeClientString(value: string): boolean {
   return (
     value.length > 0 &&
     value.length <= 2_048 &&
-    !/[\u0000-\u001f\u007f]/.test(value)
+    !/[\u0000-\u001F\u007F]/.test(value)
   );
 }
 
@@ -536,7 +541,7 @@ async function verify(
   }
 }
 
-async function signingKey(
+function signingKey(
   secret: string,
   usages: KeyUsage[],
 ): Promise<CryptoKey> {

@@ -131,7 +131,7 @@ export function clientFor(route: Route) {
   const calls: URL[] = [];
 
   const fetcher = vi.fn(
-    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    (input: RequestInfo | URL, init?: RequestInit): Response => {
       const url = new URL(String(input));
       calls.push(url);
       const response = route(url, init);

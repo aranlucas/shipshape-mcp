@@ -1,5 +1,11 @@
 import { ruleSelects, type DriftPolicy, type DriftRule } from "./policy";
 
+interface DriftRepositoryInfo {
+  name: string;
+  fork: boolean;
+  archived: boolean;
+}
+
 /**
  * Repository-level settings that one `PATCH /repos/{owner}/{repo}` can set.
  * Identifiers are API: they appear in tool output and in policy files.
@@ -310,7 +316,7 @@ type Expectation =
 /** The branches a policy needs protection evidence for, per repository. */
 export function protectedBranchesFor(
   policy: DriftPolicy,
-  repository: { name: string; fork: boolean; archived: boolean },
+  repository: DriftRepositoryInfo,
   defaultBranch: string,
 ): string[] {
   const branches = new Set<string>();
@@ -319,7 +325,7 @@ export function protectedBranchesFor(
     if (rule.branchProtection && ruleSelects(rule, repository))
       branches.add(rule.branchProtection.branch ?? defaultBranch);
 
-  return [...branches].sort();
+  return [...branches].toSorted();
 }
 
 function expectations(rule: DriftRule, defaultBranch: string): Expectation[] {
@@ -623,7 +629,7 @@ function branchOf(expectation: Expectation): string | null {
 
 /** Single-quote a word for POSIX shells. */
 function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
+  return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 function step(
@@ -892,8 +898,8 @@ export function evaluateRepositoryDrift(
   const remediation: RemediationStep[] = [];
   const manual: ManualStep[] = [];
   const repositoryPath = `/repos/${facts.owner}/${facts.repo}`;
-  const patch: { [key: string]: RemediationBody } = {};
-  const security: { [key: string]: RemediationBody } = {};
+  const patch: Record<string, RemediationBody> = {};
+  const security: Record<string, RemediationBody> = {};
   const patched: string[] = [];
 
   for (const [index, expectation] of all.entries()) {

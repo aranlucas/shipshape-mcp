@@ -49,6 +49,11 @@ const GENERIC_UPSTREAM_ERROR =
 
 const MAX_UPSTREAM_BODY_LENGTH = 32_000;
 
+interface GitHubLoginResult {
+  accessToken: string;
+  login: string;
+}
+
 const MAX_OAUTH_VALUE_LENGTH = 4_096;
 
 const UPSTREAM_TIMEOUT_MS = 8_000;
@@ -649,13 +654,16 @@ async function responseBodyExceedsLimit(response: Response): Promise<boolean> {
     let bytesRead = 0;
 
     while (true) {
+      // eslint-disable-next-line no-await-in-loop -- streaming requires sequential reads
       const { done, value } = await reader.read();
 
       if (done) return false;
       bytesRead += value.byteLength;
 
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
+        // eslint-disable-next-line no-await-in-loop -- cleanup requires sequential awaits
         await reader.cancel();
+        // eslint-disable-next-line no-await-in-loop -- cleanup requires sequential awaits
         await response.body.cancel();
 
         return true;
@@ -691,12 +699,14 @@ async function readJson(
     let body = "";
 
     while (true) {
+      // eslint-disable-next-line no-await-in-loop -- streaming requires sequential reads
       const { done, value } = await reader.read();
 
       if (done) break;
       bytesRead += value.byteLength;
 
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
+        // eslint-disable-next-line no-await-in-loop -- cleanup requires sequential awaits
         await reader.cancel();
 
         return null;
@@ -770,7 +780,7 @@ export async function completeGitHubLogin(
   request: Request,
   env: OAuthEnv,
   callbackPath: string,
-): Promise<{ accessToken: string; login: string } | null> {
+): Promise<GitHubLoginResult | null> {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
 
@@ -948,6 +958,6 @@ function isSafeUpstreamValue(value: string): boolean {
   return (
     value.length > 0 &&
     value.length <= MAX_OAUTH_VALUE_LENGTH &&
-    !/[\u0000-\u001f\u007f]/.test(value)
+    !/[\u0000-\u001F\u007F]/.test(value)
   );
 }

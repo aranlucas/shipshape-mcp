@@ -204,7 +204,7 @@ describe("website companion", () => {
 
     vi.stubGlobal(
       "fetch",
-      async (input: RequestInfo | URL, init?: RequestInit) => {
+      (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input));
         authorizations.push(
           new Headers(init?.headers).get("authorization") ?? "",
@@ -300,6 +300,7 @@ describe("website companion", () => {
     const script = await response.text();
 
     // Parsing (not running) the script catches template-string escaping mistakes.
+    // eslint-disable-next-line no-new-func
     expect(() => new Function(script)).not.toThrow();
     expect(script).toContain("textContent");
     expect(script).not.toContain("innerHTML");

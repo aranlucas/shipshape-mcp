@@ -18,18 +18,18 @@ const repository = {
   fork: false,
 };
 
-function client(
-  options: {
-    private?: boolean;
-    truncated?: boolean;
-    treeError?: boolean;
-    blobError?: boolean;
-    config?: string;
-    sharedPrivate?: boolean;
-    sharedSymlink?: boolean;
-  } = {},
-) {
-  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+interface ClientOptions {
+  private?: boolean;
+  truncated?: boolean;
+  treeError?: boolean;
+  blobError?: boolean;
+  config?: string;
+  sharedPrivate?: boolean;
+  sharedSymlink?: boolean;
+}
+
+function client(options: ClientOptions = {}) {
+  const fetch = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(String(input));
     let data: ConfigValue = {};
     let status = 200;

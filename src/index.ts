@@ -29,13 +29,17 @@ const apiHandler = createMcpHandler(() => createPortfolioServer(githubClient), {
   legacy: "stateless",
 });
 
-const protectedHandler = {
+interface ProtectedHandler {
+  fetch(request: Request, env: OAuthEnv, ctx: ExecutionContext): Promise<Response>;
+}
+
+const protectedHandler: ProtectedHandler = {
   fetch(request, env, ctx) {
     return apiHandler(request, env, ctx);
   },
-} satisfies { fetch: ExportedHandlerFetchHandler<OAuthEnv> };
+};
 
-export default new OAuthProvider<OAuthEnv>({
+const provider = new OAuthProvider<OAuthEnv>({
   apiRoute: "/mcp",
   apiHandler: protectedHandler,
   defaultHandler,
@@ -54,3 +58,5 @@ export default new OAuthProvider<OAuthEnv>({
   },
   clientIdMetadataDocumentEnabled: true,
 });
+
+export default provider;

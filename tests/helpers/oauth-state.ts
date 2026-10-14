@@ -1,13 +1,22 @@
 import type { OAuthStateStore } from "../../src/oauth-security";
 
+interface MemoryKvEntry {
+  value: string;
+  expiresAt?: number;
+}
+
+interface MemoryKvPutOptions {
+  expirationTtl?: number;
+}
+
 export function memoryKv(): OAuthStateStore {
-  const values = new Map<string, { value: string; expiresAt?: number }>();
+  const values = new Map<string, MemoryKvEntry>();
 
   return {
-    async delete(key) {
+    async delete(key: string) {
       values.delete(key);
     },
-    async get(key) {
+    async get(key: string) {
       const entry = values.get(key);
 
       if (
@@ -18,7 +27,7 @@ export function memoryKv(): OAuthStateStore {
 
       return entry.value;
     },
-    async put(key, value, options) {
+    async put(key: string, value: string, options?: MemoryKvPutOptions) {
       const expiresAt =
         options?.expirationTtl === undefined
           ? undefined

@@ -508,7 +508,7 @@ export const dedupeEvidence = (
   }
 
   return [...byUrl.values()]
-    .sort((left, right) => compareStrings(left.url, right.url))
+    .toSorted((left, right) => compareStrings(left.url, right.url))
     .slice(0, MAX_EVIDENCE);
 };
 

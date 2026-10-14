@@ -3,11 +3,17 @@ import { buildActionPlan, scoreChecks } from "../domain/scoring";
 import type { GitHubOctokit } from "./client";
 import { collectPortfolioSnapshot } from "./collectors";
 
+interface PortfolioReportOptions {
+  limit: number;
+  includeForks: boolean;
+  includeArchived: boolean;
+}
+
 /** Bounded portfolio selection, evidence and ranking shared by tool callers. */
 export async function collectPortfolioReport(
   client: GitHubOctokit,
   owner: string,
-  options: { limit: number; includeForks: boolean; includeArchived: boolean },
+  options: PortfolioReportOptions,
 ) {
   const snapshot = await collectPortfolioSnapshot(client, owner, {
     ...options,

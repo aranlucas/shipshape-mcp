@@ -17,6 +17,10 @@ import {
   type StateCounts,
 } from "./types";
 
+interface ActionableCheck extends CheckResult {
+  state: "fail" | "unknown";
+}
+
 const CATEGORY_ORDER = new Map<RuleCategory, number>(
   RULE_CATEGORIES.map((category, index) => [category, index]),
 );
@@ -231,7 +235,7 @@ export const normalizeChecks = (
     );
   }
 
-  return [...byRuleId.values()].sort(compareChecks);
+  return [...byRuleId.values()].toSorted(compareChecks);
 };
 
 const rollupFor = (
@@ -350,10 +354,10 @@ export const buildActionPlan = (
 
   const actionable = normalized
     .filter(
-      (check): check is CheckResult & { state: "fail" | "unknown" } =>
+      (check): check is ActionableCheck =>
         check.state === "fail" || check.state === "unknown",
     )
-    .sort(compareActions);
+    .toSorted(compareActions);
 
   const limit = maxActionCount(options?.maxItems);
 

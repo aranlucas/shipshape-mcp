@@ -57,7 +57,22 @@ export const PolicySourceSchema = RepositoryCoordinatesSchema.extend({
   path: FilePathSchema.describe("Repository-relative YAML policy path"),
 }).strict();
 
-export type PolicySource = z.infer<typeof PolicySourceSchema>;
+export interface PolicySource {
+  owner: string;
+  repo: string;
+  ref: string;
+  path: string;
+}
+
+interface PinnedPolicyResult {
+  policy: DriftPolicy;
+  url: string;
+}
+
+type RepositoryDriftResult =
+  | RepositoryDrift
+  | { repository: string; url: string; error: string }
+  | null;
 
 const errorStatus = (cause: unknown) =>
   z.object({ status: z.number() }).safeParse(cause).data?.status;
@@ -264,6 +279,7 @@ async function collectActiveRuleset(
 
   while (true) {
     try {
+      // eslint-disable-next-line no-await-in-loop -- pagination requires sequential requests
       const response = await get(
         "GET /repos/{owner}/{repo}/rulesets",
         { ...coordinates, includes_parents: true, per_page: 100, page },
@@ -292,7 +308,7 @@ async function collectActiveRuleset(
 export async function readPinnedPolicy(
   client: GitHubOctokit,
   source: PolicySource,
-): Promise<{ policy: DriftPolicy; url: string }> {
+): Promise<PinnedPolicyResult> {
   const coordinates = { owner: source.owner, repo: source.repo };
 
   const repo = (
@@ -535,9 +551,9 @@ async function collectRepository(
   };
 
   if (tree) {
-    const paths = tree.tree
+    const paths = new Set(tree.tree
       .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
-      .map((entry) => entry.path.toLowerCase());
+      .map((entry) => entry.path.toLowerCase()));
 
     for (const definition of REPOSITORY_FILE_SETTINGS) {
       if (
@@ -548,7 +564,7 @@ async function collectRepository(
         continue;
 
       const present = REPOSITORY_FILE_PATHS[definition.key].some((candidate) =>
-        paths.includes(candidate),
+        paths.has(candidate),
       );
 
       repositoryFiles[definition.id] = present
@@ -716,10 +732,7 @@ export async function collectSettingsDrift(
 
   const results = await Promise.all(
     selected.map(async (repository) => {
-      let result:
-        | RepositoryDrift
-        | { repository: string; url: string; error: string }
-        | null = null;
+      let result: RepositoryDriftResult = null;
 
       try {
         const coordinates = RepositoryCoordinatesSchema.parse({

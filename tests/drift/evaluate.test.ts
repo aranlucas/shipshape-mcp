@@ -349,7 +349,7 @@ describe("settings drift evaluation", () => {
     );
 
     expect(drift?.remediation[0]?.command).toBe(
-      "gh api --method DELETE 'repos/octo/svc-api/branches/it'\\''s/protection/required_signatures'",
+      String.raw`gh api --method DELETE 'repos/octo/svc-api/branches/it'\''s/protection/required_signatures'`,
     );
   });
 });

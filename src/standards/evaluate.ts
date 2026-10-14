@@ -3,6 +3,7 @@ import {
   ConfigObjectSchema,
   configObject as object,
   type ConfigDocument,
+  type ConfigValue,
 } from "./config-value";
 import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { makeCheck } from "../domain/rules";
@@ -44,9 +45,69 @@ function json(text: string | null | undefined): ConfigDocument | null {
     : (ConfigObjectSchema.safeParse(value).data ?? {});
 }
 
+function processStep(
+  step: unknown,
+  job: Record<string, unknown>,
+  workflow: unknown,
+  path: string,
+  commands: Commands,
+  scripts: ConfigDocument,
+  invoked: Set<string>,
+): void {
+  const s = object(step as ConfigValue | undefined);
+
+  if (
+    s.if !== undefined ||
+    s["continue-on-error"] ||
+    !z.string().safeParse(s.run).success
+  )
+    return;
+
+  const run = z.string().parse(s.run);
+
+  const working =
+    s["working-directory"] ??
+    object((object(job.defaults as ConfigValue | undefined) as ConfigDocument).run as ConfigValue | undefined)["working-directory"] ??
+    object((object(workflow as ConfigValue | undefined) as ConfigDocument).defaults as ConfigValue | undefined)["working-directory"] ??
+    ".";
+
+  if (working !== path) return;
+
+  // Only standalone or &&-joined commands are recognized. Shell wrappers stay unknown.
+  if (
+    /(?:^|\n)\s*(?:if|for|while|case|until|exit|cd|set)\b|[|;`$]/.test(run)
+  )
+    return;
+  const lines = run.split(/\n|&&/).map((line) => line.trim());
+  const expanded = new Set(lines);
+
+  const visit = (line: string, seen = new Set<string>()) => {
+    const match = /^(npm run|pnpm(?: run)?|yarn(?: run)?) ([\w:-]+)$/.exec(line);
+
+    if (!match || seen.has(match[2]) || seen.size >= 32) return;
+    const key = match[2];
+    seen.add(key);
+    expanded.add(`npm run ${key}`);
+    const script = z.string().safeParse(scripts[key]).data;
+
+    if (script !== undefined)
+      for (const sub of script
+        .split("&&")
+        .map((part) => part.trim())) {
+        expanded.add(sub);
+        visit(sub, seen);
+      }
+  };
+
+  for (const line of lines) visit(line);
+
+  for (const [gate, command] of Object.entries(commands))
+    if (expanded.has(command)) invoked.add(gate);
+}
+
 export function evaluateStandards(source: StandardsSource) {
   const { files, policy } = source;
-  const paths = Object.keys(files).sort();
+  const paths = Object.keys(files).toSorted();
 
   const directories = [
     ...new Set(
@@ -94,7 +155,7 @@ export function evaluateStandards(source: StandardsSource) {
     !source.complete || workflows.some(({ value }) => value === null);
 
   const packages = directories
-    .sort()
+    .toSorted()
     .slice(0, 20)
     .map((path) => {
       const manifestPath = join(path, "package.json");
@@ -190,8 +251,8 @@ export function evaluateStandards(source: StandardsSource) {
 
       const ancestors = [path];
 
-      while (ancestors[ancestors.length - 1] !== ".") {
-        const last = ancestors[ancestors.length - 1]!;
+      while (ancestors.at(-1) !== ".") {
+        const last = ancestors.at(-1)!;
         ancestors.push(
           last.includes("/") ? last.slice(0, last.lastIndexOf("/")) : ".",
         );
@@ -285,60 +346,7 @@ export function evaluateStandards(source: StandardsSource) {
           const steps = Array.isArray(j.steps) ? j.steps : [];
 
           for (const step of steps) {
-            const s = object(step);
-
-            if (
-              s.if !== undefined ||
-              s["continue-on-error"] ||
-              !z.string().safeParse(s.run).success
-            )
-              continue;
-
-            const run = z.string().parse(s.run);
-
-            const working =
-              s["working-directory"] ??
-              object(object(j.defaults).run)["working-directory"] ??
-              object(object(workflow.value?.defaults).run)[
-                "working-directory"
-              ] ??
-              ".";
-
-            if (working !== path) continue;
-
-            // Only standalone or &&-joined commands are recognized. Shell wrappers stay unknown.
-            if (
-              /(?:^|\n)\s*(?:if|for|while|case|until|exit|cd|set)\b|[|;`$]/.test(
-                run,
-              )
-            )
-              continue;
-            const lines = run.split(/\n|&&/).map((line) => line.trim());
-            const expanded = new Set(lines);
-
-            const visit = (line: string, seen = new Set<string>()) => {
-              const match =
-                /^(npm run|pnpm(?: run)?|yarn(?: run)?) ([\w:-]+)$/.exec(line);
-
-              if (!match || seen.has(match[2]!) || seen.size >= 32) return;
-              const key = match[2]!;
-              seen.add(key);
-              expanded.add(`npm run ${key}`);
-              const script = z.string().safeParse(scripts[key]).data;
-
-              if (script !== undefined)
-                for (const sub of script
-                  .split("&&")
-                  .map((part) => part.trim())) {
-                  expanded.add(sub);
-                  visit(sub, seen);
-                }
-            };
-
-            for (const line of lines) visit(line);
-
-            for (const [gate, command] of Object.entries(commands))
-              if (expanded.has(command)) invoked.add(gate);
+            processStep(step, j, workflow.value, path, commands, scripts, invoked);
           }
         }
       }

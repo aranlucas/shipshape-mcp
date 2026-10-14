@@ -9,6 +9,11 @@ import {
   type OAuthStateStore,
 } from "../oauth-security";
 
+interface LoginStateResult {
+  state: string;
+  browser: string;
+}
+
 export const SESSION_COOKIE_NAME = "__Host-shipshape-session";
 
 export const LOGIN_COOKIE_NAME = "__Host-shipshape-web-login";
@@ -54,7 +59,7 @@ function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-async function digest(label: string, secret: string) {
+function digest(label: string, secret: string) {
   return crypto.subtle.digest("SHA-256", encoder.encode(`${label}:${secret}`));
 }
 
@@ -152,7 +157,7 @@ export async function deleteSession(
 /** One-time login state, bound to a browser cookie to stop login CSRF. */
 export async function createLoginState(
   kv: OAuthStateStore,
-): Promise<{ state: string; browser: string }> {
+): Promise<LoginStateResult> {
   const state = WEB_LOGIN_STATE_PREFIX + randomToken(32);
   const browser = randomToken(32);
 

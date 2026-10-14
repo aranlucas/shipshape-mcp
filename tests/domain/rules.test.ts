@@ -153,7 +153,7 @@ describe("evidence normalization", () => {
         detail: "The first detail",
       },
     ]);
-    expect(dedupeEvidence([...input].reverse())).toEqual(dedupeEvidence(input));
+    expect(dedupeEvidence([...input].toReversed())).toEqual(dedupeEvidence(input));
   });
 
   it("uses the URL when a label is blank, trims long fields, and caps evidence", () => {

@@ -44,7 +44,7 @@ describe("public landing handlers", () => {
     );
   });
 
-  it("returns a hardened 404 and rejects non-GET landing requests", async () => {
+  it("returns a hardened 404 and rejects non-GET landing requests", () => {
     const missing = landingHandler(
       new Request("https://shipshape.example/nope"),
     );
