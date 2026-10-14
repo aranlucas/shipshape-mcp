@@ -3,11 +3,7 @@ import { GITHUB_SCOPE } from "../config";
 import { collectSettingsDrift } from "../drift/collect";
 import { SETTINGS_DRIFT_PAGE_SIZE } from "../drift/limits";
 import { parseDriftPolicy } from "../drift/policy";
-import {
-  GitHubInputError,
-  PrivateRepositoryError,
-  createGitHubOctokit,
-} from "../github/client";
+import { GitHubInputError, PrivateRepositoryError, createGitHubOctokit } from "../github/client";
 import { GitHubOwnerInputSchema } from "../github/schemas";
 import { ConfigValueSchema, type ConfigValue } from "../standards/config-value";
 import { methodNotAllowed, notFoundResponse } from "../landing";
@@ -18,12 +14,7 @@ import {
   makeCookie,
   securityHeaders,
 } from "../oauth-security";
-import {
-  CALLBACK_PATH,
-  callbackUrl,
-  completeGitHubLogin,
-  type OAuthEnv,
-} from "../oauth";
+import { CALLBACK_PATH, callbackUrl, completeGitHubLogin, type OAuthEnv } from "../oauth";
 import { APP_SCRIPT } from "./script";
 import { renderAppPage, renderSignInPage } from "./page";
 import {
@@ -70,21 +61,14 @@ const DriftRequestSchema = z
   })
   .strict();
 
-const RulesRequestSchema = z
-  .object({ policy: z.string().min(1).max(MAX_POLICY_LENGTH) })
-  .strict();
+const RulesRequestSchema = z.object({ policy: z.string().min(1).max(MAX_POLICY_LENGTH) }).strict();
 
-export function isWebPath(
-  pathname: string,
-  state: string | null = null,
-): boolean {
+export function isWebPath(pathname: string, state: string | null = null): boolean {
   return (
     pathname === APP_PATH ||
     pathname.startsWith(`${APP_PATH}/`) ||
     pathname === LEGACY_WEB_CALLBACK_PATH ||
-    (pathname === WEB_CALLBACK_PATH &&
-      state !== null &&
-      state.startsWith(WEB_LOGIN_STATE_PREFIX))
+    (pathname === WEB_CALLBACK_PATH && state?.startsWith(WEB_LOGIN_STATE_PREFIX) === true)
   );
 }
 
@@ -142,11 +126,7 @@ function sameOrigin(request: Request, env: OAuthEnv): boolean {
 }
 
 async function readJson(request: Request): Promise<ConfigValue> {
-  if (
-    !(request.headers.get("Content-Type") ?? "")
-      .toLowerCase()
-      .startsWith("application/json")
-  )
+  if (!(request.headers.get("Content-Type") ?? "").toLowerCase().startsWith("application/json"))
     throw new GitHubInputError("Send a JSON request body.");
 
   const text = await request.text();
@@ -164,8 +144,7 @@ async function readJson(request: Request): Promise<ConfigValue> {
 function errorMessage(cause: unknown) {
   const status = z.object({ status: z.number() }).safeParse(cause).data?.status;
 
-  if (cause instanceof GitHubInputError)
-    return { status: 400, message: cause.message };
+  if (cause instanceof GitHubInputError) return { status: 400, message: cause.message };
 
   if (cause instanceof z.ZodError)
     return {
@@ -185,8 +164,7 @@ function errorMessage(cause: unknown) {
       message: "Your GitHub session expired. Sign in again.",
     };
 
-  if (status === 404)
-    return { status: 404, message: "That GitHub owner was not found." };
+  if (status === 404) return { status: 404, message: "That GitHub owner was not found." };
 
   if (status === 403)
     return {
@@ -238,15 +216,11 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
     getCookie(request, LOGIN_COOKIE_NAME),
   );
 
-  const login = valid
-    ? await completeGitHubLogin(request, env, url.pathname)
-    : null;
+  const login = valid ? await completeGitHubLogin(request, env, url.pathname) : null;
 
   if (!login) {
     const response = html(
-      renderSignInPage(
-        "GitHub sign-in could not be completed. Please try again.",
-      ),
+      renderSignInPage("GitHub sign-in could not be completed. Please try again."),
       400,
     );
 
@@ -267,10 +241,7 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
   return response;
 }
 
-async function driftApi(
-  request: Request,
-  session: WebSession,
-): Promise<Response> {
+async function driftApi(request: Request, session: WebSession): Promise<Response> {
   const input = DriftRequestSchema.parse(await readJson(request));
   const policy = parseDriftPolicy(input.policy);
   const client = createGitHubOctokit(session.accessToken);
@@ -308,11 +279,7 @@ async function driftApi(
             ),
         })
           .then((report) =>
-            send(
-              ConfigValueSchema.parse(
-                JSON.parse(JSON.stringify({ type: "complete", report })),
-              ),
-            ),
+            send(ConfigValueSchema.parse(JSON.parse(JSON.stringify({ type: "complete", report })))),
           )
           .catch((error) => {
             const { message } = errorMessage(error);
@@ -334,23 +301,13 @@ async function driftApi(
     return new Response(stream, { headers });
   }
 
-  const report = await collectSettingsDrift(
-    client,
-    input.owner,
-    policy,
-    options,
-  );
+  const report = await collectSettingsDrift(client, input.owner, policy, options);
 
   return json(ConfigValueSchema.parse(JSON.parse(JSON.stringify(report))));
 }
 
-async function rulesApi(
-  request: Request,
-  env: OAuthEnv,
-  session: WebSession,
-): Promise<Response> {
-  if (request.method === "GET")
-    return json({ policy: await env.OAUTH_KV.get(rulesKey(session)) });
+async function rulesApi(request: Request, env: OAuthEnv, session: WebSession): Promise<Response> {
+  if (request.method === "GET") return json({ policy: await env.OAUTH_KV.get(rulesKey(session)) });
 
   const { policy } = RulesRequestSchema.parse(await readJson(request));
   parseDriftPolicy(policy);
@@ -359,10 +316,7 @@ async function rulesApi(
   return json({ saved: true });
 }
 
-export async function webHandler(
-  request: Request,
-  env: OAuthEnv,
-): Promise<Response> {
+export async function webHandler(request: Request, env: OAuthEnv): Promise<Response> {
   const { pathname } = new URL(request.url);
 
   if (pathname === APP_SCRIPT_PATH) {
@@ -395,8 +349,7 @@ export async function webHandler(
   if (pathname === "/app/logout") {
     if (request.method !== "POST") return methodNotAllowed("POST");
 
-    if (!sameOrigin(request, env))
-      return jsonError(403, "Cross-origin request refused.");
+    if (!sameOrigin(request, env)) return jsonError(403, "Cross-origin request refused.");
     await deleteSession(env.OAUTH_KV, request);
     const response = redirect(APP_PATH, 303);
     appendSetCookie(response.headers, clearCookie(SESSION_COOKIE_NAME));
@@ -405,18 +358,13 @@ export async function webHandler(
   }
 
   const api =
-    pathname === "/app/api/drift"
-      ? "drift"
-      : pathname === "/app/api/rules"
-        ? "rules"
-        : null;
+    pathname === "/app/api/drift" ? "drift" : pathname === "/app/api/rules" ? "rules" : null;
 
   if (!api) return notFoundResponse();
 
   const allowed = api === "drift" ? ["POST"] : ["GET", "PUT"];
 
-  if (!allowed.includes(request.method))
-    return methodNotAllowed(allowed.join(", "));
+  if (!allowed.includes(request.method)) return methodNotAllowed(allowed.join(", "));
 
   if (request.method !== "GET" && !sameOrigin(request, env))
     return jsonError(403, "Cross-origin request refused.");

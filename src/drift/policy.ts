@@ -14,9 +14,7 @@ const GlobSchema = z
   .max(100)
   .regex(/^[A-Za-z0-9._*?-]+$/u, "Use a repository-name glob with * and ?");
 
-const TopicSchema = z
-  .string()
-  .regex(/^[a-z0-9][a-z0-9-]{0,49}$/u, "Use a lowercase GitHub topic");
+const TopicSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,49}$/u, "Use a lowercase GitHub topic");
 
 const StatusCheckSchema = z.string().trim().min(1).max(255);
 
@@ -94,9 +92,7 @@ export const BranchProtectionSettingsSchema = z
 
 export const DriftRuleSchema = z
   .object({
-    id: z
-      .string()
-      .regex(/^[a-z0-9][a-z0-9-]{0,63}$/u, "Use a lowercase kebab-case id"),
+    id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u, "Use a lowercase kebab-case id"),
     description: z.string().trim().min(1).max(300).optional(),
     repositories: z
       .object({
@@ -135,15 +131,10 @@ export const DriftRuleSchema = z
     ].some(
       (section) =>
         section !== undefined &&
-        Object.entries(section).some(
-          ([key, value]) => key !== "branch" && value !== undefined,
-        ),
+        Object.entries(section).some(([key, value]) => key !== "branch" && value !== undefined),
     );
 
-    const topics =
-      (rule.topics?.required.length ?? 0) +
-        (rule.topics?.forbidden.length ?? 0) >
-      0;
+    const topics = (rule.topics?.required.length ?? 0) + (rule.topics?.forbidden.length ?? 0) > 0;
 
     if (!declared && !topics)
       context.addIssue({
@@ -181,8 +172,7 @@ export function parseDriftPolicy(text: string): DriftPolicy {
   try {
     return DriftPolicySchema.parse(parseYaml(text));
   } catch (error) {
-    const issue =
-      error instanceof z.ZodError ? error.issues[0]?.message : undefined;
+    const issue = error instanceof z.ZodError ? error.issues[0]?.message : undefined;
 
     throw new GitHubInputError(
       `Invalid settings policy${issue ? `: ${issue}` : ""}. Use version: 1 and uniquely named rules that each declare at least one setting.`,
@@ -225,10 +215,7 @@ export interface RepositorySelectionFacts {
   readonly archived: boolean;
 }
 
-export function ruleSelects(
-  rule: DriftRule,
-  repository: RepositorySelectionFacts,
-): boolean {
+export function ruleSelects(rule: DriftRule, repository: RepositorySelectionFacts): boolean {
   const scope = rule.repositories;
 
   if (repository.fork && !scope.forks) return false;

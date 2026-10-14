@@ -169,9 +169,7 @@ describe("normalizeChecks", () => {
         remediation: expect.stringContaining("README"),
       },
     ]);
-    expect(normalizeChecks([spoofedFail, pass])).toEqual(
-      normalizeChecks([pass, spoofedFail]),
-    );
+    expect(normalizeChecks([spoofedFail, pass])).toEqual(normalizeChecks([pass, spoofedFail]));
   });
 
   it("prefers unknown over pass and stronger confidence on state ties", () => {
@@ -249,11 +247,9 @@ describe("buildActionPlan", () => {
     ]);
     expect(plan.items.map((item) => item.rank)).toEqual([1, 2, 3, 4, 5]);
     expect(plan.omittedCount).toBe(0);
-    expect(
-      plan.items.every(
-        (item) => item.state === "fail" || item.state === "unknown",
-      ),
-    ).toBe(true);
+    expect(plan.items.every((item) => item.state === "fail" || item.state === "unknown")).toBe(
+      true,
+    );
   });
 
   it("caps results, supports zero, and reports omitted work", () => {
@@ -269,9 +265,9 @@ describe("buildActionPlan", () => {
       items: [],
       omittedCount: 5,
     });
-    expect(
-      buildActionPlan(actionable, { maxItems: Number.POSITIVE_INFINITY }).items,
-    ).toHaveLength(5);
+    expect(buildActionPlan(actionable, { maxItems: Number.POSITIVE_INFINITY }).items).toHaveLength(
+      5,
+    );
   });
 });
 

@@ -1,3 +1,9 @@
+import { GitHubPayloadError } from "./payload-error";
+export { GitHubPayloadError };
+import { PrivateRepositoryError } from "./private-repository-error";
+export { PrivateRepositoryError };
+import { GitHubInputError } from "./input-error";
+export { GitHubInputError };
 import { Octokit } from "octokit";
 import { z, type ZodType } from "zod";
 
@@ -20,25 +26,17 @@ export type GitHubOctokit = InstanceType<typeof Octokit>;
 
 /** Values accepted by our read-only REST endpoints; transport options remain typed. */
 export interface GitHubReadParameters {
-  [key: string]:
-    | string
-    | number
-    | boolean
-    | undefined
-    | { signal?: AbortSignal };
+  [key: string]: string | number | boolean | undefined | { signal?: AbortSignal };
 }
 
 const GITHUB_USER_AGENT = "shipshape-mcp-readiness-engine";
 
 const GITHUB_REQUEST_TIMEOUT_MS = 8_000;
 
-export function createGitHubOctokit(
-  auth: string,
-  fetch?: typeof globalThis.fetch,
-): GitHubOctokit {
-  const request: NonNullable<
-    ConstructorParameters<typeof Octokit>[0]
-  >["request"] = { timeout: GITHUB_REQUEST_TIMEOUT_MS };
+export function createGitHubOctokit(auth: string, fetch?: typeof globalThis.fetch): GitHubOctokit {
+  const request: NonNullable<ConstructorParameters<typeof Octokit>[0]>["request"] = {
+    timeout: GITHUB_REQUEST_TIMEOUT_MS,
+  };
 
   if (fetch) request.fetch = fetch;
 
@@ -56,29 +54,6 @@ export function createGitHubOctokit(
   });
 
   return octokit;
-}
-
-export class GitHubInputError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "GitHubInputError";
-  }
-}
-
-export class PrivateRepositoryError extends Error {
-  constructor(readonly repository: { owner: string; repo: string }) {
-    super(
-      `Private repositories are outside the read-only portfolio scope: ${repository.owner}/${repository.repo}`,
-    );
-    this.name = "PrivateRepositoryError";
-  }
-}
-
-export class GitHubPayloadError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "GitHubPayloadError";
-  }
 }
 
 function boundedInteger(
@@ -120,11 +95,7 @@ const headerNumber = (value: string | undefined): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-export function responseMetadata(response: {
-  url: string;
-  status: number;
-  headers: Record<string, string | number | undefined>;
-}): GitHubResponseMetadata {
+export function responseMetadata(response: MetadataResponse): GitHubResponseMetadata {
   const pagination = links(String(response.headers.link ?? "") || undefined);
 
   return {
@@ -137,16 +108,10 @@ export function responseMetadata(response: {
       : null,
     rateLimit: {
       limit: headerNumber(String(response.headers["x-ratelimit-limit"] ?? "")),
-      remaining: headerNumber(
-        String(response.headers["x-ratelimit-remaining"] ?? ""),
-      ),
+      remaining: headerNumber(String(response.headers["x-ratelimit-remaining"] ?? "")),
       used: headerNumber(String(response.headers["x-ratelimit-used"] ?? "")),
-      resetAt: headerNumber(
-        String(response.headers["x-ratelimit-reset"] ?? ""),
-      ),
-      retryAfterSeconds: headerNumber(
-        String(response.headers["retry-after"] ?? ""),
-      ),
+      resetAt: headerNumber(String(response.headers["x-ratelimit-reset"] ?? "")),
+      retryAfterSeconds: headerNumber(String(response.headers["retry-after"] ?? "")),
     },
     nextUrl: pagination.nextUrl,
     previousUrl: pagination.previousUrl,
@@ -176,7 +141,7 @@ export async function octokitGet<T>(
   route: `GET ${string}`,
   parameters: GitHubReadParameters,
   schema: ZodType<T>,
-): Promise<{ data: T; metadata: GitHubResponseMetadata }> {
+): Promise<GitHubResult<T>> {
   const response = await octokit.request(route, parameters);
 
   return {
@@ -186,9 +151,7 @@ export async function octokitGet<T>(
 }
 
 /** Share effective bounds with the observation report, including clamped limits. */
-export function paginationLimits(
-  options: { maxPages?: number; perPage?: number } = {},
-) {
+export function paginationLimits(options: PaginationOptions = {}) {
   const maxPages = boundedInteger(
     options.maxPages,
     DEFAULT_MAX_PAGES,
@@ -196,12 +159,7 @@ export function paginationLimits(
     "maxPages",
   );
 
-  const perPage = boundedInteger(
-    options.perPage,
-    DEFAULT_PER_PAGE,
-    MAX_PER_PAGE,
-    "perPage",
-  );
+  const perPage = boundedInteger(options.perPage, DEFAULT_PER_PAGE, MAX_PER_PAGE, "perPage");
 
   return { maxPages, perPage };
 }
@@ -211,8 +169,8 @@ export async function octokitPaginate<T>(
   route: `GET ${string}`,
   parameters: GitHubReadParameters,
   itemSchema: ZodType<T>,
-  options: { maxPages?: number; perPage?: number } = {},
-): Promise<{ data: T[]; metadata: GitHubResponseMetadata }> {
+  options: PaginationOptions = {},
+): Promise<GitHubResult<T[]>> {
   const { maxPages, perPage } = paginationLimits(options);
   const data: T[] = [];
   let metadata: GitHubResponseMetadata | null = null;
@@ -225,13 +183,8 @@ export async function octokitPaginate<T>(
     page += 1;
 
     const pageSchema = z
-      .union([
-        z.array(itemSchema),
-        z.object({ workflow_runs: z.array(itemSchema) }),
-      ])
-      .transform((value) =>
-        Array.isArray(value) ? value : value.workflow_runs,
-      );
+      .union([z.array(itemSchema), z.object({ workflow_runs: z.array(itemSchema) })])
+      .transform((value) => (Array.isArray(value) ? value : value.workflow_runs));
 
     data.push(...parseGitHubResponse(pageSchema, response));
     metadata = responseMetadata(response);
@@ -243,3 +196,13 @@ export async function octokitPaginate<T>(
 
   return { data, metadata };
 }
+
+export type MetadataResponse = {
+  url: string;
+  status: number;
+  headers: Record<string, string | number | undefined>;
+};
+
+export type GitHubResult<T> = { data: T; metadata: GitHubResponseMetadata };
+
+export type PaginationOptions = { maxPages?: number; perPage?: number };

@@ -123,11 +123,7 @@ const REPOSITORY_FILE_PATHS: Record<
     "docs/contributing.rst",
     "docs/contributing.txt",
   ],
-  codeOfConduct: [
-    ".github/code_of_conduct.md",
-    "code_of_conduct.md",
-    "docs/code_of_conduct.md",
-  ],
+  codeOfConduct: [".github/code_of_conduct.md", "code_of_conduct.md", "docs/code_of_conduct.md"],
   security: [".github/security.md", "security.md", "docs/security.md"],
   citation: [
     "citation",
@@ -147,10 +143,7 @@ interface WorkflowInspection {
   readonly path: string;
 }
 
-function workflowUses(
-  value: ConfigValue | undefined,
-  uses: string[] = [],
-): string[] {
+function workflowUses(value: ConfigValue | undefined, uses: string[] = []): string[] {
   const list = z.array(ConfigValueSchema).safeParse(value).data;
 
   if (list) {
@@ -198,29 +191,17 @@ function permissionBlocksAreMinimal(workflow: ConfigDocument) {
   const jobPermissions = Object.values(jobs).map((job) => {
     const permissions = object(job);
 
-    return Object.hasOwn(permissions, "permissions")
-      ? permissions.permissions
-      : undefined;
+    return Object.hasOwn(permissions, "permissions") ? permissions.permissions : undefined;
   });
 
   if (!workflowHasPermissions) {
-    if (
-      !jobPermissions.length ||
-      jobPermissions.some((item) => item === undefined)
-    )
-      return false;
+    if (!jobPermissions.length || jobPermissions.some((item) => item === undefined)) return false;
 
-    blocks.push(
-      ...jobPermissions.filter(
-        (item): item is ConfigValue => item !== undefined,
-      ),
-    );
+    blocks.push(...jobPermissions.filter((item): item is ConfigValue => item !== undefined));
   } else blocks.push(...jobPermissions.filter((item) => item !== undefined));
 
   return blocks.every((block) => {
-    const allPermissions = z
-      .enum(["read-all", "write-all"])
-      .safeParse(block).data;
+    const allPermissions = z.enum(["read-all", "write-all"]).safeParse(block).data;
 
     if (allPermissions) return false;
 
@@ -250,9 +231,7 @@ function actionUsesArePinned(workflow: ConfigDocument) {
 function hasDependencyReview(workflow: ConfigDocument) {
   return (
     workflowTriggersPullRequest(workflow) &&
-    workflowUses(workflow).some((use) =>
-      /^actions\/dependency-review-action@/iu.test(use),
-    )
+    workflowUses(workflow).some((use) => /^actions\/dependency-review-action@/iu.test(use))
   );
 }
 
@@ -264,6 +243,8 @@ async function collectActiveRuleset(
 
   while (true) {
     try {
+      // Pagination discovers each next page after the previous response.
+      // eslint-disable-next-line no-await-in-loop
       const response = await get(
         "GET /repos/{owner}/{repo}/rulesets",
         { ...coordinates, includes_parents: true, per_page: 100, page },
@@ -272,9 +253,7 @@ async function collectActiveRuleset(
 
       if (
         response.data.some(
-          (ruleset) =>
-            ruleset.enforcement === "enabled" ||
-            ruleset.enforcement === "active",
+          (ruleset) => ruleset.enforcement === "enabled" || ruleset.enforcement === "active",
         )
       )
         return true;
@@ -292,16 +271,11 @@ async function collectActiveRuleset(
 export async function readPinnedPolicy(
   client: GitHubOctokit,
   source: PolicySource,
-): Promise<{ policy: DriftPolicy; url: string }> {
+): Promise<PinnedPolicy> {
   const coordinates = { owner: source.owner, repo: source.repo };
 
   const repo = (
-    await octokitGet(
-      client,
-      "GET /repos/{owner}/{repo}",
-      coordinates,
-      GitHubRepositorySchema,
-    )
+    await octokitGet(client, "GET /repos/{owner}/{repo}", coordinates, GitHubRepositorySchema)
   ).data;
 
   if (repo.private) throw new PrivateRepositoryError(coordinates);
@@ -316,10 +290,7 @@ export async function readPinnedPolicy(
   ).data;
 
   const entry = tree.tree.find(
-    (item) =>
-      item.path === source.path &&
-      item.type === "blob" &&
-      item.mode !== "120000",
+    (item) => item.path === source.path && item.type === "blob" && item.mode !== "120000",
   );
 
   if (!entry || (entry.size ?? 0) > 64_000)
@@ -352,14 +323,12 @@ function protectionState(protection: GitHubBranchProtection): ProtectionState {
     requiredLinearHistory: protection.required_linear_history ?? false,
     allowForcePushes: protection.allow_force_pushes ?? false,
     allowDeletions: protection.allow_deletions ?? false,
-    requiredConversationResolution:
-      protection.required_conversation_resolution ?? false,
+    requiredConversationResolution: protection.required_conversation_resolution ?? false,
     reviews: reviews
       ? {
           dismissStaleReviews: reviews.dismiss_stale_reviews ?? false,
           requireCodeOwnerReviews: reviews.require_code_owner_reviews ?? false,
-          requiredApprovingReviews:
-            reviews.required_approving_review_count ?? 0,
+          requiredApprovingReviews: reviews.required_approving_review_count ?? 0,
           requireLastPushApproval: reviews.require_last_push_approval ?? false,
         }
       : null,
@@ -368,9 +337,7 @@ function protectionState(protection: GitHubBranchProtection): ProtectionState {
           strict: checks.strict ?? false,
           checks: checks.checks?.length
             ? checks.checks.flatMap((check) =>
-                check.context
-                  ? [{ context: check.context, appId: check.app_id ?? null }]
-                  : [],
+                check.context ? [{ context: check.context, appId: check.app_id ?? null }] : [],
               )
             : (checks.contexts ?? []).map((context) => ({
                 context,
@@ -378,8 +345,7 @@ function protectionState(protection: GitHubBranchProtection): ProtectionState {
               })),
         }
       : null,
-    restricted:
-      protection.restrictions !== null && protection.restrictions !== undefined,
+    restricted: protection.restrictions !== null && protection.restrictions !== undefined,
   };
 }
 
@@ -452,24 +418,17 @@ async function collectRepository(
 
   const rules = policy.rules.filter((rule) => ruleSelects(rule, selection));
 
-  const branchNames = protectedBranchesFor(
-    policy,
-    selection,
-    repository.default_branch,
-  );
+  const branchNames = protectedBranchesFor(policy, selection, repository.default_branch);
 
   const branchFactsTask = Promise.all(
     branchNames.map(
-      async (branch) =>
-        [branch, await collectBranch(get, coordinates, branch)] as const,
+      async (branch) => [branch, await collectBranch(get, coordinates, branch)] as const,
     ),
   );
 
   const needsFiles = rules.some((rule) => rule.repositoryFiles !== undefined);
 
-  const needsWorkflows = rules.some(
-    (rule) => rule.workflowSecurity !== undefined,
-  );
+  const needsWorkflows = rules.some((rule) => rule.workflowSecurity !== undefined);
 
   const needsPrivateVulnerabilityReporting = rules.some(
     (rule) => rule.security?.privateVulnerabilityReporting !== undefined,
@@ -508,8 +467,12 @@ async function collectRepository(
     ? collectActiveRuleset(get, coordinates)
     : Promise.resolve(null);
 
-  const [branchFacts, tree, privateVulnerabilityReporting, activeRuleset] =
-    await Promise.all([branchFactsTask, treeTask, reportingTask, rulesetTask]);
+  const [branchFacts, tree, privateVulnerabilityReporting, activeRuleset] = await Promise.all([
+    branchFactsTask,
+    treeTask,
+    reportingTask,
+    rulesetTask,
+  ]);
 
   const branches = new Map<string, BranchProtectionFact>();
 
@@ -535,27 +498,20 @@ async function collectRepository(
   };
 
   if (tree) {
-    const paths = tree.tree
-      .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
-      .map((entry) => entry.path.toLowerCase());
+    const paths = new Set(
+      tree.tree
+        .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
+        .map((entry) => entry.path.toLowerCase()),
+    );
 
     for (const definition of REPOSITORY_FILE_SETTINGS) {
-      if (
-        !rules.some(
-          (rule) => rule.repositoryFiles?.[definition.key] !== undefined,
-        )
-      )
-        continue;
+      if (!rules.some((rule) => rule.repositoryFiles?.[definition.key] !== undefined)) continue;
 
       const present = REPOSITORY_FILE_PATHS[definition.key].some((candidate) =>
-        paths.includes(candidate),
+        paths.has(candidate),
       );
 
-      repositoryFiles[definition.id] = present
-        ? true
-        : tree.truncated
-          ? null
-          : false;
+      repositoryFiles[definition.id] = present ? true : tree.truncated ? null : false;
     }
 
     if (needsWorkflows) {
@@ -568,8 +524,7 @@ async function collectRepository(
 
       const workflowReads: WorkflowInspection[] = await Promise.all(
         workflowEntries.map(async (entry) => {
-          if ((entry.size ?? 0) > 128_000)
-            return { path: entry.path, parsed: null };
+          if ((entry.size ?? 0) > 128_000) return { path: entry.path, parsed: null };
 
           try {
             const blob = (
@@ -582,9 +537,7 @@ async function collectRepository(
 
             return {
               path: entry.path,
-              parsed:
-                ConfigObjectSchema.safeParse(parseYaml(decode(blob.content)))
-                  .data ?? null,
+              parsed: ConfigObjectSchema.safeParse(parseYaml(decode(blob.content))).data ?? null,
             };
           } catch {
             return { path: entry.path, parsed: null };
@@ -592,37 +545,24 @@ async function collectRepository(
         }),
       );
 
-      const unknown =
-        tree.truncated || workflowReads.some((item) => !item.parsed);
+      const unknown = tree.truncated || workflowReads.some((item) => !item.parsed);
 
-      const parsedWorkflows = workflowReads.flatMap((item) =>
-        item.parsed ? [item.parsed] : [],
-      );
+      const parsedWorkflows = workflowReads.flatMap((item) => (item.parsed ? [item.parsed] : []));
 
       const allKnown = (values: boolean[]) =>
         values.includes(false) ? false : unknown ? null : true;
 
-      if (
-        rules.some(
-          (rule) => rule.workflowSecurity?.leastPrivilegeToken !== undefined,
-        )
-      )
+      if (rules.some((rule) => rule.workflowSecurity?.leastPrivilegeToken !== undefined))
         workflowSecurity["workflowSecurity.leastPrivilegeToken"] = allKnown(
           parsedWorkflows.map(permissionBlocksAreMinimal),
         );
 
-      if (
-        rules.some((rule) => rule.workflowSecurity?.pinnedActions !== undefined)
-      )
+      if (rules.some((rule) => rule.workflowSecurity?.pinnedActions !== undefined))
         workflowSecurity["workflowSecurity.pinnedActions"] = allKnown(
           parsedWorkflows.map(actionUsesArePinned),
         );
 
-      if (
-        rules.some(
-          (rule) => rule.workflowSecurity?.dependencyReview !== undefined,
-        )
-      ) {
+      if (rules.some((rule) => rule.workflowSecurity?.dependencyReview !== undefined)) {
         const found = parsedWorkflows.some(hasDependencyReview);
 
         workflowSecurity["workflowSecurity.dependencyReview"] = found
@@ -636,10 +576,7 @@ async function collectRepository(
 
   // SAFETY: fromEntries receives exactly one entry per REPOSITORY_SETTINGS id.
   const settings = Object.fromEntries(
-    REPOSITORY_SETTINGS.map((definition) => [
-      definition.id,
-      settingValue(repository, definition),
-    ]),
+    REPOSITORY_SETTINGS.map((definition) => [definition.id, settingValue(repository, definition)]),
   ) as Record<RepositorySettingId, boolean | null>;
 
   return evaluateRepositoryDrift(policy, {
@@ -667,10 +604,7 @@ export interface DriftOptions {
   readonly onProgress?: (progress: {
     completed: number;
     total: number;
-    result:
-      | RepositoryDrift
-      | { repository: string; url: string; error: string }
-      | null;
+    result: RepositoryDrift | RepositoryFailure | null;
   }) => void;
 }
 
@@ -700,10 +634,7 @@ export async function collectSettingsDrift(
   const matched = listing.data.filter((repository) => {
     const facts: RepositorySelectionFacts = repository;
 
-    return (
-      !repository.private &&
-      policy.rules.some((rule) => ruleSelects(rule, facts))
-    );
+    return !repository.private && policy.rules.some((rule) => ruleSelects(rule, facts));
   });
 
   const selected = matched;
@@ -716,10 +647,7 @@ export async function collectSettingsDrift(
 
   const results = await Promise.all(
     selected.map(async (repository) => {
-      let result:
-        | RepositoryDrift
-        | { repository: string; url: string; error: string }
-        | null = null;
+      let result: RepositoryDrift | RepositoryFailure | null = null;
 
       try {
         const coordinates = RepositoryCoordinatesSchema.parse({
@@ -749,13 +677,9 @@ export async function collectSettingsDrift(
     }),
   );
 
-  const repositories = results.flatMap((result) =>
-    result && "checks" in result ? [result] : [],
-  );
+  const repositories = results.flatMap((result) => (result && "checks" in result ? [result] : []));
 
-  const failures = results.flatMap((result) =>
-    result && "error" in result ? [result] : [],
-  );
+  const failures = results.flatMap((result) => (result && "error" in result ? [result] : []));
 
   const status = repositories.some((item) => item.status === "drifted")
     ? "drifted"
@@ -785,16 +709,10 @@ export async function collectSettingsDrift(
       scannedRepositories: selected.length,
     },
     totals: {
-      compliant: repositories.filter((item) => item.status === "compliant")
-        .length,
+      compliant: repositories.filter((item) => item.status === "compliant").length,
       drifted: repositories.filter((item) => item.status === "drifted").length,
-      unknown:
-        repositories.filter((item) => item.status === "unknown").length +
-        failures.length,
-      remediationSteps: repositories.reduce(
-        (total, item) => total + item.remediation.length,
-        0,
-      ),
+      unknown: repositories.filter((item) => item.status === "unknown").length + failures.length,
+      remediationSteps: repositories.reduce((total, item) => total + item.remediation.length, 0),
     },
     repositories,
     failures,
@@ -803,3 +721,7 @@ export async function collectSettingsDrift(
     collectedAt,
   };
 }
+
+type PinnedPolicy = { policy: DriftPolicy; url: string };
+
+type RepositoryFailure = { repository: string; url: string; error: string };

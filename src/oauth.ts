@@ -1,8 +1,4 @@
-import type {
-  AuthRequest,
-  ClientInfo,
-  OAuthHelpers,
-} from "@cloudflare/workers-oauth-provider";
+import type { AuthRequest, ClientInfo, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import * as oauth from "oauth4webapi";
 import { z } from "zod";
 
@@ -41,11 +37,9 @@ export const AUTHORIZE_PATH = "/authorize" as const;
 
 export const CALLBACK_PATH = "/callback" as const;
 
-const GENERIC_AUTHORIZATION_ERROR =
-  "The authorization request could not be completed.";
+const GENERIC_AUTHORIZATION_ERROR = "The authorization request could not be completed.";
 
-const GENERIC_UPSTREAM_ERROR =
-  "GitHub authorization is temporarily unavailable.";
+const GENERIC_UPSTREAM_ERROR = "GitHub authorization is temporarily unavailable.";
 
 const MAX_UPSTREAM_BODY_LENGTH = 32_000;
 
@@ -65,10 +59,7 @@ const GitHubUserSchema = z.object({ login: GitHubOwnerInputSchema });
 
 export interface OAuthEnv {
   OAUTH_KV: OAuthStateStore;
-  OAUTH_PROVIDER: Pick<
-    OAuthHelpers,
-    "parseAuthRequest" | "lookupClient" | "completeAuthorization"
-  >;
+  OAUTH_PROVIDER: Pick<OAuthHelpers, "parseAuthRequest" | "lookupClient" | "completeAuthorization">;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
   COOKIE_ENCRYPTION_KEY?: string;
@@ -95,10 +86,7 @@ export function createOAuthHandler(runtime: OAuthRuntime) {
       } catch {
         const response = genericErrorResponse(500);
 
-        if (
-          request.method === "POST" &&
-          new URL(request.url).pathname === AUTHORIZE_PATH
-        ) {
+        if (request.method === "POST" && new URL(request.url).pathname === AUTHORIZE_PATH) {
           appendSetCookie(response.headers, clearCookie(CSRF_COOKIE_NAME));
         }
 
@@ -121,8 +109,7 @@ async function handleDefaultRequest(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
 
-  if (pathname === AUTHORIZE_PATH)
-    return handleAuthorize(request, env, runtime);
+  if (pathname === AUTHORIZE_PATH) return handleAuthorize(request, env, runtime);
 
   if (pathname === CALLBACK_PATH) return handleCallback(request, env);
 
@@ -143,8 +130,7 @@ async function handleAuthorize(
   env: OAuthEnv,
   runtime: OAuthRuntime,
 ): Promise<Response> {
-  if (request.method === "GET")
-    return handleAuthorizeGet(request, env, runtime);
+  if (request.method === "GET") return handleAuthorizeGet(request, env, runtime);
 
   if (request.method === "POST") return handleAuthorizePost(request, env);
 
@@ -188,13 +174,7 @@ async function handleAuthorizeGet(
   );
 
   if (approvalMatches(approved, oauthRequest)) {
-    return beginGitHubAuthorization(
-      request,
-      env,
-      oauthRequest,
-      browserToken,
-      cookies,
-    );
+    return beginGitHubAuthorization(request, env, oauthRequest, browserToken, cookies);
   }
 
   const state = randomToken();
@@ -216,19 +196,13 @@ async function handleAuthorizeGet(
 
   for (const cookie of cookies) appendSetCookie(headers, cookie);
 
-  return new Response(
-    renderConsentDialog(client, oauthRequest, state, csrfToken),
-    {
-      status: 200,
-      headers,
-    },
-  );
+  return new Response(renderConsentDialog(client, oauthRequest, state, csrfToken), {
+    status: 200,
+    headers,
+  });
 }
 
-async function handleAuthorizePost(
-  request: Request,
-  env: OAuthEnv,
-): Promise<Response> {
+async function handleAuthorizePost(request: Request, env: OAuthEnv): Promise<Response> {
   const clearCsrf = clearCookie(CSRF_COOKIE_NAME);
   let form: FormData;
 
@@ -259,30 +233,18 @@ async function handleAuthorizePost(
     return withCookies(genericErrorResponse(400), [clearCsrf]);
   }
 
-  const stateRecord = await consumeBrowserBoundState(
-    env.OAUTH_KV,
-    state,
-    browserToken,
-  );
+  const stateRecord = await consumeBrowserBoundState(env.OAUTH_KV, state, browserToken);
 
-  if (stateRecord === null || stateRecord.kind !== "authorization") {
+  if (stateRecord?.kind !== "authorization") {
     return withCookies(genericErrorResponse(400), [clearCsrf]);
   }
 
   if (decision !== "approve") {
-    return withCookies(
-      oauthErrorRedirect(stateRecord.oauthRequest, "access_denied"),
-      [clearCsrf],
-    );
+    return withCookies(oauthErrorRedirect(stateRecord.oauthRequest, "access_denied"), [clearCsrf]);
   }
 
   return withCookies(
-    await beginGitHubAuthorization(
-      request,
-      env,
-      stateRecord.oauthRequest,
-      browserToken,
-    ),
+    await beginGitHubAuthorization(request, env, stateRecord.oauthRequest, browserToken),
     [clearCsrf],
   );
 }
@@ -319,10 +281,7 @@ async function beginGitHubAuthorization(
   return response;
 }
 
-async function handleCallback(
-  request: Request,
-  env: OAuthEnv,
-): Promise<Response> {
+async function handleCallback(request: Request, env: OAuthEnv): Promise<Response> {
   if (request.method !== "GET") return methodNotAllowed();
 
   const url = new URL(request.url);
@@ -338,13 +297,9 @@ async function handleCallback(
     return genericErrorResponse(400);
   }
 
-  const stateRecord = await consumeBrowserBoundState(
-    env.OAUTH_KV,
-    state,
-    browserToken,
-  );
+  const stateRecord = await consumeBrowserBoundState(env.OAUTH_KV, state, browserToken);
 
-  if (stateRecord === null || stateRecord.kind !== "github") {
+  if (stateRecord?.kind !== "github") {
     return genericErrorResponse(400);
   }
 
@@ -373,21 +328,13 @@ async function handleCallback(
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
-  const accessToken = await exchangeGitHubCode(
-    callbackParameters,
-    request,
-    env,
-  );
+  const accessToken = await exchangeGitHubCode(callbackParameters, request, env);
 
   if (accessToken === null) {
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
-  const login = await fetchAndValidateGitHubUser(
-    accessToken,
-    env,
-    request.signal,
-  );
+  const login = await fetchAndValidateGitHubUser(accessToken, env, request.signal);
 
   if (login === null) {
     reportOAuthFailure("github_user_validation");
@@ -398,9 +345,7 @@ async function handleCallback(
   let client: ClientInfo | null;
 
   try {
-    client = await env.OAUTH_PROVIDER.lookupClient(
-      stateRecord.oauthRequest.clientId,
-    );
+    client = await env.OAUTH_PROVIDER.lookupClient(stateRecord.oauthRequest.clientId);
   } catch {
     reportOAuthFailure("client_lookup");
 
@@ -420,9 +365,7 @@ async function handleCallback(
       request: stateRecord.oauthRequest,
       userId: `github-${login.toLowerCase()}`,
       metadata: { clientName: sanitizeClientMetadata(client).clientName },
-      scope: stateRecord.oauthRequest.scope.filter(
-        (scope) => scope === MCP_SCOPE,
-      ),
+      scope: stateRecord.oauthRequest.scope.filter((scope) => scope === MCP_SCOPE),
       props: { accessToken, login },
     });
 
@@ -436,13 +379,9 @@ async function handleCallback(
   const response = redirectResponse(redirectTo);
   appendSetCookie(response.headers, clearCookie(CSRF_COOKIE_NAME));
 
-  const approvalCookie = await makeApprovalCookie(
-    stateRecord.oauthRequest,
-    env,
-  );
+  const approvalCookie = await makeApprovalCookie(stateRecord.oauthRequest, env);
 
-  if (approvalCookie !== null)
-    appendSetCookie(response.headers, approvalCookie);
+  if (approvalCookie !== null) appendSetCookie(response.headers, approvalCookie);
 
   return response;
 }
@@ -456,9 +395,7 @@ export function renderConsentDialog(
   const metadata = sanitizeClientMetadata(client);
 
   const scopes = oauthRequest.scope.length
-    ? oauthRequest.scope
-        .map((scope) => `<li><code>${escapeHtml(scope)}</code></li>`)
-        .join("")
+    ? oauthRequest.scope.map((scope) => `<li><code>${escapeHtml(scope)}</code></li>`).join("")
     : "<li>No additional MCP scopes requested</li>";
 
   const clientUri = metadata.clientUri
@@ -473,9 +410,7 @@ export function renderConsentDialog(
     ? `<a href="${escapeHtml(metadata.tosUri)}" rel="noreferrer">Terms</a>`
     : "";
 
-  const legalLinks = [policy, terms]
-    .filter((link) => link.length > 0)
-    .join(" · ");
+  const legalLinks = [policy, terms].filter((link) => link.length > 0).join(" · ");
 
   const contacts = metadata.contacts.length
     ? `<p>Contact: ${metadata.contacts.map((contact) => escapeHtml(contact)).join(", ")}</p>`
@@ -549,9 +484,7 @@ async function exchangeGitHubCode(
       response,
     );
 
-    return isSafeUpstreamValue(payload.access_token)
-      ? payload.access_token
-      : null;
+    return isSafeUpstreamValue(payload.access_token) ? payload.access_token : null;
   } catch {
     reportOAuthFailure("github_token_exchange");
 
@@ -589,8 +522,7 @@ async function fetchAndValidateGitHubUser(
 
   if (
     !response.ok ||
-    (contentType !== null &&
-      !contentType.toLowerCase().includes("application/json"))
+    (contentType !== null && !contentType.toLowerCase().includes("application/json"))
   ) {
     return null;
   }
@@ -605,10 +537,7 @@ async function boundedOAuthFetch(
   input: string,
   options: oauth.CustomFetchOptions<string, oauth.ProtectedResourceRequestBody>,
 ): Promise<Response> {
-  const body =
-    options.body instanceof Uint8Array
-      ? new Uint8Array(options.body)
-      : options.body;
+  const body = options.body instanceof Uint8Array ? new Uint8Array(options.body) : options.body;
 
   const response = await fetchWithTimeout(input, {
     method: options.method,
@@ -628,13 +557,11 @@ async function boundedOAuthFetch(
   return response;
 }
 
+/* eslint-disable no-await-in-loop -- Streaming byte limits require ordered reads and early cancellation. */
 async function responseBodyExceedsLimit(response: Response): Promise<boolean> {
   const declaredLength = Number(response.headers.get("Content-Length"));
 
-  if (
-    Number.isFinite(declaredLength) &&
-    declaredLength > MAX_UPSTREAM_BODY_LENGTH
-  ) {
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_UPSTREAM_BODY_LENGTH) {
     await response.body?.cancel();
 
     return true;
@@ -649,10 +576,12 @@ async function responseBodyExceedsLimit(response: Response): Promise<boolean> {
     let bytesRead = 0;
 
     while (true) {
-      const { done, value } = await reader.read();
+      const result = await reader.read();
 
-      if (done) return false;
-      bytesRead += value.byteLength;
+      if (result.done) return false;
+      const chunk: unknown = result.value;
+      if (!(chunk instanceof Uint8Array)) throw new Error("Expected a byte stream");
+      bytesRead += chunk.byteLength;
 
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
         await reader.cancel();
@@ -668,16 +597,11 @@ async function responseBodyExceedsLimit(response: Response): Promise<boolean> {
   }
 }
 
-async function readJson(
-  response: Response,
-): Promise<z.infer<typeof GitHubUserSchema> | null> {
+async function readJson(response: Response): Promise<z.infer<typeof GitHubUserSchema> | null> {
   try {
     const declaredLength = Number(response.headers.get("Content-Length"));
 
-    if (
-      Number.isFinite(declaredLength) &&
-      declaredLength > MAX_UPSTREAM_BODY_LENGTH
-    ) {
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_UPSTREAM_BODY_LENGTH) {
       await response.body?.cancel();
 
       return null;
@@ -691,10 +615,12 @@ async function readJson(
     let body = "";
 
     while (true) {
-      const { done, value } = await reader.read();
+      const result = await reader.read();
 
-      if (done) break;
-      bytesRead += value.byteLength;
+      if (result.done) break;
+      const chunk: unknown = result.value;
+      if (!(chunk instanceof Uint8Array)) throw new Error("Expected a byte stream");
+      bytesRead += chunk.byteLength;
 
       if (bytesRead > MAX_UPSTREAM_BODY_LENGTH) {
         await reader.cancel();
@@ -702,7 +628,7 @@ async function readJson(
         return null;
       }
 
-      body += decoder.decode(value, { stream: true });
+      body += decoder.decode(chunk, { stream: true });
     }
 
     body += decoder.decode();
@@ -715,10 +641,7 @@ async function readJson(
   }
 }
 
-export async function fetchWithTimeout(
-  input: string,
-  init: RequestInit,
-): Promise<Response> {
+export async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
@@ -734,13 +657,11 @@ export async function fetchWithTimeout(
   }
 }
 
-export function callbackUrl(
-  request: Request,
-  env: OAuthEnv,
-  path: string = CALLBACK_PATH,
-): URL {
+export function callbackUrl(request: Request, env: OAuthEnv, path: string = CALLBACK_PATH): URL {
   const requestOrigin = new URL(request.url).origin;
-  const configuredOrigin = env.PUBLIC_ORIGIN?.trim() || requestOrigin;
+  const configured = env.PUBLIC_ORIGIN?.trim();
+  const configuredOrigin =
+    configured !== undefined && configured.length > 0 ? configured : requestOrigin;
   const origin = new URL(configuredOrigin);
 
   if (
@@ -761,6 +682,8 @@ export function callbackUrl(
   return new URL(path, origin);
 }
 
+/* eslint-enable no-await-in-loop */
+
 /**
  * Finish a GitHub authorization-code callback for a first-party page: validate
  * the response, exchange the code, and confirm the token identifies a user.
@@ -770,16 +693,11 @@ export async function completeGitHubLogin(
   request: Request,
   env: OAuthEnv,
   callbackPath: string,
-): Promise<{ accessToken: string; login: string } | null> {
+): Promise<GitHubLogin | null> {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
 
-  if (
-    url.searchParams.has("error") ||
-    code === null ||
-    !isSafeUpstreamValue(code)
-  )
-    return null;
+  if (url.searchParams.has("error") || code === null || !isSafeUpstreamValue(code)) return null;
 
   let callbackParameters: URLSearchParams;
 
@@ -796,20 +714,11 @@ export async function completeGitHubLogin(
     return null;
   }
 
-  const accessToken = await exchangeGitHubCode(
-    callbackParameters,
-    request,
-    env,
-    callbackPath,
-  );
+  const accessToken = await exchangeGitHubCode(callbackParameters, request, env, callbackPath);
 
   if (accessToken === null) return null;
 
-  const login = await fetchAndValidateGitHubUser(
-    accessToken,
-    env,
-    request.signal,
-  );
+  const login = await fetchAndValidateGitHubUser(accessToken, env, request.signal);
 
   if (login === null) {
     reportOAuthFailure("github_user_validation");
@@ -824,14 +733,8 @@ function reportOAuthFailure(stage: string): void {
   console.warn("OAuth callback could not be completed", { stage });
 }
 
-async function makeApprovalCookie(
-  request: AuthRequest,
-  env: OAuthEnv,
-): Promise<string | null> {
-  if (
-    env.COOKIE_ENCRYPTION_KEY === undefined ||
-    env.COOKIE_ENCRYPTION_KEY.length === 0
-  )
+async function makeApprovalCookie(request: AuthRequest, env: OAuthEnv): Promise<string | null> {
+  if (env.COOKIE_ENCRYPTION_KEY === undefined || env.COOKIE_ENCRYPTION_KEY.length === 0)
     return null;
 
   const record: ApprovedClientRecord = {
@@ -842,10 +745,7 @@ async function makeApprovalCookie(
   };
 
   try {
-    const value = await createSignedApprovalCookie(
-      record,
-      env.COOKIE_ENCRYPTION_KEY,
-    );
+    const value = await createSignedApprovalCookie(record, env.COOKIE_ENCRYPTION_KEY);
 
     return makeCookie(APPROVED_CLIENT_COOKIE_NAME, value, {
       maxAge: APPROVED_CLIENT_TTL_SECONDS,
@@ -865,11 +765,9 @@ function authorizationParseError(error: AuthorizationFailure | null): Response {
     redirect.searchParams.set("error", error.code);
     redirect.searchParams.set("error_description", GENERIC_AUTHORIZATION_ERROR);
 
-    if (error.state !== undefined)
-      redirect.searchParams.set("state", error.state);
+    if (error.state !== undefined) redirect.searchParams.set("state", error.state);
 
-    if (error.issuer !== undefined)
-      redirect.searchParams.set("iss", error.issuer);
+    if (error.issuer !== undefined) redirect.searchParams.set("iss", error.issuer);
 
     return redirectResponse(redirect.toString());
   } catch {
@@ -886,15 +784,12 @@ function oauthErrorRedirect(
     redirect.searchParams.set("error", error);
     redirect.searchParams.set(
       "error_description",
-      error === "access_denied"
-        ? "Authorization was cancelled."
-        : GENERIC_UPSTREAM_ERROR,
+      error === "access_denied" ? "Authorization was cancelled." : GENERIC_UPSTREAM_ERROR,
     );
 
     if (request.state !== "") redirect.searchParams.set("state", request.state);
 
-    if (request.issuer !== undefined)
-      redirect.searchParams.set("iss", request.issuer);
+    if (request.issuer !== undefined) redirect.searchParams.set("iss", request.issuer);
 
     return redirectResponse(redirect.toString());
   } catch {
@@ -907,8 +802,7 @@ function genericErrorResponse(status: 400 | 405 | 500): Response {
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
 
-  const title =
-    status >= 500 ? "Service unavailable" : "Request could not be completed";
+  const title = status >= 500 ? "Service unavailable" : "Request could not be completed";
 
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main><h1>${title}</h1><p>${GENERIC_AUTHORIZATION_ERROR}</p></main></body></html>`,
@@ -948,6 +842,8 @@ function isSafeUpstreamValue(value: string): boolean {
   return (
     value.length > 0 &&
     value.length <= MAX_OAUTH_VALUE_LENGTH &&
-    !/[\u0000-\u001f\u007f]/.test(value)
+    !/[\u0000-\u001F\u007F]/.test(value)
   );
 }
+
+type GitHubLogin = { accessToken: string; login: string };

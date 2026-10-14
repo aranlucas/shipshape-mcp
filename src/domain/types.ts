@@ -4,12 +4,7 @@
  * the scoring contract remains deterministic and easy to test.
  */
 
-export const CHECK_STATES = [
-  "pass",
-  "fail",
-  "unknown",
-  "not_applicable",
-] as const;
+export const CHECK_STATES = ["pass", "fail", "unknown", "not_applicable"] as const;
 
 export type CheckState = (typeof CHECK_STATES)[number];
 

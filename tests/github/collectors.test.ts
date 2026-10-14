@@ -49,8 +49,7 @@ describe("GitHub collectors", () => {
     };
 
     const { client } = clientFor((url) => {
-      if (url.pathname === "/repos/octo/demo/commits")
-        return jsonResponse([commit]);
+      if (url.pathname === "/repos/octo/demo/commits") return jsonResponse([commit]);
 
       if (url.pathname === "/repos/octo/demo/pulls") return jsonResponse([]);
 
@@ -125,11 +124,7 @@ describe("GitHub collectors", () => {
     });
     expect(result.status).toBe("needs-attention");
     expect(result).not.toHaveProperty("actionPlan");
-    expect(
-      result.evidence.every((item) =>
-        item.url.startsWith("https://github.com/"),
-      ),
-    ).toBe(true);
+    expect(result.evidence.every((item) => item.url.startsWith("https://github.com/"))).toBe(true);
     expect(calls.every((url) => url.pathname !== "/graphql")).toBe(true);
   });
 
@@ -160,8 +155,7 @@ describe("GitHub collectors", () => {
     const limitedRoute: Route = (url) => {
       if (url.pathname === "/repos/octo/demo") return jsonResponse(repository);
 
-      if (url.pathname === "/repos/octo/demo/branches/main")
-        return jsonResponse(branch);
+      if (url.pathname === "/repos/octo/demo/branches/main") return jsonResponse(branch);
 
       if (url.pathname === "/repos/octo/demo/branches/main/protection")
         return jsonResponse({ message: "not found" }, 404);
@@ -175,11 +169,9 @@ describe("GitHub collectors", () => {
       if (url.pathname === "/repos/octo/demo/secret-scanning/alerts")
         return jsonResponse({ message: "not found" }, 404);
 
-      if (url.pathname === "/repos/octo/demo/commits")
-        return jsonResponse([commit]);
+      if (url.pathname === "/repos/octo/demo/commits") return jsonResponse([commit]);
 
-      if (url.pathname === "/repos/octo/demo/pulls")
-        return jsonResponse([pullRequest]);
+      if (url.pathname === "/repos/octo/demo/pulls") return jsonResponse([pullRequest]);
 
       if (url.pathname === "/repos/octo/demo/actions/runs")
         return jsonResponse({ total_count: 0, workflow_runs: [] });
@@ -229,17 +221,16 @@ describe("GitHub collectors", () => {
       throw new Error(`unhandled route: ${url}`);
     });
 
-    await expect(
-      collectPublicRepository(client, coordinates),
-    ).rejects.toBeInstanceOf(PrivateRepositoryError);
+    await expect(collectPublicRepository(client, coordinates)).rejects.toBeInstanceOf(
+      PrivateRepositoryError,
+    );
   });
 
   it("collects security posture without commits, pull requests, or workflow runs", async () => {
     const { client, calls } = clientFor((url) => {
       if (url.pathname === "/repos/octo/demo") return jsonResponse(repository);
 
-      if (url.pathname === "/repos/octo/demo/branches/main")
-        return jsonResponse(branch);
+      if (url.pathname === "/repos/octo/demo/branches/main") return jsonResponse(branch);
 
       if (url.pathname === "/repos/octo/demo/branches/main/protection")
         return jsonResponse(protection);
@@ -274,18 +265,13 @@ describe("GitHub collectors", () => {
       if (url.pathname.startsWith("/repos/octo/")) {
         if (url.pathname.split("/").length === 4) {
           activeRepositoryReads += 1;
-          peakRepositoryReads = Math.max(
-            peakRepositoryReads,
-            activeRepositoryReads,
-          );
+          peakRepositoryReads = Math.max(peakRepositoryReads, activeRepositoryReads);
           activeRepositoryReads -= 1;
         }
 
         const repoName = url.pathname.split("/")[3];
 
-        return fullRoute(
-          new URL(url.toString().replace("/" + repoName, "/demo")),
-        );
+        return fullRoute(new URL(url.toString().replace("/" + repoName, "/demo")));
       }
 
       throw new Error(`unhandled route: ${url}`);
@@ -383,21 +369,15 @@ describe("observation coverage through collector and report interfaces", () => {
       ruleId: "delivery.ci-green",
       state: "unknown",
     });
-    expect(plan.items[0]?.remediation).toContain(
-      "Inspect additional workflow history",
-    );
+    expect(plan.items[0]?.remediation).toContain("Inspect additional workflow history");
     expect(plan.items[0]?.evidence).toContainEqual(
       expect.objectContaining({
         detail: expect.stringContaining("Workflow run coverage: truncated"),
       }),
     );
     const commitsUrl = calls.find((url) => url.pathname.endsWith("/commits"));
-    expect(commitsUrl?.searchParams.get("since")).toBe(
-      result.coverage.commitWindow.since,
-    );
-    expect(commitsUrl?.searchParams.get("until")).toBe(
-      result.coverage.commitWindow.until,
-    );
+    expect(commitsUrl?.searchParams.get("since")).toBe(result.coverage.commitWindow.since);
+    expect(commitsUrl?.searchParams.get("until")).toBe(result.coverage.commitWindow.until);
   });
 
   it("finds the previously unobserved failing workflow when the next page is scanned", async () => {
@@ -407,9 +387,7 @@ describe("observation coverage through collector and report interfaces", () => {
       if (url.searchParams.get("page") === "2")
         return jsonResponse({
           total_count: 2,
-          workflow_runs: [
-            { ...workflowRun, id: 8, name: "E2E", conclusion: "failure" },
-          ],
+          workflow_runs: [{ ...workflowRun, id: 8, name: "E2E", conclusion: "failure" }],
         });
 
       return jsonResponse(
@@ -424,9 +402,7 @@ describe("observation coverage through collector and report interfaces", () => {
       perPage: 1,
     });
 
-    expect(
-      calls.filter((url) => url.pathname.endsWith("/actions/runs")),
-    ).toHaveLength(2);
+    expect(calls.filter((url) => url.pathname.endsWith("/actions/runs"))).toHaveLength(2);
     expect(result).toMatchObject({
       status: "available",
       ciStatus: "degraded",
@@ -518,9 +494,7 @@ describe("observation coverage through collector and report interfaces", () => {
   });
 
   it("keeps wholly unavailable delivery collection unknown", async () => {
-    const { client } = clientFor(() =>
-      jsonResponse({ message: "not found" }, 404),
-    );
+    const { client } = clientFor(() => jsonResponse({ message: "not found" }, 404));
 
     const result = await collectDeliveryHygiene(client, coordinates, "main");
     expect(result).toMatchObject({
@@ -574,9 +548,7 @@ describe("observation coverage through collector and report interfaces", () => {
   });
 
   it("reports a complete empty selection only when the owner listing is exhausted", async () => {
-    const { client, calls } = clientFor(() =>
-      jsonResponse([{ ...repository, archived: true }]),
-    );
+    const { client, calls } = clientFor(() => jsonResponse([{ ...repository, archived: true }]));
 
     const report = await collectPortfolioReport(client, "octo", {
       limit: 4,
@@ -651,9 +623,7 @@ describe("observation coverage through collector and report interfaces", () => {
   });
 
   it("reports an unavailable owner listing with unknown counts", async () => {
-    const { client } = clientFor(() =>
-      jsonResponse({ message: "forbidden" }, 403),
-    );
+    const { client } = clientFor(() => jsonResponse({ message: "forbidden" }, 403));
 
     const report = await collectPortfolioReport(client, "octo", {
       limit: 4,

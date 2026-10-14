@@ -21,7 +21,7 @@ export const GitHubRefInputSchema = z
   .max(255)
   .refine(
     (ref) =>
-      !/[\u0000-\u0020\u007f~^:?*[\\]/u.test(ref) &&
+      !/[\u0000-\u0020\u007F~^:?*[\\]/u.test(ref) &&
       !ref.includes("..") &&
       !ref.includes("@{") &&
       !ref.startsWith("/") &&
@@ -57,22 +57,13 @@ export const GitHubLicenseSchema = z
 
 export const GitHubSecurityAnalysisSchema = z
   .object({
-    advanced_security: z
-      .object({ status: z.string().optional() })
-      .nullable()
-      .optional(),
-    secret_scanning: z
-      .object({ status: z.string().optional() })
-      .nullable()
-      .optional(),
+    advanced_security: z.object({ status: z.string().optional() }).nullable().optional(),
+    secret_scanning: z.object({ status: z.string().optional() }).nullable().optional(),
     secret_scanning_push_protection: z
       .object({ status: z.string().optional() })
       .nullable()
       .optional(),
-    dependabot_security_updates: z
-      .object({ status: z.string().optional() })
-      .nullable()
-      .optional(),
+    dependabot_security_updates: z.object({ status: z.string().optional() }).nullable().optional(),
   })
   .passthrough();
 
@@ -155,20 +146,14 @@ const GitHubRequiredStatusChecksSchema = z
 
 /** GitHub reports protection toggles as `{ enabled }`; accept bare booleans too. */
 const ProtectionFlagSchema = z
-  .union([
-    z.boolean(),
-    z.object({ enabled: z.boolean() }).transform((value) => value.enabled),
-  ])
+  .union([z.boolean(), z.object({ enabled: z.boolean() }).transform((value) => value.enabled)])
   .optional();
 
 export const GitHubBranchProtectionSchema = z
   .object({
     url: z.string().url().optional(),
     required_status_checks: GitHubRequiredStatusChecksSchema,
-    enforce_admins: z
-      .object({ enabled: z.boolean().optional() })
-      .nullable()
-      .optional(),
+    enforce_admins: z.object({ enabled: z.boolean().optional() }).nullable().optional(),
     required_pull_request_reviews: z
       .object({
         dismiss_stale_reviews: z.boolean().optional(),
@@ -202,14 +187,8 @@ export const GitHubCommitSchema = z
     commit: z
       .object({
         message: z.string(),
-        author: z
-          .object({ date: z.string().nullable().optional() })
-          .nullable()
-          .optional(),
-        committer: z
-          .object({ date: z.string().nullable().optional() })
-          .nullable()
-          .optional(),
+        author: z.object({ date: z.string().nullable().optional() }).nullable().optional(),
+        committer: z.object({ date: z.string().nullable().optional() }).nullable().optional(),
       })
       .passthrough(),
     author: z.unknown().nullable().optional(),
@@ -546,9 +525,7 @@ export type GitHubRepository = z.infer<typeof GitHubRepositorySchema>;
 
 export type GitHubBranch = z.infer<typeof GitHubBranchSchema>;
 
-export type GitHubBranchProtection = z.infer<
-  typeof GitHubBranchProtectionSchema
->;
+export type GitHubBranchProtection = z.infer<typeof GitHubBranchProtectionSchema>;
 
 export type GitHubCommit = z.infer<typeof GitHubCommitSchema>;
 
@@ -556,12 +533,8 @@ export type GitHubPullRequest = z.infer<typeof GitHubPullRequestSchema>;
 
 export type GitHubWorkflowRun = z.infer<typeof GitHubWorkflowRunSchema>;
 
-export type GitHubCodeScanningAlert = z.infer<
-  typeof GitHubCodeScanningAlertSchema
->;
+export type GitHubCodeScanningAlert = z.infer<typeof GitHubCodeScanningAlertSchema>;
 
 export type GitHubDependabotAlert = z.infer<typeof GitHubDependabotAlertSchema>;
 
-export type GitHubSecretScanningAlert = z.infer<
-  typeof GitHubSecretScanningAlertSchema
->;
+export type GitHubSecretScanningAlert = z.infer<typeof GitHubSecretScanningAlertSchema>;

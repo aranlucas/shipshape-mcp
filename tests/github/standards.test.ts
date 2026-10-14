@@ -18,17 +18,7 @@ const repository = {
   fork: false,
 };
 
-function client(
-  options: {
-    private?: boolean;
-    truncated?: boolean;
-    treeError?: boolean;
-    blobError?: boolean;
-    config?: string;
-    sharedPrivate?: boolean;
-    sharedSymlink?: boolean;
-  } = {},
-) {
+function client(options: ClientOptions = {}) {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     let data: ConfigValue = {};
@@ -38,9 +28,7 @@ function client(
     if (/\/repos\/octo\/(demo|policy)$/.test(url.pathname))
       data = {
         ...repository,
-        private: shared
-          ? (options.sharedPrivate ?? false)
-          : (options.private ?? false),
+        private: shared ? (options.sharedPrivate ?? false) : (options.private ?? false),
       };
     else if (url.pathname.endsWith("/commits/main")) data = { sha };
     else if (url.pathname.includes("/git/trees/")) {
@@ -140,9 +128,7 @@ describe("standards collection", () => {
   });
   it("rejects private repositories before reading their files", async () => {
     const { octokit, fetch } = client({ private: true });
-    await expect(collectStandards(octokit, coordinates)).rejects.toThrow(
-      "Private repositories",
-    );
+    await expect(collectStandards(octokit, coordinates)).rejects.toThrow("Private repositories");
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("keeps permission failures unknown", async () => {
@@ -154,10 +140,9 @@ describe("standards collection", () => {
   it("does not report missing config when the tree is truncated", async () => {
     const { octokit } = client({ truncated: true });
     const result = await collectStandards(octokit, coordinates);
-    expect(
-      result.audit.checks.find((check) => check.ruleId === "standards.baseline")
-        ?.state,
-    ).toBe("unknown");
+    expect(result.audit.checks.find((check) => check.ruleId === "standards.baseline")?.state).toBe(
+      "unknown",
+    );
   });
   it("loads a local baseline and reports unreadable manifests", async () => {
     const { octokit } = client({ config: "baseline: shipshape/recommended@1" });
@@ -168,9 +153,7 @@ describe("standards collection", () => {
     ).toBe("pass");
     const blocked = client({ blobError: true });
     expect(
-      (
-        await collectStandards(blocked.octokit, coordinates)
-      ).packages[0]?.audit.checks.find(
+      (await collectStandards(blocked.octokit, coordinates)).packages[0]?.audit.checks.find(
         (check) => check.ruleId === "standards.test",
       )?.state,
     ).toBe("unknown");
@@ -178,19 +161,15 @@ describe("standards collection", () => {
   it("loads a pinned public shared policy", async () => {
     const { octokit } = client({ config: sharedConfig });
     const result = await collectStandards(octokit, coordinates);
-    expect(result.policyEvidence).toBe(
-      `https://github.com/octo/policy/blob/${sha}/policy.yml`,
-    );
+    expect(result.policyEvidence).toBe(`https://github.com/octo/policy/blob/${sha}/policy.yml`);
   });
   it("rejects private shared policies and does not dereference symlinks", async () => {
     const privatePolicy = client({ config: sharedConfig, sharedPrivate: true });
-    await expect(
-      collectStandards(privatePolicy.octokit, coordinates),
-    ).rejects.toThrow("Private repositories");
-    const symlink = client({ config: sharedConfig, sharedSymlink: true });
-    expect((await collectStandards(symlink.octokit, coordinates)).status).toBe(
-      "unknown",
+    await expect(collectStandards(privatePolicy.octokit, coordinates)).rejects.toThrow(
+      "Private repositories",
     );
+    const symlink = client({ config: sharedConfig, sharedSymlink: true });
+    expect((await collectStandards(symlink.octokit, coordinates)).status).toBe("unknown");
     expect(
       symlink.fetch.mock.calls.some(([input]) =>
         String(input).includes("/repos/octo/policy/git/blobs/"),
@@ -199,8 +178,16 @@ describe("standards collection", () => {
   });
   it("returns an actionable error for malformed policy", async () => {
     const { octokit } = client({ config: "baseline: latest" });
-    await expect(collectStandards(octokit, coordinates)).rejects.toThrow(
-      "Invalid .shipshape.yml",
-    );
+    await expect(collectStandards(octokit, coordinates)).rejects.toThrow("Invalid .shipshape.yml");
   });
 });
+
+type ClientOptions = {
+  private?: boolean;
+  truncated?: boolean;
+  treeError?: boolean;
+  blobError?: boolean;
+  config?: string;
+  sharedPrivate?: boolean;
+  sharedSymlink?: boolean;
+};

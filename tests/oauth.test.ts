@@ -1,14 +1,7 @@
-import type {
-  AuthRequest,
-  ClientInfo,
-} from "@cloudflare/workers-oauth-provider";
+import type { AuthRequest, ClientInfo } from "@cloudflare/workers-oauth-provider";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  fetchWithTimeout,
-  createOAuthHandler,
-  type OAuthEnv,
-} from "../src/oauth";
+import { fetchWithTimeout, createOAuthHandler, type OAuthEnv } from "../src/oauth";
 
 const { handleDefaultRequest } = createOAuthHandler({
   authorizationError() {
@@ -194,12 +187,8 @@ describe("OAuth proxy flow", () => {
     const html = await consent.text();
     const browser = cookieValue(consent, "__Host-shipshape-browser");
     const csrf = cookieValue(consent, "__Host-shipshape-csrf");
-    expect(consent.headers.get("Content-Security-Policy")).not.toContain(
-      "form-action",
-    );
-    expect(consent.headers.get("Content-Security-Policy")).toContain(
-      "default-src 'none'",
-    );
+    expect(consent.headers.get("Content-Security-Policy")).not.toContain("form-action");
+    expect(consent.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
 
     const denied = await handleDefaultRequest(
       new Request("https://shipshape.example/authorize", {
@@ -265,9 +254,7 @@ describe("OAuth proxy flow", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(response.headers.get("Set-Cookie")).toContain(
-      "__Host-shipshape-csrf=",
-    );
+    expect(response.headers.get("Set-Cookie")).toContain("__Host-shipshape-csrf=");
     expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
   });
 

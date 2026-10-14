@@ -43,25 +43,15 @@ const selected = (path: string) =>
 
 export function decode(content: string) {
   return new TextDecoder("utf-8", { fatal: true }).decode(
-    Uint8Array.from(atob(content.replace(/\s/g, "")), (char) =>
-      char.charCodeAt(0),
-    ),
+    Uint8Array.from(atob(content.replaceAll(/\s/g, "")), (char) => char.charCodeAt(0)),
   );
 }
 
-export async function collectStandards(
-  client: GitHubOctokit,
-  input: RepositoryCoordinates,
-) {
+export async function collectStandards(client: GitHubOctokit, input: RepositoryCoordinates) {
   const coordinates = RepositoryCoordinatesSchema.parse(input);
 
   const repo = (
-    await octokitGet(
-      client,
-      "GET /repos/{owner}/{repo}",
-      coordinates,
-      GitHubRepositorySchema,
-    )
+    await octokitGet(client, "GET /repos/{owner}/{repo}", coordinates, GitHubRepositorySchema)
   ).data;
 
   if (repo.private) throw new PrivateRepositoryError(coordinates);
@@ -102,9 +92,7 @@ export async function collectStandards(
       )
     ).data;
 
-    entries = tree.tree.filter(
-      (entry) => entry.type === "blob" && entry.mode !== "120000",
-    );
+    entries = tree.tree.filter((entry) => entry.type === "blob" && entry.mode !== "120000");
     source.complete = !tree.truncated;
 
     for (const entry of entries) source.files[entry.path] = null;
@@ -141,71 +129,13 @@ export async function collectStandards(
       source.policy = local;
       source.policyState = "pass";
 
-      if (local.extends) {
-        const shared = local.extends;
-
-        try {
-          const sharedRepo = (
-            await octokitGet(
-              client,
-              "GET /repos/{owner}/{repo}",
-              { owner: shared.owner, repo: shared.repo },
-              GitHubRepositorySchema,
-            )
-          ).data;
-
-          if (sharedRepo.private) throw new PrivateRepositoryError(shared);
-
-          const sharedTree = (
-            await octokitGet(
-              client,
-              "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
-              {
-                owner: shared.owner,
-                repo: shared.repo,
-                tree_sha: shared.ref,
-                recursive: "1",
-              },
-              TreeSchema,
-            )
-          ).data;
-
-          const entry = sharedTree.tree.find(
-            (item) =>
-              item.path === shared.path &&
-              item.type === "blob" &&
-              item.mode !== "120000",
-          );
-
-          if (!entry || (entry.size ?? 0) > 128_000)
-            throw new Error("Shared policy unavailable");
-
-          const file = (
-            await octokitGet(
-              client,
-              "GET /repos/{owner}/{repo}/git/blobs/{file_sha}",
-              { owner: shared.owner, repo: shared.repo, file_sha: entry.sha },
-              BlobSchema,
-            )
-          ).data;
-
-          source.policy = mergePolicy(parsePolicy(decode(file.content)), local);
-          source.policyEvidence = `https://github.com/${shared.owner}/${shared.repo}/blob/${shared.ref}/${shared.path}`;
-        } catch (error) {
-          if (
-            error instanceof PrivateRepositoryError ||
-            error instanceof GitHubInputError
-          )
-            throw error;
-          source.policyState = "unknown";
-        }
-      }
+      await applySharedPolicy(client, local, source);
     }
   }
 
   const candidates = entries
     .filter((entry) => selected(entry.path))
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .toSorted((a, b) => a.path.localeCompare(b.path));
 
   // Bound decoded input to 2 MB and 80 requests, with at most four in flight.
   let bytes = 0;
@@ -243,4 +173,57 @@ export async function collectStandards(
   );
 
   return evaluateStandards(source);
+}
+
+async function applySharedPolicy(client: GitHubOctokit, local: Policy, source: StandardsSource) {
+  if (!local.extends) return;
+  const shared = local.extends;
+
+  try {
+    const sharedRepo = (
+      await octokitGet(
+        client,
+        "GET /repos/{owner}/{repo}",
+        { owner: shared.owner, repo: shared.repo },
+        GitHubRepositorySchema,
+      )
+    ).data;
+
+    if (sharedRepo.private) throw new PrivateRepositoryError(shared);
+
+    const sharedTree = (
+      await octokitGet(
+        client,
+        "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
+        {
+          owner: shared.owner,
+          repo: shared.repo,
+          tree_sha: shared.ref,
+          recursive: "1",
+        },
+        TreeSchema,
+      )
+    ).data;
+
+    const entry = sharedTree.tree.find(
+      (item) => item.path === shared.path && item.type === "blob" && item.mode !== "120000",
+    );
+
+    if (!entry || (entry.size ?? 0) > 128_000) throw new Error("Shared policy unavailable");
+
+    const file = (
+      await octokitGet(
+        client,
+        "GET /repos/{owner}/{repo}/git/blobs/{file_sha}",
+        { owner: shared.owner, repo: shared.repo, file_sha: entry.sha },
+        BlobSchema,
+      )
+    ).data;
+
+    source.policy = mergePolicy(parsePolicy(decode(file.content)), local);
+    source.policyEvidence = `https://github.com/${shared.owner}/${shared.repo}/blob/${shared.ref}/${shared.path}`;
+  } catch (error) {
+    if (error instanceof PrivateRepositoryError || error instanceof GitHubInputError) throw error;
+    source.policyState = "unknown";
+  }
 }

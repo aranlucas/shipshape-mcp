@@ -15,9 +15,10 @@ describe("rule catalog", () => {
     expect(RULE_DEFINITIONS.map((rule) => rule.id)).toEqual([...RULE_IDS]);
 
     for (const category of RULE_CATEGORIES) {
-      const total = RULE_DEFINITIONS.filter(
-        (rule) => rule.category === category,
-      ).reduce((sum, rule) => sum + rule.scoreImpact, 0);
+      const total = RULE_DEFINITIONS.filter((rule) => rule.category === category).reduce(
+        (sum, rule) => sum + rule.scoreImpact,
+        0,
+      );
 
       expect(total).toBe(100);
     }
@@ -54,9 +55,7 @@ describe("rule catalog", () => {
   });
 
   it("defaults unknown observations to low confidence and accepts a precise override", () => {
-    expect(
-      makeCheck({ ruleId: "security.secret-scanning", state: "unknown" }),
-    ).toMatchObject({
+    expect(makeCheck({ ruleId: "security.secret-scanning", state: "unknown" })).toMatchObject({
       state: "unknown",
       confidence: "low",
     });
@@ -97,15 +96,11 @@ describe("rule catalog", () => {
 
   it("does not recommend pull-request approvals as a branch safeguard", () => {
     const branchRules = RULE_DEFINITIONS.filter(
-      (rule) =>
-        rule.id === "branch.default-protection" ||
-        rule.id === "security.branch-protection",
+      (rule) => rule.id === "branch.default-protection" || rule.id === "security.branch-protection",
     );
 
     expect(branchRules).toHaveLength(2);
-    expect(
-      branchRules.every((rule) => !/approval|review/i.test(rule.remediation)),
-    ).toBe(true);
+    expect(branchRules.every((rule) => !/approval|review/i.test(rule.remediation))).toBe(true);
   });
 });
 
@@ -153,7 +148,7 @@ describe("evidence normalization", () => {
         detail: "The first detail",
       },
     ]);
-    expect(dedupeEvidence([...input].reverse())).toEqual(dedupeEvidence(input));
+    expect(dedupeEvidence(input.toReversed())).toEqual(dedupeEvidence(input));
   });
 
   it("uses the URL when a label is blank, trims long fields, and caps evidence", () => {

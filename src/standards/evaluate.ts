@@ -1,23 +1,10 @@
 import { z } from "zod";
-import {
-  ConfigObjectSchema,
-  configObject as object,
-  type ConfigDocument,
-} from "./config-value";
+import { ConfigObjectSchema, configObject as object, type ConfigDocument } from "./config-value";
 import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { makeCheck } from "../domain/rules";
-import {
-  normalizeChecks,
-  scoreChecks,
-  buildActionPlan,
-} from "../domain/scoring";
+import { normalizeChecks, scoreChecks, buildActionPlan } from "../domain/scoring";
 import type { CheckResult, CheckState } from "../domain/types";
-import {
-  parseYaml,
-  type RULE_NAMES,
-  type Commands,
-  type Policy,
-} from "./policy";
+import { parseYaml, type RULE_NAMES, type Commands, type Policy } from "./policy";
 
 export interface StandardsSource {
   repository: string;
@@ -31,32 +18,25 @@ export interface StandardsSource {
   collectedAt: string;
 }
 
-const join = (path: string, name: string) =>
-  path === "." ? name : `${path}/${name}`;
+const join = (path: string, name: string) => (path === "." ? name : `${path}/${name}`);
 
 function json(text: string | null | undefined): ConfigDocument | null {
   if (text == null) return null;
   const errors: ParseError[] = [];
   const value: unknown = parseJsonc(text, errors, { allowTrailingComma: true });
 
-  return errors.length
-    ? null
-    : (ConfigObjectSchema.safeParse(value).data ?? {});
+  return errors.length ? null : (ConfigObjectSchema.safeParse(value).data ?? {});
 }
 
 export function evaluateStandards(source: StandardsSource) {
   const { files, policy } = source;
-  const paths = Object.keys(files).sort();
+  const paths = Object.keys(files).toSorted();
 
   const directories = [
     ...new Set(
       paths
-        .filter((path) =>
-          /(^|\/)(package.json|go.mod|pyproject.toml)$/.test(path),
-        )
-        .map((path) =>
-          path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".",
-        ),
+        .filter((path) => /(^|\/)(package.json|go.mod|pyproject.toml)$/.test(path))
+        .map((path) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".")),
     ),
   ];
 
@@ -65,9 +45,7 @@ export function evaluateStandards(source: StandardsSource) {
 
   if (!directories.length) directories.push(".");
 
-  const workflowPaths = paths.filter((path) =>
-    /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path),
-  );
+  const workflowPaths = paths.filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path));
 
   const workflows = workflowPaths.map((path) => {
     try {
@@ -90,11 +68,10 @@ export function evaluateStandards(source: StandardsSource) {
     );
   });
 
-  const uncertainWorkflows =
-    !source.complete || workflows.some(({ value }) => value === null);
+  const uncertainWorkflows = !source.complete || workflows.some(({ value }) => value === null);
 
   const packages = directories
-    .sort()
+    .toSorted()
     .slice(0, 20)
     .map((path) => {
       const manifestPath = join(path, "package.json");
@@ -107,8 +84,7 @@ export function evaluateStandards(source: StandardsSource) {
 
       for (const gate of ["format", "lint", "test", "typecheck"] as const) {
         const key =
-          gate === "format" &&
-          z.string().safeParse(scripts["format:check"]).success
+          gate === "format" && z.string().safeParse(scripts["format:check"]).success
             ? "format:check"
             : gate;
 
@@ -116,10 +92,7 @@ export function evaluateStandards(source: StandardsSource) {
           commands[gate] = `npm run ${key}`;
       }
 
-      Object.assign(
-        commands,
-        policy.packages.find((pkg) => pkg.path === path)?.commands,
-      );
+      Object.assign(commands, policy.packages.find((pkg) => pkg.path === path)?.commands);
       const checks: CheckResult[] = [];
       const exceptions: Policy["exceptions"] = [];
 
@@ -190,22 +163,14 @@ export function evaluateStandards(source: StandardsSource) {
 
       const ancestors = [path];
 
-      while (ancestors[ancestors.length - 1] !== ".") {
-        const last = ancestors[ancestors.length - 1]!;
-        ancestors.push(
-          last.includes("/") ? last.slice(0, last.lastIndexOf("/")) : ".",
-        );
+      while (ancestors.at(-1) !== ".") {
+        const last = ancestors.at(-1)!;
+        ancestors.push(last.includes("/") ? last.slice(0, last.lastIndexOf("/")) : ".");
       }
 
       // Ancestor lockfiles are evidence of a possible workspace, not proof of membership.
       const locks = node
-        ? [
-            "pnpm-lock.yaml",
-            "package-lock.json",
-            "yarn.lock",
-            "bun.lock",
-            "bun.lockb",
-          ]
+        ? ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb"]
         : go
           ? ["go.sum"]
           : python
@@ -246,9 +211,7 @@ export function evaluateStandards(source: StandardsSource) {
       const hasTs =
         Object.hasOwn(files, tsPath) ||
         paths.some(
-          (name) =>
-            name.startsWith(path === "." ? "" : `${path}/`) &&
-            /\.tsx?$/.test(name),
+          (name) => name.startsWith(path === "." ? "" : `${path}/`) && /\.tsx?$/.test(name),
         );
 
       add(
@@ -261,9 +224,7 @@ export function evaluateStandards(source: StandardsSource) {
             ? "pass"
             : strict === false
               ? "fail"
-              : !ts ||
-                  ts.extends ||
-                  (Array.isArray(ts.references) && ts.references.length > 0)
+              : !ts || ts.extends || (Array.isArray(ts.references) && ts.references.length > 0)
                 ? "unknown"
                 : "fail",
         [tsPath],
@@ -299,65 +260,33 @@ export function evaluateStandards(source: StandardsSource) {
             const working =
               s["working-directory"] ??
               object(object(j.defaults).run)["working-directory"] ??
-              object(object(workflow.value?.defaults).run)[
-                "working-directory"
-              ] ??
+              object(object(workflow.value?.defaults).run)["working-directory"] ??
               ".";
 
             if (working !== path) continue;
 
             // Only standalone or &&-joined commands are recognized. Shell wrappers stay unknown.
-            if (
-              /(?:^|\n)\s*(?:if|for|while|case|until|exit|cd|set)\b|[|;`$]/.test(
-                run,
-              )
-            )
-              continue;
+            if (/(?:^|\n)\s*(?:if|for|while|case|until|exit|cd|set)\b|[|;`$]/.test(run)) continue;
             const lines = run.split(/\n|&&/).map((line) => line.trim());
             const expanded = new Set(lines);
 
-            const visit = (line: string, seen = new Set<string>()) => {
-              const match =
-                /^(npm run|pnpm(?: run)?|yarn(?: run)?) ([\w:-]+)$/.exec(line);
+            for (const line of lines) expandScript(line, scripts, expanded);
 
-              if (!match || seen.has(match[2]!) || seen.size >= 32) return;
-              const key = match[2]!;
-              seen.add(key);
-              expanded.add(`npm run ${key}`);
-              const script = z.string().safeParse(scripts[key]).data;
-
-              if (script !== undefined)
-                for (const sub of script
-                  .split("&&")
-                  .map((part) => part.trim())) {
-                  expanded.add(sub);
-                  visit(sub, seen);
-                }
-            };
-
-            for (const line of lines) visit(line);
-
-            for (const [gate, command] of Object.entries(commands))
-              if (expanded.has(command)) invoked.add(gate);
+            for (const [gate] of Object.entries(commands).filter(([, command]) =>
+              expanded.has(command),
+            )) {
+              invoked.add(gate);
+            }
           }
         }
       }
 
-      const required = [
-        "format",
-        "lint",
-        "test",
-        ...(!go ? ["typecheck"] : []),
-      ];
+      const required = ["format", "lint", "test", ...(!go ? ["typecheck"] : [])];
 
       const missing = required.filter((gate) => !invoked.has(gate));
       add(
         "ci-gates",
-        !missing.length
-          ? "pass"
-          : !prWorkflows.length && !uncertainWorkflows
-            ? "fail"
-            : "unknown",
+        !missing.length ? "pass" : !prWorkflows.length && !uncertainWorkflows ? "fail" : "unknown",
         prWorkflows.map((workflow) => workflow.path),
         missing.length
           ? `Verify CI invokes these quality commands for ${path}: ${missing.join(", ")}. Indirect, conditional, or external workflows are not resolved.`
@@ -379,11 +308,9 @@ export function evaluateStandards(source: StandardsSource) {
 
       return {
         path,
-        profiles: [
-          node ? "node" : null,
-          go ? "go" : null,
-          python ? "python" : null,
-        ].filter(Boolean),
+        profiles: [node ? "node" : null, go ? "go" : null, python ? "python" : null].filter(
+          Boolean,
+        ),
         commands,
         exceptions,
         audit: scoreChecks(checks),
@@ -397,9 +324,7 @@ export function evaluateStandards(source: StandardsSource) {
     directories.length <= 20 &&
     workflows.every(({ value }) => value !== null) &&
     paths
-      .filter((name) =>
-        /(^|\/)(package.json|tsconfig.json|go.mod|pyproject.toml)$/.test(name),
-      )
+      .filter((name) => /(^|\/)(package.json|tsconfig.json|go.mod|pyproject.toml)$/.test(name))
       .every((name) => files[name] !== null);
 
   return {
@@ -426,4 +351,23 @@ export function evaluateStandards(source: StandardsSource) {
     audit: scoreChecks(checks),
     plan: buildActionPlan(checks),
   };
+}
+
+function expandScript(
+  line: string,
+  scripts: ConfigDocument,
+  expanded: Set<string>,
+  seen = new Set<string>(),
+): void {
+  const match = /^(npm run|pnpm(?: run)?|yarn(?: run)?) ([\w:-]+)$/.exec(line);
+  if (!match || seen.has(match[2]) || seen.size >= 32) return;
+  const key = match[2];
+  seen.add(key);
+  expanded.add(`npm run ${key}`);
+  const script = z.string().safeParse(scripts[key]).data;
+  if (script === undefined) return;
+  for (const sub of script.split("&&").map((part) => part.trim())) {
+    expanded.add(sub);
+    expandScript(sub, scripts, expanded, seen);
+  }
 }

@@ -33,10 +33,7 @@ rules:
   });
 
   it.each([
-    [
-      "an unknown field",
-      "version: 1\nrules:\n  - id: a\n    merge: {squash: true}",
-    ],
+    ["an unknown field", "version: 1\nrules:\n  - id: a\n    merge: {squash: true}"],
     ["a rule without settings", "version: 1\nrules:\n  - id: empty"],
     [
       "duplicate ids",

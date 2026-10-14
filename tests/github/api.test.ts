@@ -9,26 +9,22 @@ import {
   octokitGet,
   octokitPaginate,
 } from "../../src/github/client";
-import {
-  GitHubRefInputSchema,
-  RepositoryCoordinatesSchema,
-} from "../../src/github/schemas";
+import { GitHubRefInputSchema, RepositoryCoordinatesSchema } from "../../src/github/schemas";
 
 describe("GitHub API boundaries", () => {
   it("uses shared Zod schemas for repository coordinates and refs", () => {
-    expect(
-      RepositoryCoordinatesSchema.parse({ owner: "octo", repo: "demo.js" }),
-    ).toEqual({ owner: "octo", repo: "demo.js" });
-    expect(() =>
-      RepositoryCoordinatesSchema.parse({ owner: "../octo", repo: "demo" }),
-    ).toThrow();
-    expect(() => GitHubRefInputSchema.parse("feature/../main")).toThrow();
+    expect(RepositoryCoordinatesSchema.parse({ owner: "octo", repo: "demo.js" })).toEqual({
+      owner: "octo",
+      repo: "demo.js",
+    });
+    expect(() => RepositoryCoordinatesSchema.parse({ owner: "../octo", repo: "demo" })).toThrow(
+      z.ZodError,
+    );
+    expect(() => GitHubRefInputSchema.parse("feature/../main")).toThrow(z.ZodError);
   });
 
   it("turns invalid GitHub payloads into a boundary error", async () => {
-    const client = createGitHubOctokit("test-token", async () =>
-      Response.json({ id: "42" }),
-    );
+    const client = createGitHubOctokit("test-token", async () => Response.json({ id: "42" }));
 
     await expect(
       octokitGet(client, "GET /items", {}, z.object({ id: z.number() })),
@@ -54,13 +50,10 @@ describe("GitHub API boundaries", () => {
 
     const octokit = new Octokit({ request: { fetch: fetcher } });
 
-    const result = await octokitPaginate(
-      octokit,
-      "GET /items",
-      {},
-      z.object({ id: z.number() }),
-      { maxPages: 2, perPage: 1 },
-    );
+    const result = await octokitPaginate(octokit, "GET /items", {}, z.object({ id: z.number() }), {
+      maxPages: 2,
+      perPage: 1,
+    });
 
     expect(result.data).toEqual([{ id: 1 }, { id: 2 }]);
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -69,20 +62,18 @@ describe("GitHub API boundaries", () => {
   it("sends the pinned GitHub REST API version on Octokit requests", async () => {
     let apiVersion: string | null = null;
 
-    const fetcher = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        apiVersion = new Headers(init?.headers).get("x-github-api-version");
-        const url = new URL(String(input));
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      apiVersion = new Headers(init?.headers).get("x-github-api-version");
+      const url = new URL(String(input));
 
-        const response = new Response(JSON.stringify({ login: "octo" }), {
-          headers: { "content-type": "application/json" },
-        });
+      const response = new Response(JSON.stringify({ login: "octo" }), {
+        headers: { "content-type": "application/json" },
+      });
 
-        Object.defineProperty(response, "url", { value: url.toString() });
+      Object.defineProperty(response, "url", { value: url.toString() });
 
-        return response;
-      },
-    );
+      return response;
+    });
 
     const octokit = createGitHubOctokit("token", fetcher);
 

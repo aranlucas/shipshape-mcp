@@ -17,33 +17,26 @@ const unknownSettings = Object.fromEntries(
   REPOSITORY_SETTINGS.map((definition) => [definition.id, null]),
 ) as Record<RepositorySettingId, boolean | null>;
 
-const unknownRepositoryFiles: Record<RepositoryFileSettingId, boolean | null> =
-  {
-    "repositoryFiles.readme": null,
-    "repositoryFiles.license": null,
-    "repositoryFiles.contributing": null,
-    "repositoryFiles.codeOfConduct": null,
-    "repositoryFiles.security": null,
-    "repositoryFiles.citation": null,
-  };
+const unknownRepositoryFiles: Record<RepositoryFileSettingId, boolean | null> = {
+  "repositoryFiles.readme": null,
+  "repositoryFiles.license": null,
+  "repositoryFiles.contributing": null,
+  "repositoryFiles.codeOfConduct": null,
+  "repositoryFiles.security": null,
+  "repositoryFiles.citation": null,
+};
 
-const unknownWorkflowSecurity: Record<
-  WorkflowSecuritySettingId,
-  boolean | null
-> = {
+const unknownWorkflowSecurity: Record<WorkflowSecuritySettingId, boolean | null> = {
   "workflowSecurity.leastPrivilegeToken": null,
   "workflowSecurity.pinnedActions": null,
   "workflowSecurity.dependencyReview": null,
 };
 
-const unknownRepositoryRules: Record<RepositoryRuleSettingId, boolean | null> =
-  {
-    "repositoryRules.activeRuleset": null,
-  };
+const unknownRepositoryRules: Record<RepositoryRuleSettingId, boolean | null> = {
+  "repositoryRules.activeRuleset": null,
+};
 
-function facts(
-  overrides: Partial<RepositorySettingsFacts> = {},
-): RepositorySettingsFacts {
+function facts(overrides: Partial<RepositorySettingsFacts> = {}): RepositorySettingsFacts {
   return {
     owner: "octo",
     repo: "svc-api",
@@ -83,8 +76,7 @@ const protectedMain: ProtectionState = {
   restricted: false,
 };
 
-const policy = (rules: unknown[]) =>
-  DriftPolicySchema.parse({ version: 1, rules });
+const policy = (rules: unknown[]) => DriftPolicySchema.parse({ version: 1, rules });
 
 describe("settings drift evaluation", () => {
   it("ignores repositories no rule selects", () => {
@@ -191,14 +183,9 @@ describe("settings drift evaluation", () => {
     );
 
     expect(
-      drift?.checks.find(
-        (check) => check.setting === "requiredApprovingReviews",
-      ),
+      drift?.checks.find((check) => check.setting === "requiredApprovingReviews"),
     ).toMatchObject({ state: "pass", actual: 2, expected: 1 });
-    expect(drift?.remediation.map((step) => step.method)).toEqual([
-      "PUT",
-      "POST",
-    ]);
+    expect(drift?.remediation.map((step) => step.method)).toEqual(["PUT", "POST"]);
     expect(drift?.remediation[0]).toMatchObject({
       path: "/repos/octo/svc-api/branches/main/protection",
       settings: ["enforceAdmins", "requiredStatusChecks"],
@@ -246,9 +233,7 @@ describe("settings drift evaluation", () => {
     );
 
     expect(drift?.checks.map((check) => check.state)).toEqual(["fail", "fail"]);
-    expect(
-      drift?.remediation.map((step) => `${step.method} ${step.path}`),
-    ).toEqual([
+    expect(drift?.remediation.map((step) => `${step.method} ${step.path}`)).toEqual([
       "PUT /repos/octo/svc-api/branches/main/protection",
       "POST /repos/octo/svc-api/branches/main/protection/required_signatures",
     ]);
@@ -259,16 +244,12 @@ describe("settings drift evaluation", () => {
   });
 
   it("leaves invisible or restricted protection to a manual review", () => {
-    const rules = policy([
-      { id: "admins", branchProtection: { enforceAdmins: true } },
-    ]);
+    const rules = policy([{ id: "admins", branchProtection: { enforceAdmins: true } }]);
 
     const hidden = evaluateRepositoryDrift(
       rules,
       facts({
-        branches: new Map([
-          ["main", { status: "unknown" as const, reason: "HTTP 403" }],
-        ]),
+        branches: new Map([["main", { status: "unknown" as const, reason: "HTTP 403" }]]),
       }),
     );
 
@@ -349,7 +330,7 @@ describe("settings drift evaluation", () => {
     );
 
     expect(drift?.remediation[0]?.command).toBe(
-      "gh api --method DELETE 'repos/octo/svc-api/branches/it'\\''s/protection/required_signatures'",
+      String.raw`gh api --method DELETE 'repos/octo/svc-api/branches/it'\''s/protection/required_signatures'`,
     );
   });
 });
