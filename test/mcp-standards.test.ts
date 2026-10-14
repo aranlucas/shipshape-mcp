@@ -212,6 +212,37 @@ describe("real MCP SDK integration", () => {
     expect(calls.some((url) => url.pathname === "/repos/octo/demo/commits/main")).toBe(true);
   });
 
+  it("includes opt-in Oxforge drift in action_plan without adding mutation tools", async () => {
+    const { client } = await connect((url) => {
+      if (url.pathname === `/repos/octo/demo/git/blobs/${"b".repeat(40)}`) {
+        const text =
+          "baseline: shipshape/recommended@1\nconvergence: {profile: oxforge@1, version: 0.2.2}";
+
+        return jsonResponse({ encoding: "base64", content: btoa(text), size: text.length });
+      }
+
+      return auditRoute(url);
+    });
+
+    const result = await client.callTool({
+      name: "action_plan",
+      arguments: { owner: "octo", repo: "demo", limit: 20 },
+    });
+
+    expect(result.isError).not.toBe(true);
+
+    const items: unknown = expect.arrayContaining([
+      expect.objectContaining({ ruleId: "standards.oxforge-version", state: "fail" }),
+    ]);
+
+    expect(result.structuredContent).toMatchObject({
+      standards: { convergence: { profile: "oxforge@1", version: "0.2.2" } },
+      plan: { items },
+    });
+    const listed = await client.listTools();
+    expect(listed.tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
+  });
+
   it("inspects security posture without collecting readiness history", async () => {
     const { client, calls } = await connect();
 

@@ -1,3 +1,4 @@
+import { lintConfigPath } from "./lint-config";
 import { z } from "zod";
 import pLimit from "p-limit";
 import {
@@ -97,6 +98,10 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
     entries = tree.tree.filter((entry) => entry.type === "blob" && entry.mode !== "120000");
     source.complete = !tree.truncated;
 
+    source.unreadablePaths = tree.tree
+      .filter((item) => item.type === "blob" && item.mode === "120000")
+      .map((item) => item.path);
+
     for (const entry of entries) {
       source.files[entry.path] = null;
     }
@@ -143,7 +148,11 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
   }
 
   const candidates = entries
-    .filter((entry) => selected(entry.path))
+    .filter(
+      (entry) =>
+        selected(entry.path) ||
+        (source.policy.convergence !== undefined && lintConfigPath(entry.path)),
+    )
     .toSorted((a, b) => a.path.localeCompare(b.path));
 
   // Bound decoded input to 2 MB and 80 requests, with at most four in flight.

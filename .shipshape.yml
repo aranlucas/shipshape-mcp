@@ -1,1 +1,4 @@
 baseline: shipshape/recommended@1
+convergence:
+  profile: oxforge@1
+  version: 0.2.2

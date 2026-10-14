@@ -18,6 +18,7 @@ export const RULE_CATEGORIES = [
   "delivery_hygiene",
   "security_posture",
   "engineering_standards",
+  "repository_convergence",
 ] as const;
 
 export type RuleCategory = (typeof RULE_CATEGORIES)[number];
