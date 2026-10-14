@@ -73,7 +73,9 @@ const NOT_FOUND_PAGE = `<!doctype html>
 export function landingHandler(request: Request): Response {
   const url = new URL(request.url);
 
-  if (request.method !== "GET") return methodNotAllowed();
+  if (request.method !== "GET") {
+    return methodNotAllowed();
+  }
 
   switch (url.pathname) {
     case "/":

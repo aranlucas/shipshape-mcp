@@ -136,19 +136,21 @@ export const DriftRuleSchema = z
 
     const topics = (rule.topics?.required.length ?? 0) + (rule.topics?.forbidden.length ?? 0) > 0;
 
-    if (!declared && !topics)
+    if (!declared && !topics) {
       context.addIssue({
         code: "custom",
         message: `Rule ${rule.id} declares no settings`,
       });
+    }
 
     const forbidden = new Set(rule.topics?.forbidden);
 
-    if (rule.topics?.required.some((topic) => forbidden.has(topic)))
+    if (rule.topics?.required.some((topic) => forbidden.has(topic))) {
       context.addIssue({
         code: "custom",
         message: `Rule ${rule.id} both requires and forbids a topic`,
       });
+    }
   });
 
 export const DriftPolicySchema = z
@@ -160,8 +162,9 @@ export const DriftPolicySchema = z
   .superRefine((policy, context) => {
     const ids = policy.rules.map((rule) => rule.id);
 
-    if (new Set(ids).size !== ids.length)
+    if (new Set(ids).size !== ids.length) {
       context.addIssue({ code: "custom", message: "Duplicate rule ids" });
+    }
   });
 
 export type DriftPolicy = z.infer<typeof DriftPolicySchema>;
@@ -201,10 +204,14 @@ export function globMatches(pattern: string, name: string): boolean {
       p = star + 1;
       resume += 1;
       v = resume;
-    } else return false;
+    } else {
+      return false;
+    }
   }
 
-  while (glob[p] === "*") p += 1;
+  while (glob[p] === "*") {
+    p += 1;
+  }
 
   return p === glob.length;
 }
@@ -218,9 +225,13 @@ export interface RepositorySelectionFacts {
 export function ruleSelects(rule: DriftRule, repository: RepositorySelectionFacts): boolean {
   const scope = rule.repositories;
 
-  if (repository.fork && !scope.forks) return false;
+  if (repository.fork && !scope.forks) {
+    return false;
+  }
 
-  if (repository.archived && !scope.archived) return false;
+  if (repository.archived && !scope.archived) {
+    return false;
+  }
 
   return (
     scope.include.some((glob) => globMatches(glob, repository.name)) &&

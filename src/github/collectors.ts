@@ -136,7 +136,9 @@ function errorReason(cause: unknown): string {
     return `GitHub request failed (HTTP ${status})`;
   }
 
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) {
+    return error.message;
+  }
 
   return "GitHub feature could not be collected";
 }
@@ -217,7 +219,9 @@ function repositoryFact(
 function protectionCheckCount(protection: GitHubBranchProtection): number {
   const checks = protection.required_status_checks;
 
-  if (!checks) return 0;
+  if (!checks) {
+    return 0;
+  }
 
   return checks.checks?.length ?? checks.contexts?.length ?? 0;
 }
@@ -317,7 +321,9 @@ export async function collectBranchRisk(
 }
 
 function recentSince(options: CollectorOptions): string {
-  if (options.since) return options.since;
+  if (options.since) {
+    return options.since;
+  }
 
   return new Date(Date.now() - DEFAULT_RECENT_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
@@ -420,8 +426,9 @@ export async function collectDeliveryHygiene(
     ["pull requests", coverage.pullRequests],
     ["workflow runs", coverage.workflowRuns],
   ] as const) {
-    if (scope.status === "truncated")
+    if (scope.status === "truncated") {
       reasons.push(`${name} collection truncated; counts are lower bounds`);
+    }
   }
 
   const commitItems = commits.value ?? [];
@@ -451,27 +458,19 @@ export async function collectDeliveryHygiene(
 
   const latestRun = runItems[0];
 
-  const summarizeRun = (run: GitHubWorkflowRun) => ({
-    id: run.id,
-    name: run.name ?? null,
-    event: run.event ?? null,
-    headBranch: run.head_branch ?? null,
-    headSha: run.head_sha ?? null,
-    status: run.status ?? null,
-    conclusion: run.conclusion ?? null,
-    createdAt: run.created_at ?? null,
-    updatedAt: run.updated_at ?? null,
-    url: run.html_url,
-  });
-
   const latestWorkflowRun = latestRun ? summarizeRun(latestRun) : null;
   const latestCompletedByWorkflow = new Map<string, GitHubWorkflowRun>();
 
   for (const run of runItems) {
-    if (run.status !== "completed" || run.conclusion === "cancelled") continue;
+    if (run.status !== "completed" || run.conclusion === "cancelled") {
+      continue;
+    }
+
     const workflow = run.name ?? run.html_url;
 
-    if (!latestCompletedByWorkflow.has(workflow)) latestCompletedByWorkflow.set(workflow, run);
+    if (!latestCompletedByWorkflow.has(workflow)) {
+      latestCompletedByWorkflow.set(workflow, run);
+    }
   }
 
   const failingWorkflowRuns = [...latestCompletedByWorkflow.values()]
@@ -479,8 +478,9 @@ export async function collectDeliveryHygiene(
     .slice(0, 5)
     .map(summarizeRun);
 
-  if (latestRun?.html_url)
+  if (latestRun?.html_url) {
     evidence.push(featureEvidence(latestRun.html_url, "Latest workflow run", collectedAt));
+  }
 
   for (const run of failingWorkflowRuns) {
     evidence.push(
@@ -492,12 +492,13 @@ export async function collectDeliveryHygiene(
     );
   }
 
-  if (commitItems[0]?.html_url)
+  if (commitItems[0]?.html_url) {
     evidence.push(featureEvidence(commitItems[0].html_url, "Latest commit", collectedAt));
+  }
 
   let ciStatus: DeliveryHygieneFact["ciStatus"] = "unknown";
 
-  if (workflowRuns.value && latestCompletedByWorkflow.size > 0)
+  if (workflowRuns.value && latestCompletedByWorkflow.size > 0) {
     ciStatus = [...latestCompletedByWorkflow.values()].some(
       (run) => run.conclusion != null && failedConclusions.has(run.conclusion),
     )
@@ -505,6 +506,8 @@ export async function collectDeliveryHygiene(
       : coverage.workflowRuns.status === "complete"
         ? "healthy"
         : "unknown";
+  }
+
   const workflowEvidence = evidence[2];
 
   if (workflowEvidence) {
@@ -577,7 +580,9 @@ async function collectCodeScanning(
     ),
   );
 
-  if (!result.value) return featureFailure(result.error, evidence);
+  if (!result.value) {
+    return featureFailure(result.error, evidence);
+  }
 
   const open = result.value.filter(
     (alert: GitHubCodeScanningAlert) => alert.state.toLowerCase() === "open",
@@ -614,7 +619,9 @@ async function collectDependabot(
     ),
   );
 
-  if (!result.value) return featureFailure(result.error, evidence);
+  if (!result.value) {
+    return featureFailure(result.error, evidence);
+  }
 
   const open = result.value.filter(
     (alert: GitHubDependabotAlert) => alert.state.toLowerCase() === "open",
@@ -649,7 +656,9 @@ async function collectSecretScanning(
     ),
   );
 
-  if (!result.value) return featureFailure(result.error, evidence);
+  if (!result.value) {
+    return featureFailure(result.error, evidence);
+  }
 
   const openAlerts = result.value.filter(
     (alert: GitHubSecretScanningAlert) => alert.state.toLowerCase() === "open",
@@ -711,7 +720,9 @@ export async function collectPublicRepository(
     GitHubRepositorySchema,
   );
 
-  if (repositoryResponse.data.private) throw new PrivateRepositoryError(coordinates);
+  if (repositoryResponse.data.private) {
+    throw new PrivateRepositoryError(coordinates);
+  }
 
   return repositoryFact(coordinates, repositoryResponse.data, nowIso());
 }
@@ -765,8 +776,9 @@ export async function collectPortfolioSnapshot(
     includeArchived: options.includeArchived ?? true,
   };
 
-  if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit <= 0))
+  if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit <= 0)) {
     throw new GitHubInputError("limit must be a positive integer");
+  }
 
   let scope: PortfolioScope = {
     selection: options.repositories ? "explicit" : "owner",
@@ -848,10 +860,15 @@ export async function collectPortfolioSnapshot(
     scope.omittedRepositories = repositories.length - selected.length;
     scope.selectedRepositories = selected.length;
 
-    if (scope.omittedRepositories > 0) scope.status = "truncated";
+    if (scope.omittedRepositories > 0) {
+      scope.status = "truncated";
+    }
+
     repositories = selected;
   } catch (error) {
-    if (error instanceof PrivateRepositoryError) throw error;
+    if (error instanceof PrivateRepositoryError) {
+      throw error;
+    }
 
     return {
       owner: validatedOwner,
@@ -881,7 +898,9 @@ export async function collectPortfolioSnapshot(
         error: null,
       };
     } catch (error) {
-      if (error instanceof PrivateRepositoryError) throw error;
+      if (error instanceof PrivateRepositoryError) {
+        throw error;
+      }
 
       return { readiness: null, error };
     }
@@ -957,7 +976,9 @@ function errorUrl(cause: unknown): string {
   if (cause instanceof Error) {
     const parsed = z.object({ response: z.object({ url: z.string() }) }).safeParse(cause);
 
-    if (parsed.success) return parsed.data.response.url;
+    if (parsed.success) {
+      return parsed.data.response.url;
+    }
   }
 
   return "https://docs.github.com/en/rest";
@@ -968,3 +989,16 @@ type CodeScanningSummary = { openAlerts: number; highSeverityAlerts: number };
 type DependabotSummary = { openAlerts: number; criticalAlerts: number };
 
 type SecretScanningSummary = { openAlerts: number };
+
+const summarizeRun = (run: GitHubWorkflowRun) => ({
+  id: run.id,
+  name: run.name ?? null,
+  event: run.event ?? null,
+  headBranch: run.head_branch ?? null,
+  headSha: run.head_sha ?? null,
+  status: run.status ?? null,
+  conclusion: run.conclusion ?? null,
+  createdAt: run.created_at ?? null,
+  updatedAt: run.updated_at ?? null,
+  url: run.html_url,
+});

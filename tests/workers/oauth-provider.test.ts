@@ -1,5 +1,5 @@
 import { exports } from "cloudflare:workers";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { assert, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { MCP_RESOURCE, MCP_SCOPE } from "../../src/config";
 import { repository } from "../helpers/github-fixtures";
@@ -10,26 +10,32 @@ const upstream = new Map<string, UpstreamFixture>();
 
 // The Worker runs in the test isolate, so its outbound fetches hit this stub.
 beforeAll(async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const request = new Request(input, init);
     const fixture = upstream.get(request.url);
 
     if (fixture) {
-      expect(request.method).toBe(fixture.method);
+      assert.equal(request.method, fixture.method);
 
-      if (fixture.token)
-        expect(request.headers.get("Authorization")).toMatch(
+      if (fixture.token) {
+        assert.match(
+          request.headers.get("Authorization") ?? "",
           new RegExp(`^(token|bearer) ${fixture.token}$`, "i"),
         );
+      }
+
       upstream.delete(request.url);
 
-      return new Response(fixture.payload, {
-        headers: { "content-type": "application/json" },
-      });
+      return Promise.resolve(
+        new Response(fixture.payload, {
+          headers: { "content-type": "application/json" },
+        }),
+      );
     }
 
     outbound.push(request.url);
-    throw new Error(`Unexpected Worker outbound request: ${request.url}`);
+
+    return Promise.reject(new Error(`Unexpected Worker outbound request: ${request.url}`));
   });
 
   // The first request loads the whole Worker module graph; keep that out of test timeouts.
@@ -38,8 +44,8 @@ beforeAll(async () => {
 
 afterAll(() => {
   vi.restoreAllMocks();
-  expect(outbound).toEqual([]);
-  expect(upstream.size).toBe(0);
+  assert.deepEqual(outbound, []);
+  assert.equal(upstream.size, 0);
 });
 
 // In-isolate requests carry no Host header; reproduce the edge request authority.
@@ -265,7 +271,7 @@ describe("OAuth provider redirect policy", () => {
     });
 
     const listingBody = await listing.text();
-    expect(listing.status, listingBody).toBe(200);
+    expect({ status: listing.status, body: listingBody }).toMatchObject({ status: 200 });
     expect(listingBody).toContain('"standards_audit"');
     expect(upstream.size).toBe(0);
     upstream.set("https://api.github.com/repos/octo/demo", {
@@ -340,7 +346,9 @@ describe("OAuth provider redirect policy", () => {
 function captured(text: string, pattern: RegExp): string {
   const value = pattern.exec(text)?.[1];
 
-  if (!value) throw new Error(`Missing expected OAuth field: ${String(pattern)}`);
+  if (!value) {
+    throw new Error(`Missing expected OAuth field: ${String(pattern)}`);
+  }
 
   return value;
 }

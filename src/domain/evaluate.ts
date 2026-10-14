@@ -12,23 +12,33 @@ const evidenceFrom = (items: readonly GitHubEvidence[]): readonly Evidence[] =>
   items.map((item) => {
     const result = { url: item.url, label: item.label };
 
-    if (item.detail) return { ...result, detail: item.detail };
+    if (item.detail) {
+      return { ...result, detail: item.detail };
+    }
 
     return result;
   });
 
 const observedBoolean = (value: boolean | null, passWhen: boolean): CheckState => {
-  if (value === null) return "unknown";
+  if (value === null) {
+    return "unknown";
+  }
 
   return value === passWhen ? "pass" : "fail";
 };
 
 const settingState = (value: string | null): CheckState => {
-  if (value === null) return "unknown";
+  if (value === null) {
+    return "unknown";
+  }
 
-  if (value === "enabled") return "pass";
+  if (value === "enabled") {
+    return "pass";
+  }
 
-  if (value === "disabled") return "fail";
+  if (value === "disabled") {
+    return "fail";
+  }
 
   return "unknown";
 };

@@ -24,7 +24,9 @@ describe("GitHub API boundaries", () => {
   });
 
   it("turns invalid GitHub payloads into a boundary error", async () => {
-    const client = createGitHubOctokit("test-token", async () => Response.json({ id: "42" }));
+    const client = createGitHubOctokit("test-token", () =>
+      Promise.resolve(Response.json({ id: "42" })),
+    );
 
     await expect(
       octokitGet(client, "GET /items", {}, z.object({ id: z.number() })),
@@ -32,8 +34,8 @@ describe("GitHub API boundaries", () => {
   });
 
   it("uses Octokit pagination while honoring the page cap", async () => {
-    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input));
+    const fetcher = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
       const page = Number(url.searchParams.get("page") ?? "1");
 
       const response = new Response(JSON.stringify([{ id: page }]), {
@@ -45,7 +47,7 @@ describe("GitHub API boundaries", () => {
 
       Object.defineProperty(response, "url", { value: url.toString() });
 
-      return response;
+      return Promise.resolve(response);
     });
 
     const octokit = new Octokit({ request: { fetch: fetcher } });
@@ -62,9 +64,9 @@ describe("GitHub API boundaries", () => {
   it("sends the pinned GitHub REST API version on Octokit requests", async () => {
     let apiVersion: string | null = null;
 
-    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       apiVersion = new Headers(init?.headers).get("x-github-api-version");
-      const url = new URL(String(input));
+      const url = new URL(input instanceof Request ? input.url : input.toString());
 
       const response = new Response(JSON.stringify({ login: "octo" }), {
         headers: { "content-type": "application/json" },
@@ -72,7 +74,7 @@ describe("GitHub API boundaries", () => {
 
       Object.defineProperty(response, "url", { value: url.toString() });
 
-      return response;
+      return Promise.resolve(response);
     });
 
     const octokit = createGitHubOctokit("token", fetcher);

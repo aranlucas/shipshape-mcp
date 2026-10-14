@@ -299,10 +299,12 @@ describe("settings drift evaluation", () => {
     );
 
     expect(drift?.rules).toEqual(["squash", "rebase"]);
+    const expectedMatcher1: unknown = expect.stringContaining("squash, rebase");
+
     expect(drift?.conflicts).toEqual([
       expect.objectContaining({
         setting: "merge.allowSquash",
-        reason: expect.stringContaining("squash, rebase"),
+        reason: expectedMatcher1,
       }),
     ]);
     expect(drift?.remediation[0]?.body).toEqual({ allow_rebase_merge: false });

@@ -1,3 +1,4 @@
+import { hasControlCharacters } from "../control-characters";
 import { z } from "zod";
 
 export const GitHubOwnerInputSchema = z
@@ -21,7 +22,8 @@ export const GitHubRefInputSchema = z
   .max(255)
   .refine(
     (ref) =>
-      !/[\u0000-\u0020\u007F~^:?*[\\]/u.test(ref) &&
+      !hasControlCharacters(ref) &&
+      !/[ ~^:?*[\\]/u.test(ref) &&
       !ref.includes("..") &&
       !ref.includes("@{") &&
       !ref.startsWith("/") &&

@@ -81,16 +81,16 @@ rules:
       ],
     }).rules;
 
-    const repo = (name: string, fork = false, archived = false) => ({
-      name,
-      fork,
-      archived,
-    });
-
     expect(rule && ruleSelects(rule, repo("svc-api"))).toBe(true);
     expect(rule && ruleSelects(rule, repo("svc-sandbox"))).toBe(false);
     expect(rule && ruleSelects(rule, repo("web"))).toBe(false);
     expect(rule && ruleSelects(rule, repo("svc-api", true))).toBe(false);
     expect(rule && ruleSelects(rule, repo("svc-api", false, true))).toBe(false);
   });
+});
+
+const repo = (name: string, fork = false, archived = false) => ({
+  name,
+  fork,
+  archived,
 });

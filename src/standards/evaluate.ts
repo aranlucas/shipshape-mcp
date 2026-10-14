@@ -21,7 +21,10 @@ export interface StandardsSource {
 const join = (path: string, name: string) => (path === "." ? name : `${path}/${name}`);
 
 function json(text: string | null | undefined): ConfigDocument | null {
-  if (text == null) return null;
+  if (text == null) {
+    return null;
+  }
+
   const errors: ParseError[] = [];
   const value: unknown = parseJsonc(text, errors, { allowTrailingComma: true });
 
@@ -40,10 +43,15 @@ export function evaluateStandards(source: StandardsSource) {
     ),
   ];
 
-  for (const pkg of policy.packages)
-    if (!directories.includes(pkg.path)) directories.push(pkg.path);
+  for (const pkg of policy.packages) {
+    if (!directories.includes(pkg.path)) {
+      directories.push(pkg.path);
+    }
+  }
 
-  if (!directories.length) directories.push(".");
+  if (!directories.length) {
+    directories.push(".");
+  }
 
   const workflowPaths = paths.filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path));
 
@@ -88,8 +96,9 @@ export function evaluateStandards(source: StandardsSource) {
             ? "format:check"
             : gate;
 
-        if (z.string().trim().min(1).safeParse(scripts[key]).success)
+        if (z.string().trim().min(1).safeParse(scripts[key]).success) {
           commands[gate] = `npm run ${key}`;
+        }
       }
 
       Object.assign(commands, policy.packages.find((pkg) => pkg.path === path)?.commands);
@@ -102,7 +111,9 @@ export function evaluateStandards(source: StandardsSource) {
         evidencePaths: string[],
         detail: string,
       ) {
-        if (source.policyState === "unknown") state = "unknown";
+        if (source.policyState === "unknown") {
+          state = "unknown";
+        }
 
         const exception =
           source.policyState === "unknown"
@@ -163,9 +174,11 @@ export function evaluateStandards(source: StandardsSource) {
 
       const ancestors = [path];
 
-      while (ancestors.at(-1) !== ".") {
-        const last = ancestors.at(-1)!;
-        ancestors.push(last.includes("/") ? last.slice(0, last.lastIndexOf("/")) : ".");
+      let ancestor = path;
+
+      while (ancestor !== ".") {
+        ancestor = ancestor.includes("/") ? ancestor.slice(0, ancestor.lastIndexOf("/")) : ".";
+        ancestors.push(ancestor);
       }
 
       // Ancestor lockfiles are evidence of a possible workspace, not proof of membership.
@@ -242,7 +255,10 @@ export function evaluateStandards(source: StandardsSource) {
         for (const job of Object.values(object(workflow.value?.jobs))) {
           const j = object(job);
 
-          if (j.if !== undefined || j["continue-on-error"] || j.uses) continue;
+          if (j.if !== undefined || j["continue-on-error"] || j.uses) {
+            continue;
+          }
+
           const steps = Array.isArray(j.steps) ? j.steps : [];
 
           for (const step of steps) {
@@ -252,8 +268,9 @@ export function evaluateStandards(source: StandardsSource) {
               s.if !== undefined ||
               s["continue-on-error"] ||
               !z.string().safeParse(s.run).success
-            )
+            ) {
               continue;
+            }
 
             const run = z.string().parse(s.run);
 
@@ -263,14 +280,21 @@ export function evaluateStandards(source: StandardsSource) {
               object(object(workflow.value?.defaults).run)["working-directory"] ??
               ".";
 
-            if (working !== path) continue;
+            if (working !== path) {
+              continue;
+            }
 
             // Only standalone or &&-joined commands are recognized. Shell wrappers stay unknown.
-            if (/(?:^|\n)\s*(?:if|for|while|case|until|exit|cd|set)\b|[|;`$]/.test(run)) continue;
+            if (/(?:^|\n)\s*(?:if|for|while|case|until|exit|cd|set)\b|[|;`$]/.test(run)) {
+              continue;
+            }
+
             const lines = run.split(/\n|&&/).map((line) => line.trim());
             const expanded = new Set(lines);
 
-            for (const line of lines) expandScript(line, scripts, expanded);
+            for (const line of lines) {
+              expandScript(line, scripts, expanded);
+            }
 
             for (const [gate] of Object.entries(commands).filter(([, command]) =>
               expanded.has(command),
@@ -360,12 +384,20 @@ function expandScript(
   seen = new Set<string>(),
 ): void {
   const match = /^(npm run|pnpm(?: run)?|yarn(?: run)?) ([\w:-]+)$/.exec(line);
-  if (!match || seen.has(match[2]) || seen.size >= 32) return;
+
+  if (!match || seen.has(match[2]) || seen.size >= 32) {
+    return;
+  }
+
   const key = match[2];
   seen.add(key);
   expanded.add(`npm run ${key}`);
   const script = z.string().safeParse(scripts[key]).data;
-  if (script === undefined) return;
+
+  if (script === undefined) {
+    return;
+  }
+
   for (const sub of script.split("&&").map((part) => part.trim())) {
     expanded.add(sub);
     expandScript(sub, scripts, expanded, seen);

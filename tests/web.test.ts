@@ -31,7 +31,9 @@ function cookie(response: Response, name: string): string {
     new RegExp(`${name}=([^;,]+)`, "u"),
   );
 
-  if (!match?.[1]) throw new Error(`Missing ${name} cookie`);
+  if (!match?.[1]) {
+    throw new Error(`Missing ${name} cookie`);
+  }
 
   return match[1];
 }
@@ -79,7 +81,9 @@ function api(path: string, method: string, session: string | null, body?: string
     "Content-Type": "application/json",
   });
 
-  if (session) headers.set("Cookie", session);
+  if (session) {
+    headers.set("Cookie", session);
+  }
 
   return new Request(`${ORIGIN}${path}`, { method, headers, body });
 }
@@ -117,7 +121,9 @@ describe("website companion", () => {
     expect(callback.headers.get("Location")).toBe("/app");
     expect(callback.headers.get("Set-Cookie")).toContain("HttpOnly");
 
-    for (const [, value] of put.mock.calls) expect(value).not.toContain("gho_synthetic_web_token");
+    for (const [, value] of put.mock.calls) {
+      expect(value).not.toContain("gho_synthetic_web_token");
+    }
 
     const page = await webHandler(
       new Request(`${ORIGIN}/app`, { headers: { Cookie: session } }),
@@ -177,8 +183,10 @@ describe("website companion", () => {
     const invalid = await webHandler(api("/app/api/drift", "POST", session, body), env);
 
     expect(invalid.status).toBe(400);
+    const expectedMatcher1: unknown = expect.stringContaining("Invalid settings policy");
+
     expect(await invalid.json()).toMatchObject({
-      error: expect.stringContaining("Invalid settings policy"),
+      error: expectedMatcher1,
     });
   });
 
@@ -187,8 +195,8 @@ describe("website companion", () => {
     const { session } = await signIn(env);
     const authorizations: string[] = [];
 
-    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
       authorizations.push(new Headers(init?.headers).get("authorization") ?? "");
       expect(init?.method ?? "GET").toBe("GET");
 
@@ -199,7 +207,7 @@ describe("website companion", () => {
 
       Object.defineProperty(response, "url", { value: url.href });
 
-      return response;
+      return Promise.resolve(response);
     });
 
     const response = await webHandler(

@@ -115,7 +115,9 @@ export const workflowRun = {
 export function jsonResponse(value: ConfigValue, status = 200, nextUrl?: string): Response {
   const headers = new Headers({ "content-type": "application/json" });
 
-  if (nextUrl) headers.set("link", `<${nextUrl}>; rel="next"`);
+  if (nextUrl) {
+    headers.set("link", `<${nextUrl}>; rel="next"`);
+  }
 
   return new Response(JSON.stringify(value), { status, headers });
 }
@@ -125,13 +127,13 @@ export type Route = (url: URL, init?: RequestInit) => Response;
 export function clientFor(route: Route) {
   const calls: URL[] = [];
 
-  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = new URL(String(input));
+  const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
     calls.push(url);
     const response = route(url, init);
     Object.defineProperty(response, "url", { value: url.toString() });
 
-    return response;
+    return Promise.resolve(response);
   });
 
   return {
@@ -146,18 +148,29 @@ export function clientFor(route: Route) {
 export function fullRoute(url: URL): Response {
   const path = url.pathname;
 
-  if (path === "/repos/octo/demo") return jsonResponse(repository);
+  if (path === "/repos/octo/demo") {
+    return jsonResponse(repository);
+  }
 
-  if (path === "/repos/octo/demo/branches/main/protection") return jsonResponse(protection);
+  if (path === "/repos/octo/demo/branches/main/protection") {
+    return jsonResponse(protection);
+  }
 
-  if (path === "/repos/octo/demo/branches/main") return jsonResponse(branch);
+  if (path === "/repos/octo/demo/branches/main") {
+    return jsonResponse(branch);
+  }
 
-  if (path === "/repos/octo/demo/commits") return jsonResponse([commit]);
+  if (path === "/repos/octo/demo/commits") {
+    return jsonResponse([commit]);
+  }
 
-  if (path === "/repos/octo/demo/pulls") return jsonResponse([pullRequest]);
+  if (path === "/repos/octo/demo/pulls") {
+    return jsonResponse([pullRequest]);
+  }
 
-  if (path === "/repos/octo/demo/actions/runs")
+  if (path === "/repos/octo/demo/actions/runs") {
     return jsonResponse({ total_count: 1, workflow_runs: [workflowRun] });
+  }
 
   if (path === "/repos/octo/demo/code-scanning/alerts") {
     return jsonResponse([

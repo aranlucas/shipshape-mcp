@@ -49,15 +49,21 @@ describe("GitHub collectors", () => {
     };
 
     const { client } = clientFor((url) => {
-      if (url.pathname === "/repos/octo/demo/commits") return jsonResponse([commit]);
+      if (url.pathname === "/repos/octo/demo/commits") {
+        return jsonResponse([commit]);
+      }
 
-      if (url.pathname === "/repos/octo/demo/pulls") return jsonResponse([]);
+      if (url.pathname === "/repos/octo/demo/pulls") {
+        return jsonResponse([]);
+      }
 
-      if (url.pathname === "/repos/octo/demo/actions/runs")
+      if (url.pathname === "/repos/octo/demo/actions/runs") {
         return jsonResponse({
           total_count: 3,
           workflow_runs: [cancelledRun, failedRun, workflowRun],
         });
+      }
+
       throw new Error(`unhandled route: ${url}`);
     });
 
@@ -152,32 +158,6 @@ describe("GitHub collectors", () => {
   });
 
   it("returns partial and unknown feature states for permission-limited endpoints", async () => {
-    const limitedRoute: Route = (url) => {
-      if (url.pathname === "/repos/octo/demo") return jsonResponse(repository);
-
-      if (url.pathname === "/repos/octo/demo/branches/main") return jsonResponse(branch);
-
-      if (url.pathname === "/repos/octo/demo/branches/main/protection")
-        return jsonResponse({ message: "not found" }, 404);
-
-      if (
-        url.pathname === "/repos/octo/demo/code-scanning/alerts" ||
-        url.pathname === "/repos/octo/demo/dependabot/alerts"
-      )
-        return jsonResponse({ message: "forbidden" }, 403);
-
-      if (url.pathname === "/repos/octo/demo/secret-scanning/alerts")
-        return jsonResponse({ message: "not found" }, 404);
-
-      if (url.pathname === "/repos/octo/demo/commits") return jsonResponse([commit]);
-
-      if (url.pathname === "/repos/octo/demo/pulls") return jsonResponse([pullRequest]);
-
-      if (url.pathname === "/repos/octo/demo/actions/runs")
-        return jsonResponse({ total_count: 0, workflow_runs: [] });
-      throw new Error(`unhandled route: ${url}`);
-    };
-
     const { client } = clientFor(limitedRoute);
 
     const branchRisk = await collectBranchRisk(client, coordinates, "main");
@@ -216,8 +196,10 @@ describe("GitHub collectors", () => {
 
   it("rejects private repositories rather than silently including them", async () => {
     const { client } = clientFor((url) => {
-      if (url.pathname === "/repos/octo/demo")
+      if (url.pathname === "/repos/octo/demo") {
         return jsonResponse({ ...repository, private: true });
+      }
+
       throw new Error(`unhandled route: ${url}`);
     });
 
@@ -228,19 +210,26 @@ describe("GitHub collectors", () => {
 
   it("collects security posture without commits, pull requests, or workflow runs", async () => {
     const { client, calls } = clientFor((url) => {
-      if (url.pathname === "/repos/octo/demo") return jsonResponse(repository);
+      if (url.pathname === "/repos/octo/demo") {
+        return jsonResponse(repository);
+      }
 
-      if (url.pathname === "/repos/octo/demo/branches/main") return jsonResponse(branch);
+      if (url.pathname === "/repos/octo/demo/branches/main") {
+        return jsonResponse(branch);
+      }
 
-      if (url.pathname === "/repos/octo/demo/branches/main/protection")
+      if (url.pathname === "/repos/octo/demo/branches/main/protection") {
         return jsonResponse(protection);
+      }
 
       if (
         url.pathname === "/repos/octo/demo/code-scanning/alerts" ||
         url.pathname === "/repos/octo/demo/dependabot/alerts" ||
         url.pathname === "/repos/octo/demo/secret-scanning/alerts"
-      )
+      ) {
         return jsonResponse([]);
+      }
+
       throw new Error(`unhandled route: ${url}`);
     });
 
@@ -344,12 +333,14 @@ describe("observation coverage through collector and report interfaces", () => {
       result.coverage.pullRequests,
       result.coverage.workflowRuns,
     ]) {
+      const expectedMatcher1: unknown = expect.stringContaining("page=2");
+
       expect(scope).toMatchObject({
         status: "truncated",
         fetchedCount: 1,
         countKind: "lower_bound",
         limits: { maxPages: 1, perPage: 1 },
-        nextUrl: expect.stringContaining("page=2"),
+        nextUrl: expectedMatcher1,
       });
     }
 
@@ -370,9 +361,11 @@ describe("observation coverage through collector and report interfaces", () => {
       state: "unknown",
     });
     expect(plan.items[0]?.remediation).toContain("Inspect additional workflow history");
+    const expectedMatcher2: unknown = expect.stringContaining("Workflow run coverage: truncated");
+
     expect(plan.items[0]?.evidence).toContainEqual(
       expect.objectContaining({
-        detail: expect.stringContaining("Workflow run coverage: truncated"),
+        detail: expectedMatcher2,
       }),
     );
     const commitsUrl = calls.find((url) => url.pathname.endsWith("/commits"));
@@ -382,13 +375,16 @@ describe("observation coverage through collector and report interfaces", () => {
 
   it("finds the previously unobserved failing workflow when the next page is scanned", async () => {
     const { client, calls } = clientFor((url) => {
-      if (!url.pathname.endsWith("/actions/runs")) return fullRoute(url);
+      if (!url.pathname.endsWith("/actions/runs")) {
+        return fullRoute(url);
+      }
 
-      if (url.searchParams.get("page") === "2")
+      if (url.searchParams.get("page") === "2") {
         return jsonResponse({
           total_count: 2,
           workflow_runs: [{ ...workflowRun, id: 8, name: "E2E", conclusion: "failure" }],
         });
+      }
 
       return jsonResponse(
         { total_count: 2, workflow_runs: [workflowRun] },
@@ -570,18 +566,20 @@ describe("observation coverage through collector and report interfaces", () => {
 
   it("keeps scan selection truncation distinct from an exhausted owner listing", async () => {
     const { client, calls } = clientFor((url) => {
-      if (url.pathname === "/users/octo/repos")
+      if (url.pathname === "/users/octo/repos") {
         return jsonResponse([
           repository,
           { ...repository, name: "second", full_name: "octo/second" },
         ]);
+      }
 
-      if (url.pathname.endsWith("/actions/runs"))
+      if (url.pathname.endsWith("/actions/runs")) {
         return jsonResponse(
           { total_count: 2, workflow_runs: [workflowRun] },
           200,
           "https://api.github.com/repos/octo/demo/actions/runs?page=2",
         );
+      }
 
       return fullRoute(url);
     });
@@ -593,6 +591,14 @@ describe("observation coverage through collector and report interfaces", () => {
     });
 
     expect(calls.some((url) => url.pathname.includes("second"))).toBe(false);
+
+    const expectedMatcher3: unknown = expect.arrayContaining([
+      expect.objectContaining({
+        ruleId: "delivery.ci-green",
+        state: "unknown",
+      }),
+    ]);
+
     expect(report).toMatchObject({
       status: "partial",
       scannedRepositories: 1,
@@ -610,12 +616,7 @@ describe("observation coverage through collector and report interfaces", () => {
             workflowRuns: { status: "truncated", countKind: "lower_bound" },
           },
           score: {
-            checks: expect.arrayContaining([
-              expect.objectContaining({
-                ruleId: "delivery.ci-green",
-                state: "unknown",
-              }),
-            ]),
+            checks: expectedMatcher3,
           },
         },
       ],
@@ -667,3 +668,42 @@ describe("observation coverage through collector and report interfaces", () => {
     });
   });
 });
+
+const limitedRoute: Route = (url) => {
+  if (url.pathname === "/repos/octo/demo") {
+    return jsonResponse(repository);
+  }
+
+  if (url.pathname === "/repos/octo/demo/branches/main") {
+    return jsonResponse(branch);
+  }
+
+  if (url.pathname === "/repos/octo/demo/branches/main/protection") {
+    return jsonResponse({ message: "not found" }, 404);
+  }
+
+  if (
+    url.pathname === "/repos/octo/demo/code-scanning/alerts" ||
+    url.pathname === "/repos/octo/demo/dependabot/alerts"
+  ) {
+    return jsonResponse({ message: "forbidden" }, 403);
+  }
+
+  if (url.pathname === "/repos/octo/demo/secret-scanning/alerts") {
+    return jsonResponse({ message: "not found" }, 404);
+  }
+
+  if (url.pathname === "/repos/octo/demo/commits") {
+    return jsonResponse([commit]);
+  }
+
+  if (url.pathname === "/repos/octo/demo/pulls") {
+    return jsonResponse([pullRequest]);
+  }
+
+  if (url.pathname === "/repos/octo/demo/actions/runs") {
+    return jsonResponse({ total_count: 0, workflow_runs: [] });
+  }
+
+  throw new Error(`unhandled route: ${url}`);
+};

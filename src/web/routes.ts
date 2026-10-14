@@ -126,13 +126,15 @@ function sameOrigin(request: Request, env: OAuthEnv): boolean {
 }
 
 async function readJson(request: Request): Promise<ConfigValue> {
-  if (!(request.headers.get("Content-Type") ?? "").toLowerCase().startsWith("application/json"))
+  if (!(request.headers.get("Content-Type") ?? "").toLowerCase().startsWith("application/json")) {
     throw new GitHubInputError("Send a JSON request body.");
+  }
 
   const text = await request.text();
 
-  if (text.length > MAX_POLICY_LENGTH + 1_000)
+  if (text.length > MAX_POLICY_LENGTH + 1_000) {
     throw new GitHubInputError("The request body is too large.");
+  }
 
   try {
     return ConfigValueSchema.parse(JSON.parse(text));
@@ -144,33 +146,41 @@ async function readJson(request: Request): Promise<ConfigValue> {
 function errorMessage(cause: unknown) {
   const status = z.object({ status: z.number() }).safeParse(cause).data?.status;
 
-  if (cause instanceof GitHubInputError) return { status: 400, message: cause.message };
+  if (cause instanceof GitHubInputError) {
+    return { status: 400, message: cause.message };
+  }
 
-  if (cause instanceof z.ZodError)
+  if (cause instanceof z.ZodError) {
     return {
       status: 400,
       message: cause.issues[0]?.message ?? "Check the request fields.",
     };
+  }
 
-  if (cause instanceof PrivateRepositoryError)
+  if (cause instanceof PrivateRepositoryError) {
     return {
       status: 400,
       message: "Shipshape only inspects public repositories.",
     };
+  }
 
-  if (status === 401)
+  if (status === 401) {
     return {
       status: 401,
       message: "Your GitHub session expired. Sign in again.",
     };
+  }
 
-  if (status === 404) return { status: 404, message: "That GitHub owner was not found." };
+  if (status === 404) {
+    return { status: 404, message: "That GitHub owner was not found." };
+  }
 
-  if (status === 403)
+  if (status === 403) {
     return {
       status: 502,
       message: "GitHub denied the request or the rate limit was reached.",
     };
+  }
 
   return {
     status: 502,
@@ -260,7 +270,9 @@ async function driftApi(request: Request, session: WebSession): Promise<Response
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const send = (event: ConfigValue) => {
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
 
           try {
             controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
@@ -290,7 +302,9 @@ async function driftApi(request: Request, session: WebSession): Promise<Response
             );
           })
           .finally(() => {
-            if (!cancelled) controller.close();
+            if (!cancelled) {
+              controller.close();
+            }
           });
       },
       cancel() {
@@ -307,7 +321,9 @@ async function driftApi(request: Request, session: WebSession): Promise<Response
 }
 
 async function rulesApi(request: Request, env: OAuthEnv, session: WebSession): Promise<Response> {
-  if (request.method === "GET") return json({ policy: await env.OAUTH_KV.get(rulesKey(session)) });
+  if (request.method === "GET") {
+    return json({ policy: await env.OAUTH_KV.get(rulesKey(session)) });
+  }
 
   const { policy } = RulesRequestSchema.parse(await readJson(request));
   parseDriftPolicy(policy);
@@ -320,20 +336,27 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
   const { pathname } = new URL(request.url);
 
   if (pathname === APP_SCRIPT_PATH) {
-    if (request.method !== "GET") return methodNotAllowed();
+    if (request.method !== "GET") {
+      return methodNotAllowed();
+    }
+
     const headers = appHeaders("text/javascript; charset=utf-8");
 
     return new Response(APP_SCRIPT, { status: 200, headers });
   }
 
   if (pathname === "/app/login") {
-    if (request.method !== "GET") return methodNotAllowed();
+    if (request.method !== "GET") {
+      return methodNotAllowed();
+    }
 
     return startLogin(request, env);
   }
 
   if (pathname === WEB_CALLBACK_PATH || pathname === LEGACY_WEB_CALLBACK_PATH) {
-    if (request.method !== "GET") return methodNotAllowed();
+    if (request.method !== "GET") {
+      return methodNotAllowed();
+    }
 
     return finishLogin(request, env);
   }
@@ -341,15 +364,22 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
   const session = await readSession(env.OAUTH_KV, request);
 
   if (pathname === APP_PATH) {
-    if (request.method !== "GET") return methodNotAllowed();
+    if (request.method !== "GET") {
+      return methodNotAllowed();
+    }
 
     return html(session ? renderAppPage(session.login) : renderSignInPage());
   }
 
   if (pathname === "/app/logout") {
-    if (request.method !== "POST") return methodNotAllowed("POST");
+    if (request.method !== "POST") {
+      return methodNotAllowed("POST");
+    }
 
-    if (!sameOrigin(request, env)) return jsonError(403, "Cross-origin request refused.");
+    if (!sameOrigin(request, env)) {
+      return jsonError(403, "Cross-origin request refused.");
+    }
+
     await deleteSession(env.OAUTH_KV, request);
     const response = redirect(APP_PATH, 303);
     appendSetCookie(response.headers, clearCookie(SESSION_COOKIE_NAME));
@@ -360,16 +390,23 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
   const api =
     pathname === "/app/api/drift" ? "drift" : pathname === "/app/api/rules" ? "rules" : null;
 
-  if (!api) return notFoundResponse();
+  if (!api) {
+    return notFoundResponse();
+  }
 
   const allowed = api === "drift" ? ["POST"] : ["GET", "PUT"];
 
-  if (!allowed.includes(request.method)) return methodNotAllowed(allowed.join(", "));
+  if (!allowed.includes(request.method)) {
+    return methodNotAllowed(allowed.join(", "));
+  }
 
-  if (request.method !== "GET" && !sameOrigin(request, env))
+  if (request.method !== "GET" && !sameOrigin(request, env)) {
     return jsonError(403, "Cross-origin request refused.");
+  }
 
-  if (!session) return jsonError(401, "Sign in with GitHub to continue.");
+  if (!session) {
+    return jsonError(401, "Sign in with GitHub to continue.");
+  }
 
   try {
     return api === "drift"

@@ -32,7 +32,9 @@ const client: ClientInfo = {
 function hiddenValue(html: string, name: string): string {
   const match = html.match(new RegExp(`name="${name}" value="([^"]+)"`, "u"));
 
-  if (!match?.[1]) throw new Error(`Missing ${name} field`);
+  if (!match?.[1]) {
+    throw new Error(`Missing ${name} field`);
+  }
 
   return match[1];
 }
@@ -41,7 +43,9 @@ function cookieValue(response: Response, name: string): string {
   const header = response.headers.get("Set-Cookie") ?? "";
   const match = header.match(new RegExp(`${name}=([^;,]+)`, "u"));
 
-  if (!match?.[1]) throw new Error(`Missing ${name} cookie`);
+  if (!match?.[1]) {
+    throw new Error(`Missing ${name} cookie`);
+  }
 
   return match[1];
 }
@@ -52,13 +56,13 @@ afterEach(() => {
 
 describe("OAuth proxy flow", () => {
   it("requires local consent, binds callback state, and grants only the MCP read scope", async () => {
-    const completeAuthorization = vi.fn(async () => ({
+    const completeAuthorization = vi.fn().mockResolvedValue({
       redirectTo: "https://client.example/callback?code=provider-code",
-    }));
+    });
 
     const helpers = {
-      parseAuthRequest: vi.fn(async () => requestDetails),
-      lookupClient: vi.fn(async () => client),
+      parseAuthRequest: vi.fn().mockResolvedValue(requestDetails),
+      lookupClient: vi.fn().mockResolvedValue(client),
       completeAuthorization,
     } satisfies OAuthEnv["OAUTH_PROVIDER"];
 
@@ -161,17 +165,16 @@ describe("OAuth proxy flow", () => {
     const env: OAuthEnv = {
       OAUTH_KV: memoryKv(),
       OAUTH_PROVIDER: {
-        parseAuthRequest: vi.fn(async () => ({
+        parseAuthRequest: vi.fn().mockResolvedValue({
           ...requestDetails,
           redirectUri,
-        })),
-        lookupClient: vi.fn(async () => ({
+        }),
+        lookupClient: vi.fn().mockResolvedValue({
           ...client,
           redirectUris: [redirectUri],
-        })),
-        completeAuthorization: async () => {
-          throw new Error("Unexpected authorization completion");
-        },
+        }),
+        completeAuthorization: () =>
+          Promise.reject(new Error("Unexpected authorization completion")),
       } satisfies OAuthEnv["OAUTH_PROVIDER"],
       GITHUB_CLIENT_ID: "github-client-id",
       GITHUB_CLIENT_SECRET: "github-client-secret",
@@ -217,11 +220,10 @@ describe("OAuth proxy flow", () => {
     const env: OAuthEnv = {
       OAUTH_KV: memoryKv(),
       OAUTH_PROVIDER: {
-        parseAuthRequest: vi.fn(async () => requestDetails),
-        lookupClient: vi.fn(async () => client),
-        completeAuthorization: async () => {
-          throw new Error("Unexpected authorization completion");
-        },
+        parseAuthRequest: vi.fn().mockResolvedValue(requestDetails),
+        lookupClient: vi.fn().mockResolvedValue(client),
+        completeAuthorization: () =>
+          Promise.reject(new Error("Unexpected authorization completion")),
       } satisfies OAuthEnv["OAUTH_PROVIDER"],
       GITHUB_CLIENT_ID: "github-client-id",
       GITHUB_CLIENT_SECRET: "github-client-secret",
@@ -262,11 +264,10 @@ describe("OAuth proxy flow", () => {
     const env: OAuthEnv = {
       OAUTH_KV: memoryKv(),
       OAUTH_PROVIDER: {
-        parseAuthRequest: vi.fn(async () => requestDetails),
-        lookupClient: vi.fn(async () => client),
-        completeAuthorization: async () => {
-          throw new Error("Unexpected authorization completion");
-        },
+        parseAuthRequest: vi.fn().mockResolvedValue(requestDetails),
+        lookupClient: vi.fn().mockResolvedValue(client),
+        completeAuthorization: () =>
+          Promise.reject(new Error("Unexpected authorization completion")),
       } satisfies OAuthEnv["OAUTH_PROVIDER"],
       GITHUB_CLIENT_ID: "github-client-id",
       GITHUB_CLIENT_SECRET: "github-client-secret",
@@ -296,10 +297,10 @@ describe("OAuth proxy flow", () => {
     let fetchSignal: AbortSignal | undefined;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
         fetchSignal = init?.signal ?? undefined;
 
-        return new Response("ok");
+        return Promise.resolve(new Response("ok"));
       }),
     );
 

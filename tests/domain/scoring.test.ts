@@ -161,12 +161,14 @@ describe("normalizeChecks", () => {
       remediation: "",
     };
 
+    const expectedMatcher1: unknown = expect.stringContaining("README");
+
     expect(normalizeChecks([pass, spoofedFail])).toEqual([
       {
         ...pass,
         state: "fail",
         confidence: "low",
-        remediation: expect.stringContaining("README"),
+        remediation: expectedMatcher1,
       },
     ]);
     expect(normalizeChecks([spoofedFail, pass])).toEqual(normalizeChecks([pass, spoofedFail]));

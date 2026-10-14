@@ -53,12 +53,14 @@ describe("standards audit", () => {
       "strict",
       "ci-pr",
       "ci-gates",
-    ])
+    ]) {
       expect(state(source, rule)).toBe("pass");
+    }
+
     expect(evaluateStandards(source).limitations[0]).toContain("never executed");
   });
   it("does not mistake echo, comments, or disabled steps for CI wiring", () => {
-    for (const run of ["echo pnpm check", "# pnpm check", "pnpm check || true"])
+    for (const run of ["echo pnpm check", "# pnpm check", "pnpm check || true"]) {
       expect(
         state(
           fixture({
@@ -68,6 +70,8 @@ describe("standards audit", () => {
           "ci-gates",
         ),
       ).toBe("unknown");
+    }
+
     expect(
       state(
         fixture({
@@ -188,8 +192,9 @@ describe("shared policy boundary", () => {
       "baseline: shipshape/recommended@1\npackages:\n - path: ../bad\n   commands: {}",
       "baseline: shipshape/recommended@1\npackages:\n - path: .\n   commands: {}\n - path: .\n   commands: {}",
       "baseline: shipshape/recommended@1\nextends: {owner: octo, repo: demo, ref: main, path: policy.yml}",
-    ])
+    ]) {
       expect(() => parsePolicy(text)).toThrow(Error);
+    }
   });
   it("merges commands and exceptions by exact package/rule identity", () => {
     const shared = policy();
