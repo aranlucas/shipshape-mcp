@@ -267,7 +267,7 @@ export function createPortfolioServer(githubClient: () => GitHubOctokit): McpSer
     {
       title: "Shared engineering standards",
       description:
-        "Audit a public repository against a versioned shared baseline, with Node, Go, and Python package discovery and static configuration evidence. Commands are never executed.",
+        "Audit a public repository against a versioned shared baseline, with Node, Go, and Python package discovery, optional Oxforge convergence checks, and static configuration evidence. Commands are never executed.",
       inputSchema: CoordinatesSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },

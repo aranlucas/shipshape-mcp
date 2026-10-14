@@ -1,3 +1,5 @@
+import { evaluateConvergence } from "./convergence";
+import { lintConfigPath } from "./lint-config";
 import { z } from "zod";
 import { ConfigObjectSchema, configObject as object, type ConfigDocument } from "./config-value";
 import { parse as parseJsonc, type ParseError } from "jsonc-parser";
@@ -12,6 +14,8 @@ export interface StandardsSource {
   /** All discovered paths. Null contents mean unreadable or outside the read budget. */
   files: Record<string, string | null>;
   complete: boolean;
+  /** Symlinks are never read and do not participate in baseline discovery. */
+  unreadablePaths?: readonly string[];
   policy: Policy;
   policyState: "pass" | "fail" | "unknown";
   policyEvidence?: string;
@@ -331,8 +335,15 @@ export function evaluateStandards(source: StandardsSource) {
         "Dependency update configuration presence only; ecosystem coverage and scheduler execution require verification.",
       );
 
+      for (const finding of evaluateConvergence(source, path)) {
+        add(finding.rule, finding.state, finding.paths, finding.detail);
+      }
+
+      const packagePlan = policy.convergence ? { plan: buildActionPlan(checks) } : undefined;
+
       return {
         path,
+        ...packagePlan,
         profiles: [node ? "node" : null, go ? "go" : null, python ? "python" : null].filter(
           Boolean,
         ),
@@ -347,15 +358,23 @@ export function evaluateStandards(source: StandardsSource) {
   const complete =
     source.complete &&
     directories.length <= 20 &&
+    !(policy.convergence && source.unreadablePaths?.some(lintConfigPath)) &&
     workflows.every(({ value }) => value !== null) &&
     paths
-      .filter((name) => /(^|\/)(package.json|tsconfig.json|go.mod|pyproject.toml)$/.test(name))
+      .filter(
+        (name) =>
+          /(^|\/)(package.json|tsconfig.json|go.mod|pyproject.toml)$/.test(name) ||
+          (policy.convergence !== undefined && lintConfigPath(name)),
+      )
       .every((name) => files[name] !== null);
+
+  const convergence = policy.convergence ? { convergence: policy.convergence } : undefined;
 
   return {
     repository: source.repository,
     commit: source.commit,
     baseline: policy.baseline,
+    ...convergence,
     policyEvidence: source.policyEvidence,
     collectedAt: source.collectedAt,
     complete,

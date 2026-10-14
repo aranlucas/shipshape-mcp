@@ -15,6 +15,9 @@ export const RULE_NAMES = [
   "ci-pr",
   "ci-gates",
   "updates",
+  "oxforge-version",
+  "oxforge-lint",
+  "oxforge-legacy",
 ] as const;
 
 export const PackagePathSchema = z
@@ -41,6 +44,13 @@ export const CommandsSchema = z
 export const PolicySchema = z
   .object({
     baseline: z.literal("shipshape/recommended@1"),
+    convergence: z
+      .object({
+        profile: z.literal("oxforge@1"),
+        version: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
+      })
+      .strict()
+      .optional(),
     extends: RepositoryCoordinatesSchema.extend({
       ref: z.string().regex(/^[a-f0-9]{40}$/),
       path: FilePathSchema,
@@ -133,6 +143,7 @@ export function mergePolicy(shared: Policy, local: Policy): Policy {
 
   return PolicySchema.parse({
     ...local,
+    convergence: local.convergence ?? shared.convergence,
     packages: [...packages.values()],
     exceptions: [...exceptions.values()],
   });
