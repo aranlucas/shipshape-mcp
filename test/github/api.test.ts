@@ -12,6 +12,36 @@ import {
 import { GitHubRefInputSchema, RepositoryCoordinatesSchema } from "@/github/schemas";
 
 describe("GitHub API boundaries", () => {
+  it("recovers a transient 500 with bounded retries", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ message: "temporary failure" }, { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ id: 42 }));
+
+    const client = createGitHubOctokit("token", fetcher, { retry: "bounded" });
+
+    await expect(
+      octokitGet(client, "GET /items", {}, z.object({ id: z.number() })),
+    ).resolves.toMatchObject({ data: { id: 42 } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([500, 403, 404])(
+    "bounds retries for HTTP %s without retrying permission or feature errors",
+    async (status) => {
+      const fetcher = vi.fn(() =>
+        Promise.resolve(Response.json({ message: "unavailable" }, { status })),
+      );
+
+      const client = createGitHubOctokit("token", fetcher, { retry: "bounded" });
+
+      await expect(
+        octokitGet(client, "GET /items", {}, z.object({ id: z.number() })),
+      ).rejects.toMatchObject({ status });
+      expect(fetcher).toHaveBeenCalledTimes(status === 500 ? 3 : 1);
+    },
+  );
+
   it("uses shared Zod schemas for repository coordinates and refs", () => {
     expect(RepositoryCoordinatesSchema.parse({ owner: "octo", repo: "demo.js" })).toEqual({
       owner: "octo",

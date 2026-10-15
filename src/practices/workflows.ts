@@ -13,38 +13,38 @@ import { parseYaml } from "./yaml";
 export type WorkflowCheck = "least-privilege-token" | "pinned-actions" | "dependency-review";
 
 export interface WorkflowInspection {
-  readonly parsed: ConfigDocument | null;
-  readonly path: string;
+  readonly state: boolean | "unknown";
+  readonly actual?: string;
+  readonly detail: string | null;
 }
 
-function workflowUses(value: ConfigValue | undefined, uses: string[] = []): string[] {
-  const list = z.array(ConfigValueSchema).safeParse(value).data;
+interface WorkflowUse {
+  reference: string;
+  location: string;
+}
 
-  if (list) {
-    for (const item of list) {
-      workflowUses(item, uses);
-    }
+function stepUses(value: ConfigValue | undefined, location: string): WorkflowUse[] {
+  const steps = z.array(ConfigValueSchema).safeParse(value).data ?? [];
 
-    return uses;
-  }
+  return steps.flatMap((item, index) => {
+    const step = object(item);
+    const stepLocation = `${location}.${index}`;
+    const reference = z.string().safeParse(step.uses).data;
+    const uses = reference ? [{ reference, location: `${stepLocation}.uses` }] : [];
 
-  const record = ConfigObjectSchema.safeParse(value).data;
+    return [...uses, ...stepUses(step.parallel, `${stepLocation}.parallel`)];
+  });
+}
 
-  if (!record) {
-    return uses;
-  }
+function workflowUses(workflow: ConfigDocument): WorkflowUse[] {
+  return Object.entries(object(workflow.jobs)).flatMap(([name, value]) => {
+    const job = object(value);
+    const location = `jobs.${name}`;
+    const reference = z.string().safeParse(job.uses).data;
+    const uses = reference ? [{ reference, location: `${location}.uses` }] : [];
 
-  for (const [key, child] of Object.entries(record)) {
-    const use = z.string().safeParse(child).data;
-
-    if (key === "uses" && use) {
-      uses.push(use);
-    } else {
-      workflowUses(child, uses);
-    }
-  }
-
-  return uses;
+    return [...uses, ...stepUses(job.steps, `${location}.steps`)];
+  });
 }
 
 function workflowTriggersPullRequest(workflow: ConfigDocument): boolean {
@@ -108,26 +108,26 @@ function permissionBlocksAreMinimal(workflow: ConfigDocument): boolean {
   });
 }
 
+function useIsPinned(reference: string): boolean {
+  if (reference.startsWith("./") || reference.startsWith("docker://")) {
+    return true;
+  }
+
+  const separator = reference.lastIndexOf("@");
+
+  return separator >= 0 && /^[a-f0-9]{40}$/iu.test(reference.slice(separator + 1));
+}
+
 function actionUsesArePinned(workflow: ConfigDocument): boolean {
-  return workflowUses(workflow).every((use) => {
-    if (use.startsWith("./") || use.startsWith("docker://")) {
-      return true;
-    }
-
-    if (/\.github\/workflows\/[^/]+\.ya?ml@[^@]+$/iu.test(use)) {
-      return true;
-    }
-
-    const separator = use.lastIndexOf("@");
-
-    return separator >= 0 && /^[a-f0-9]{40}$/iu.test(use.slice(separator + 1));
-  });
+  return workflowUses(workflow).every((use) => useIsPinned(use.reference));
 }
 
 function hasDependencyReview(workflow: ConfigDocument): boolean {
   return (
     workflowTriggersPullRequest(workflow) &&
-    workflowUses(workflow).some((use) => /^actions\/dependency-review-action@/iu.test(use))
+    workflowUses(workflow).some((use) =>
+      /^actions\/dependency-review-action@/iu.test(use.reference),
+    )
   );
 }
 
@@ -139,22 +139,44 @@ export function parseWorkflow(content: string): ConfigDocument | null {
   }
 }
 
-export function inspectWorkflow(content: string, check: WorkflowCheck): boolean | "unknown" {
+export function inspectWorkflow(content: string, check: WorkflowCheck): WorkflowInspection {
   const parsed = parseWorkflow(content);
 
   if (!parsed) {
-    return "unknown";
-  }
-
-  if (check === "least-privilege-token") {
-    return permissionBlocksAreMinimal(parsed);
+    return { state: "unknown", detail: "Workflow could not be parsed." };
   }
 
   if (check === "pinned-actions") {
-    return actionUsesArePinned(parsed);
+    const unpinned = workflowUses(parsed).filter((use) => !useIsPinned(use.reference));
+
+    return unpinned.length
+      ? {
+          state: false,
+          actual: unpinned.map((use) => use.reference).join("\n"),
+          detail: `Pin remote Actions and reusable workflows to full commit SHAs: ${unpinned.map((use) => `${use.location}: ${use.reference}`).join("; ")}`,
+        }
+      : { state: true, detail: null };
   }
 
-  return hasDependencyReview(parsed);
+  if (check === "least-privilege-token") {
+    const state = permissionBlocksAreMinimal(parsed);
+
+    return {
+      state,
+      detail: state
+        ? null
+        : "Declare read/none token permissions at workflow or every job level; write scopes and read-all/write-all are not accepted.",
+    };
+  }
+
+  const state = hasDependencyReview(parsed);
+
+  return {
+    state,
+    detail: state
+      ? null
+      : "No dependency-review Action triggered by pull_request was found in this workflow.",
+  };
 }
 
 export { actionUsesArePinned, hasDependencyReview, permissionBlocksAreMinimal };

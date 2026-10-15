@@ -296,6 +296,51 @@ describe("yaml-path checks", () => {
 describe("dependency checks", () => {
   const check = { type: "dependency", file: "package.json", name: "zod", version: "4.6.7" };
 
+  it.each(["0.2.2", "^0.2.2", "~0.2.2", "catalog:", "workspace:*"])(
+    "accepts %s when only dependency presence is required",
+    (version) => {
+      const output = result(
+        { type: "dependency", name: "@aranlucas/oxforge" },
+        makeSnapshot({
+          files: {
+            "package.json": JSON.stringify({ devDependencies: { "@aranlucas/oxforge": version } }),
+          },
+        }),
+      );
+
+      expect(output).toMatchObject({
+        state: "pass",
+        label: "@aranlucas/oxforge declared",
+        actual: version,
+        detail: null,
+      });
+    },
+  );
+
+  it("fails a presence check for missing or invalid declarations and preserves read errors", () => {
+    const presence = { type: "dependency", name: "@aranlucas/oxforge" };
+
+    for (const declaration of [undefined, null, false, 2, "", "  "]) {
+      expect(
+        result(
+          presence,
+          makeSnapshot({
+            files: {
+              "package.json": JSON.stringify({
+                dependencies: { "@aranlucas/oxforge": declaration },
+              }),
+            },
+          }),
+        ),
+      ).toMatchObject({ state: "fail" });
+    }
+
+    expect(result(presence)).toMatchObject({ state: "fail" });
+    expect(
+      result(presence, makeSnapshot({ files: { "package.json": { error: "403" } } })),
+    ).toMatchObject({ state: "unknown", detail: "403" });
+  });
+
   it.each(["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"])(
     "passes for an exact %s declaration",
     (section) => {
@@ -442,21 +487,88 @@ describe("workflow checks", () => {
     },
   );
 
-  it("fails when any workflow violates the selected helper", () => {
+  it("reports the unpinned Action and its property location", () => {
+    const output = result(
+      { type: "workflow", check: "pinned-actions" },
+      makeSnapshot({
+        paths: Object.keys(files),
+        files: {
+          ".github/workflows/ci.yml": workflow.replace(
+            "@0123456789abcdef0123456789abcdef01234567",
+            "@v4",
+          ),
+        },
+      }),
+    );
+
+    expect(output).toMatchObject({
+      state: "fail",
+      path: ".github/workflows/ci.yml",
+      actual: "actions/checkout@v4",
+    });
+    expect(output.detail).toContain("jobs.test.steps.0.uses");
+  });
+
+  it("requires remote reusable workflows to be pinned too", () => {
     expect(
       result(
         { type: "workflow", check: "pinned-actions" },
         makeSnapshot({
-          paths: Object.keys(files),
+          paths: [".github/workflows/ci.yml"],
           files: {
-            ".github/workflows/ci.yml": workflow.replace(
-              "@0123456789abcdef0123456789abcdef01234567",
-              "@v4",
+            ".github/workflows/ci.yml":
+              "jobs:\n  ci:\n    uses: octo/shared/.github/workflows/ci.yml@main\n",
+          },
+        }),
+      ),
+    ).toMatchObject({ state: "fail", actual: "octo/shared/.github/workflows/ci.yml@main" });
+  });
+
+  it("ignores uses keys in action inputs rather than treating them as actions", () => {
+    expect(
+      result(
+        { type: "workflow", check: "pinned-actions" },
+        makeSnapshot({
+          paths: [".github/workflows/ci.yml"],
+          files: {
+            ".github/workflows/ci.yml": `${workflow}        with:\n          uses: some-input\n`,
+          },
+        }),
+      ),
+    ).toMatchObject({ state: "pass" });
+  });
+
+  it("passes dependency review when one workflow provides it and other workflows do not", () => {
+    expect(
+      result(
+        { type: "workflow", check: "dependency-review" },
+        makeSnapshot({
+          paths: [".github/workflows/ci.yml", ".github/workflows/review.yml"],
+          files: {
+            ".github/workflows/ci.yml": workflow,
+            ".github/workflows/review.yml": workflow.replace(
+              "actions/checkout",
+              "actions/dependency-review-action",
             ),
           },
         }),
       ),
-    ).toMatchObject({ state: "fail" });
+    ).toMatchObject({ state: "pass", path: ".github/workflows/review.yml" });
+  });
+
+  it("keeps dependency review unknown when an unreadable workflow might provide it", () => {
+    expect(
+      result(
+        { type: "workflow", check: "dependency-review" },
+        makeSnapshot({
+          paths: [".github/workflows/ci.yml", ".github/workflows/review.yml"],
+          files: {
+            ".github/workflows/ci.yml": workflow,
+            ".github/workflows/review.yml": { error: "GitHub returned HTTP 500" },
+          },
+        }),
+      ),
+    ).toMatchObject({ state: "unknown", path: ".github/workflows/review.yml" });
   });
 
   it("is unknown when the tree is unreadable or a workflow cannot be read", () => {

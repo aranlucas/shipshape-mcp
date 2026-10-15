@@ -1,7 +1,7 @@
 version: 1
 id: dependabot-automerge
-title: Dependabot auto-merge workflow
-summary: Provide a workflow that merges Dependabot pull requests after CI passes.
+title: Dependabot auto-merge workflow file
+summary: Provide a Dependabot auto-merge workflow file; merge behavior requires separate review.
 kind: files
 appliesTo:
   languages: [TypeScript, JavaScript]

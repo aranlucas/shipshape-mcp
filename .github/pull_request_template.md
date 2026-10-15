@@ -2,13 +2,13 @@
 
 <!-- Describe the maintainer outcome, not only the implementation. -->
 
-## Evidence and scoring
+## Evidence and results
 
-<!-- List affected stable rule IDs, evidence sources, and score impact. -->
+<!-- List affected stable rule IDs, evidence sources, and result states. -->
 
 ## Safety
 
-- [ ] GitHub access remains read-only and public-repository-only.
+- [ ] Repository evaluation stays read-only within allowed GitHub App installations.
 - [ ] Permission failures remain `unknown`, not `pass`.
 - [ ] No token, OAuth props, or response bodies are logged.
 - [ ] New network work is bounded by timeout, size, page, and concurrency limits.

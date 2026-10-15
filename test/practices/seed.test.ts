@@ -121,6 +121,24 @@ function repositorySnapshot(): RepoSnapshot {
 }
 
 describe("seed practice catalog", () => {
+  it("accepts an Oxforge range in the shipped presence-only dependency check", () => {
+    const seed = seedPractices().find((item) => item.parsed.id === "oxforge-lint-format");
+    const dependency = seed?.parsed.checks.find((check) => check.type === "dependency");
+
+    if (dependency?.type !== "dependency") {
+      throw new Error("Expected the Oxforge dependency seed check");
+    }
+
+    const snapshot = repositorySnapshot();
+    snapshot.files.set(
+      "package.json",
+      JSON.stringify({ devDependencies: { "@aranlucas/oxforge": "^0.2.2" } }),
+    );
+
+    expect(dependency.version).toBeUndefined();
+    expect(runCheck(dependency, snapshot, {})).toMatchObject({ state: "pass", actual: "^0.2.2" });
+  });
+
   it("contains eight folder-matching, parseable practice definitions and their file sources", () => {
     const seeds = seedPractices();
 

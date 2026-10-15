@@ -83,7 +83,7 @@ export const CheckSchema = z.discriminatedUnion("type", [
       type: z.literal("dependency"),
       file: RepoPath.default("package.json"),
       name: z.string().min(1).max(214),
-      version: z.string().min(1).max(100),
+      version: z.string().min(1).max(100).optional(),
     })
     .strict(),
   z
@@ -246,7 +246,9 @@ export function checkLabel(check: Check): string {
     case "yaml-path":
       return `${check.file} ${check.path} = ${String(check.equals ?? check.exists)}`;
     case "dependency":
-      return `${check.name} declared at ${check.version}`;
+      return check.version === undefined
+        ? `${check.name} declared`
+        : `${check.name} declared at ${check.version}`;
     case "setting":
       return `${check.key} = ${String(check.equals)}`;
     case "branch-protection":

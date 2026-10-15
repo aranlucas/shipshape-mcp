@@ -1,6 +1,11 @@
 import { z } from "zod";
 import type { AppEnv } from "../env";
-import { GITHUB_API_VERSION, createGitHubOctokit, type GitHubOctokit } from "./client";
+import {
+  GITHUB_API_VERSION,
+  createGitHubOctokit,
+  type GitHubClientOptions,
+  type GitHubOctokit,
+} from "./client";
 
 const encoder = new TextEncoder();
 
@@ -23,10 +28,6 @@ export class InstallationUnavailableError extends Error {
     super(`GitHub installation ${installationId} is unavailable`);
     this.name = "InstallationUnavailableError";
   }
-}
-
-interface InstallationClientOptions {
-  retry?: boolean;
 }
 
 export async function createAppJwt(
@@ -111,7 +112,7 @@ export async function installationToken(env: AppEnv, installationId: number): Pr
 export async function installationClient(
   env: AppEnv,
   installationId: number,
-  options: InstallationClientOptions = {},
+  options: GitHubClientOptions = {},
 ): Promise<GitHubOctokit> {
   return createGitHubOctokit(await installationToken(env, installationId), undefined, options);
 }

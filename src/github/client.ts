@@ -35,8 +35,8 @@ const GITHUB_USER_AGENT = "shipshape-mcp-readiness-engine";
 
 const GITHUB_REQUEST_TIMEOUT_MS = 8_000;
 
-interface GitHubClientOptions {
-  retry?: boolean;
+export interface GitHubClientOptions {
+  retry?: boolean | "bounded";
 }
 
 interface PaginatedResponseData {
@@ -64,6 +64,14 @@ export function createGitHubOctokit(
 
   if (clientOptions.retry === false) {
     configuration.retry = { enabled: false };
+    configuration.throttle = { enabled: false };
+  } else if (clientOptions.retry === "bounded") {
+    // Evaluations retry transient server/transport failures without long throttling waits.
+    configuration.retry = {
+      retries: 2,
+      retryAfterBaseValue: 250,
+      doNotRetry: Array.from({ length: 100 }, (_, index) => 400 + index),
+    };
     configuration.throttle = { enabled: false };
   }
 

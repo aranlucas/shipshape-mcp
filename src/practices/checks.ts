@@ -420,7 +420,7 @@ export function runCheck(
     const declarations = sections.flatMap((section) => {
       const values = z.record(z.string(), z.unknown()).safeParse(manifest?.[section]).data;
       const value = values?.[check.name];
-      return typeof value === "string" ? [value] : [];
+      return typeof value === "string" && value.trim().length > 0 ? [value] : [];
     });
 
     if (!declarations.length) {
@@ -428,6 +428,10 @@ export function runCheck(
     }
 
     const actual = declarations.find((version) => version === check.version) ?? declarations[0];
+
+    if (check.version === undefined) {
+      return result(check, "pass", { path: check.file, actual });
+    }
 
     if (!exactDependency(actual)) {
       return result(check, "unknown", {
@@ -511,16 +515,28 @@ export function runCheck(
       };
     }
 
-    const state = inspectWorkflow(value, check.check);
-    return { path, state, detail: state === "unknown" ? "Workflow could not be parsed." : null };
+    return { path, ...inspectWorkflow(value, check.check) };
   });
   const failed = states.find((item) => item.state === false);
   const unknown = states.find((item) => item.state === "unknown");
 
+  if (check.check === "dependency-review") {
+    const passed = states.find((item) => item.state === true);
+
+    if (passed) {
+      return result(check, "pass", { path: passed.path });
+    }
+
+    if (unknown) {
+      return result(check, "unknown", { path: unknown.path, detail: unknown.detail });
+    }
+  }
+
   if (failed) {
     return result(check, "fail", {
       path: failed.path,
-      detail: "A workflow failed the selected inspection.",
+      actual: "actual" in failed ? failed.actual : undefined,
+      detail: failed.detail,
     });
   }
 

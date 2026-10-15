@@ -10,7 +10,6 @@ checks:
   - type: dependency
     file: package.json
     name: "@aranlucas/oxforge"
-    version: "0.2.2"
   - type: file-contains
     path: .oxlintrc.json
     text: "@aranlucas/oxforge/configs/recommended.json"
