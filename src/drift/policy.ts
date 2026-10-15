@@ -90,6 +90,21 @@ export const BranchProtectionSettingsSchema = z
   })
   .strict();
 
+/** Branch-protection identifiers shared by drift policies and practice checks. */
+export const BRANCH_PROTECTION_KEYS = [
+  "enforceAdmins",
+  "requiredConversationResolution",
+  "requiredLinearHistory",
+  "requiredSignatures",
+  "allowForcePushes",
+  "allowDeletions",
+  "requireCodeOwnerReviews",
+  "requireLastPushApproval",
+  "dismissStaleReviews",
+  "requiredApprovingReviews",
+  "requiredStatusChecks",
+] as const;
+
 export const DriftRuleSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u, "Use a lowercase kebab-case id"),
