@@ -79,6 +79,7 @@ function testEnv(): AppEnv {
     GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
     OWNER_GITHUB_ID: "1001",
     CATALOG_REPO: catalogRepo,
+    ALLOWED_INSTALLATION_ACCOUNTS: "aranlucas",
   };
 }
 

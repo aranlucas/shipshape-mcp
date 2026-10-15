@@ -30,6 +30,7 @@ export default defineConfig({
                 GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
                 OWNER_GITHUB_ID: "1001",
                 CATALOG_REPO: "aranlucas/practices",
+                ALLOWED_INSTALLATION_ACCOUNTS: "aranlucas,sidequest-labs",
                 COOKIE_ENCRYPTION_KEY: "synthetic-cookie-key",
                 TEST_MIGRATIONS: JSON.stringify(testMigrations),
               },

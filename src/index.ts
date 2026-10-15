@@ -7,7 +7,7 @@ import { z } from "zod";
 import { verifyWebhookSignature } from "./github/webhook";
 
 import { MCP_RESOURCE, MCP_SCOPE, PUBLIC_ORIGIN } from "./config";
-import { isOwner } from "./auth/owner";
+import { isAllowedAccount, isOwner } from "./auth/owner";
 import type { AppEnv } from "./env";
 import { GitHubOwnerInputSchema } from "./github/schemas";
 import { loadCatalog } from "./practices/catalog";
@@ -168,7 +168,12 @@ async function handleWebhookWork(
   if (event === "push") {
     const push = pushPayloadSchema.parse(payload);
 
-    if (push.ref !== `refs/heads/${push.repository.default_branch}`) {
+    const owner = push.repository.full_name.split("/")[0] ?? "";
+
+    if (
+      push.ref !== `refs/heads/${push.repository.default_branch}` ||
+      !isAllowedAccount(env, owner)
+    ) {
       return;
     }
 

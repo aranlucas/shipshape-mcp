@@ -27,6 +27,7 @@ function createTestEnv(kv: TestKv, apiVersion?: string): AppEnv {
     GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
     OWNER_GITHUB_ID: "1001",
     CATALOG_REPO: "owner/repository",
+    ALLOWED_INSTALLATION_ACCOUNTS: "owner",
     GITHUB_API_VERSION: apiVersion,
   };
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { AppEnv } from "../env";
+import { isAllowedAccount } from "../auth/owner";
 import { appClient, installationClient } from "../github/app";
 import { GitHubRepositorySchema } from "../github/schemas";
 import { octokitPaginate } from "../github/client";
@@ -57,7 +58,7 @@ function toStoredRepository(
 export async function syncInventory(env: AppEnv): Promise<StoredRepository[]> {
   const app = appClient(env);
 
-  const installations = await octokitPaginate(
+  const listed = await octokitPaginate(
     await app,
     "GET /app/installations",
     {},
@@ -65,9 +66,15 @@ export async function syncInventory(env: AppEnv): Promise<StoredRepository[]> {
     pagination,
   );
 
-  if (installations.metadata.nextUrl) {
+  if (listed.metadata.nextUrl) {
     throw new Error("GitHub installation inventory was truncated");
   }
+
+  // Anyone can install a public App; never mint tokens for other accounts.
+  const installations = {
+    ...listed,
+    data: listed.data.filter((installation) => isAllowedAccount(env, installation.account.login)),
+  };
 
   const existingInstallations = await env.DB.prepare(
     "SELECT DISTINCT installation_id FROM repositories",

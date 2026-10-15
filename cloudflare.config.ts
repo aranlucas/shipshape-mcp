@@ -43,6 +43,11 @@ export default defineConfig(({ mode }) => ({
       GITHUB_APP_CLIENT_ID: bindings.text(process.env.GITHUB_APP_CLIENT_ID ?? "unset"),
       OWNER_GITHUB_ID: bindings.text(process.env.OWNER_GITHUB_ID ?? "0"),
       CATALOG_REPO: bindings.text(process.env.CATALOG_REPO ?? "aranlucas/practices"),
+      // The App is public so it can be installed on an organization; only these
+      // accounts' installations are read.
+      ALLOWED_INSTALLATION_ACCOUNTS: bindings.text(
+        process.env.ALLOWED_INSTALLATION_ACCOUNTS ?? "aranlucas,sidequest-labs",
+      ),
       GITHUB_APP_PRIVATE_KEY: bindings.secret(),
       GITHUB_APP_CLIENT_SECRET: bindings.secret(),
       GITHUB_WEBHOOK_SECRET: bindings.secret(),

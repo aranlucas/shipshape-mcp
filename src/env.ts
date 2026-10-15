@@ -21,6 +21,8 @@ export interface AppEnv {
   GITHUB_WEBHOOK_SECRET: string;
   OWNER_GITHUB_ID: string;
   CATALOG_REPO: string;
+  /** Comma-separated GitHub accounts whose App installations Shipshape reads. */
+  ALLOWED_INSTALLATION_ACCOUNTS: string;
   COOKIE_ENCRYPTION_KEY?: string;
   GITHUB_API_VERSION?: string;
   PUBLIC_ORIGIN?: string;

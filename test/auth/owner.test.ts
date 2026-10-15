@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isOwner } from "@/auth/owner";
+import { isAllowedAccount, isOwner } from "@/auth/owner";
 
 describe("owner gate", () => {
   it("matches the configured numeric GitHub id", () => {
@@ -17,5 +17,21 @@ describe("owner gate", () => {
     expect(isOwner({ OWNER_GITHUB_ID: "1001" }, { login: "someone-else", userId: 1002 })).toBe(
       false,
     );
+  });
+});
+
+describe("isAllowedAccount", () => {
+  const env = { ALLOWED_INSTALLATION_ACCOUNTS: " aranlucas, Sidequest-Labs ,," };
+
+  it("matches allowlisted accounts case-insensitively, ignoring spaces and blanks", () => {
+    expect(isAllowedAccount(env, "aranlucas")).toBe(true);
+    expect(isAllowedAccount(env, "sidequest-labs")).toBe(true);
+    expect(isAllowedAccount(env, "ARANLUCAS")).toBe(true);
+  });
+
+  it("rejects other accounts and an empty login", () => {
+    expect(isAllowedAccount(env, "stranger")).toBe(false);
+    expect(isAllowedAccount(env, "")).toBe(false);
+    expect(isAllowedAccount({ ALLOWED_INSTALLATION_ACCOUNTS: "" }, "aranlucas")).toBe(false);
   });
 });

@@ -50,6 +50,8 @@ const repository = (owner: string, name: string, options: RepositoryOptions = {}
 const installations = [
   { id: 1, account: { login: "aranlucas", type: "User" } },
   { id: 2, account: { login: "sidequest-labs", type: "Organization" } },
+  // A public App can be installed by anyone; this account is not allowlisted.
+  { id: 3, account: { login: "stranger", type: "User" } },
 ];
 
 describe("repository inventory", () => {
@@ -167,6 +169,11 @@ describe("repository inventory", () => {
       // SAFETY: cloudflare:test provides every runtime binding used by syncInventory; its generated Env omits only the typed OAuth helper.
       const appEnv = env as AppEnv;
       const first = await syncInventory(appEnv);
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input instanceof Request ? input.url : input).includes("/app/installations/3/"),
+        ),
+      ).toBe(false);
       expect(first.map((repo) => repo.fullName).toSorted()).toEqual([
         "aranlucas/archived-project",
         "aranlucas/fork-project",
@@ -297,7 +304,7 @@ describe("repository inventory", () => {
 
         if (request.method === "GET" && url.pathname === "/app/installations") {
           return Promise.resolve(
-            jsonResponse([{ id: 1, account: { login: "large-installation", type: "User" } }]),
+            jsonResponse([{ id: 1, account: { login: "aranlucas", type: "User" } }]),
           );
         }
 

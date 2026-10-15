@@ -131,13 +131,28 @@ describe("GitHub webhook Worker seam", () => {
     const spies = queueSpies();
     const payload = {
       ref: "refs/heads/main",
-      repository: { full_name: "octo/demo", default_branch: "main" },
+      repository: { full_name: "aranlucas/demo", default_branch: "main" },
       installation: { id: 42 },
     };
 
     const result = await dispatch("push", payload);
     expect(result.status).toBe(202);
-    expect(spies.messages()).toEqual([{ repo: "octo/demo", installationId: 42, reason: "push" }]);
+    expect(spies.messages()).toEqual([
+      { repo: "aranlucas/demo", installationId: 42, reason: "push" },
+    ]);
+  });
+
+  it("ignores pushes from installations on accounts outside the allowlist", async () => {
+    const spies = queueSpies();
+    const payload = {
+      ref: "refs/heads/main",
+      repository: { full_name: "stranger/demo", default_branch: "main" },
+      installation: { id: 99 },
+    };
+
+    const result = await dispatch("push", payload);
+    expect(result.status).toBe(202);
+    expect(spies.messages()).toEqual([]);
   });
 
   it("reloads the catalog and enqueues every repository for a catalog push", async () => {
@@ -218,7 +233,7 @@ describe("GitHub webhook Worker seam", () => {
       }
       if (url.pathname === "/app/installations") {
         return Promise.resolve(
-          jsonResponse(url, [{ id: 1, account: { login: "octo", type: "User" } }]),
+          jsonResponse(url, [{ id: 1, account: { login: "aranlucas", type: "User" } }]),
         );
       }
       if (url.pathname === "/installation/repositories") {
@@ -271,7 +286,7 @@ describe("GitHub webhook Worker seam", () => {
       }
       if (url.pathname === "/app/installations") {
         return Promise.resolve(
-          jsonResponse(url, [{ id: 1, account: { login: "octo", type: "User" } }]),
+          jsonResponse(url, [{ id: 1, account: { login: "aranlucas", type: "User" } }]),
         );
       }
       if (url.pathname === "/installation/repositories") {
