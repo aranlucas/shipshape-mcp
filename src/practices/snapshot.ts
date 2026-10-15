@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/require-readable-spacing, typescript/switch-exhaustiveness-check */
 
 import pLimit from "p-limit";
+import { LINT_CONFIG_NAMES, joinPath, parseConfig, parentPath, resolvePath } from "./lint-config";
 import { z } from "zod";
 import { GitHubBranchProtectionSchema, GitHubBranchSchema } from "../github/schemas";
 import { MAX_ALLOWED_CONCURRENCY, octokitGet, type GitHubOctokit } from "../github/client";
@@ -58,6 +59,8 @@ export interface PreloadedHead {
 
 function checkFilePath(check: Check): string | null {
   switch (check.type) {
+    case "dependabot-grouped":
+      return check.path;
     case "file-matches":
     case "file-contains":
       return check.path;
@@ -75,6 +78,12 @@ export function filesNeeded(practices: Practice[]): string[] {
 
   for (const practice of practices) {
     for (const check of practice.checks) {
+      if (check.type === "oxforge") {
+        paths.add(joinPath(check.directory, "package.json"));
+        for (const name of LINT_CONFIG_NAMES) {
+          paths.add(joinPath(check.directory, name));
+        }
+      }
       const path = checkFilePath(check);
 
       if (path) {
@@ -264,34 +273,63 @@ export async function takeSnapshot(
   const paths = contentPaths(tree.paths, needed);
   const limit = pLimit(MAX_ALLOWED_CONCURRENCY);
 
-  await Promise.all(
-    paths.map((path, index) =>
-      limit(async () => {
-        if (index >= MAX_FILE_READS) {
-          snapshot.files.set(path, { error: "Read budget exceeded" });
-          return;
-        }
-
-        try {
-          const response = await octokitGet(
-            client,
-            "GET /repos/{owner}/{repo}/contents/{path}",
-            { owner: repo.owner, repo: repo.name, path, ref: headSha ?? undefined },
-            ContentsFileSchema,
-          );
-
-          if (response.data.size > MAX_FILE_BYTES) {
-            snapshot.files.set(path, { error: "File larger than 512 KB" });
+  const followsLint = practices.some((practice) =>
+    practice.checks.some((check) => check.type === "oxforge"),
+  );
+  let offset = 0;
+  while (offset < paths.length) {
+    const batch = paths.slice(offset);
+    const start = offset;
+    offset = paths.length;
+    // Each wave discovers inherited configs; parallel reads stay inside the shared budget.
+    // oxlint-disable-next-line eslint/no-await-in-loop
+    await Promise.all(
+      batch.map((path, batchIndex) =>
+        limit(async () => {
+          if (start + batchIndex >= MAX_FILE_READS) {
+            snapshot.files.set(path, { error: "Read budget exceeded" });
             return;
           }
 
-          snapshot.files.set(path, decode(response.data.content));
-        } catch (error) {
-          snapshot.files.set(path, { error: readError(error) });
-        }
-      }),
-    ),
-  );
+          try {
+            const response = await octokitGet(
+              client,
+              "GET /repos/{owner}/{repo}/contents/{path}",
+              { owner: repo.owner, repo: repo.name, path, ref: headSha ?? undefined },
+              ContentsFileSchema,
+            );
+
+            if (response.data.size > MAX_FILE_BYTES) {
+              snapshot.files.set(path, { error: "File larger than 512 KB" });
+              return;
+            }
+
+            const content = decode(response.data.content);
+            snapshot.files.set(path, content);
+            if (followsLint && /\.jsonc?$/.test(path) && !path.endsWith("package.json")) {
+              const extensions =
+                z.array(z.string()).safeParse(parseConfig(content)?.extends).data ?? [];
+              for (const extension of extensions) {
+                const resolved = /^\.\.?\//.test(extension)
+                  ? resolvePath(parentPath(path), extension)
+                  : null;
+                if (
+                  resolved &&
+                  !resolved.split("/").includes("node_modules") &&
+                  tree.paths.has(resolved) &&
+                  !paths.includes(resolved)
+                ) {
+                  paths.push(resolved);
+                }
+              }
+            }
+          } catch (error) {
+            snapshot.files.set(path, { error: readError(error) });
+          }
+        }),
+      ),
+    );
+  }
 
   return snapshot;
 }

@@ -1,7 +1,7 @@
 version: 1
 id: single-ci-workflow
-title: CI workflow configuration
-summary: Provide ci.yml with read-only contents permission and pnpm setup.
+title: Single protected CI workflow
+summary: Keep one CI workflow with read-only contents permission and pnpm setup.
 kind: files
 appliesTo:
   languages: [TypeScript, JavaScript]

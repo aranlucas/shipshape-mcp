@@ -61,6 +61,8 @@ export interface RepoDetailResponse {
     practice: PracticeSummary;
     result: CellResult;
     checks: CheckResult[];
+    headSha: string | null; // immutable source of this practice evaluation
+    catalogSha: string | null;
   }>;
 }
 

@@ -7,12 +7,8 @@ appliesTo:
   languages: [TypeScript, JavaScript]
   hasFiles: [package.json]
 checks:
-  - type: dependency
-    file: package.json
-    name: "@aranlucas/oxforge"
-  - type: file-contains
-    path: .oxlintrc.json
-    text: "@aranlucas/oxforge/configs/recommended.json"
+  - type: oxforge
+    minimumVersion: "0.2.0"
   - type: file-matches
     path: oxfmt.config.ts
     source: files/oxfmt.config.ts

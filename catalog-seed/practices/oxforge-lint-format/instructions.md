@@ -1,4 +1,7 @@
-Keep the repository's existing lint and format entry points. Adapt the Oxforge
-extends path and format re-export to the package manager and config layout used
-by the target repository. Declare @aranlucas/oxforge as a dependency; any non-empty
-version declaration is accepted, including semver ranges, catalogs, and workspace references.
+Use the shared Oxforge base or recommended configuration, version 0.2.0 or later. Add framework presets as needed; keep local overrides small and explained. Do not copy anti-slop plugin scripts into consuming repositories. Keep consistent-return and prefer-readonly-parameter-types off as defined by shared policy.
+
+The semantic check follows bounded repository-local JSON/JSONC inheritance. It accepts exact, caret and tilde declarations with a supported lower bound. Unresolved catalogs/workspaces, dynamic TypeScript configs, cycles, unread files and multiple entry points require review rather than being labelled missing.
+
+This is a configuration-inheritance check, not proof that CI executes the linter or that every local override is appropriate. Explicitly exclude approved native/framework/vendor exceptions with appliesTo.exclude and record the reason here; do not erase their native tooling to make a generic check green. For monorepos use a separate check with directory set to the package root, or the shared root where policy is declared.
+
+Keep the shared format import; adapt the exact format-file check when a documented framework integration requires a different wrapper. Preserve diagnostic and domain/security test scripts unless independently proven unused.

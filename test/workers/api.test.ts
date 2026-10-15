@@ -382,11 +382,35 @@ describe("dashboard API", () => {
     expect(body.practices).toEqual([]);
   });
 
+  it("does not present results from a previous catalog revision as current evidence", async () => {
+    await appEnv.DB.prepare("UPDATE results SET catalog_sha = ?").bind("d".repeat(40)).run();
+    const overview = OverviewResponseSchema.parse(
+      await parseJson(await request("/app/api/overview")),
+    );
+    expect(overview.results).toEqual({});
+    const practice = PracticeDetailResponseSchema.parse(
+      await parseJson(await request("/app/api/practices/husky")),
+    );
+    expect(practice.counts.pass).toBe(0);
+    expect(practice.counts.fail).toBe(0);
+    const detail = RepoDetailResponseSchema.parse(
+      await parseJson(await request("/app/api/repos/aranlucas/alpha")),
+    );
+    expect(detail.practices.every((entry) => entry.result.checkedAt === null)).toBe(true);
+    expect(
+      detail.practices.every((entry) => entry.checks.length === 0 && entry.headSha === null),
+    ).toBe(true);
+  });
+
   it("returns repository detail and a contract 404 for an unknown repository", async () => {
     const detail = await request("/app/api/repos/aranlucas/alpha");
     expect(detail.status).toBe(200);
     const body = RepoDetailResponseSchema.parse(await parseJson(detail));
     expect(body.repo.fullName).toBe("aranlucas/alpha");
+    expect(body.practices.find((entry) => entry.practice.id === "husky")).toMatchObject({
+      headSha: "h".repeat(40),
+      catalogSha,
+    });
     expect(body.practices.map(({ practice }) => practice.id)).toEqual(["broken", "husky"]);
 
     const missing = await request("/app/api/repos/aranlucas/missing");

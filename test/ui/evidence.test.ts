@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import type { CheckResult, RepoSummary } from "@/api/contract";
+import { evidenceLink } from "@/ui/evidence";
+
+const repo: RepoSummary = {
+  fullName: "octo/demo",
+  owner: "octo",
+  name: "demo",
+  private: true,
+  archived: false,
+  fork: false,
+  language: "TypeScript",
+  defaultBranch: "main",
+  pushedAt: null,
+  url: "https://github.com/octo/demo",
+};
+
+const sha = "a".repeat(40);
+
+const check: CheckResult = {
+  type: "file-contains",
+  label: "config",
+  state: "fail",
+  path: "config/a #.json",
+  expected: "value",
+  actual: "different",
+  detail: null,
+};
+
+describe("inspection evidence links", () => {
+  it("pins and encodes file evidence at the individual evaluated commit", () => {
+    expect(evidenceLink(repo, sha, check)).toBe(
+      `https://github.com/octo/demo/blob/${sha}/config/a%20%23.json`,
+    );
+  });
+  it("uses the inspected tree for a missing file", () => {
+    expect(evidenceLink(repo, sha, { ...check, type: "file-exists", actual: "false" })).toBe(
+      `https://github.com/octo/demo/tree/${sha}`,
+    );
+  });
+  it("does not invent source evidence for settings, missing SHAs or unsafe paths", () => {
+    expect(evidenceLink(repo, sha, { ...check, type: "branch-protection" })).toBeNull();
+    expect(evidenceLink(repo, null, check)).toBeNull();
+    expect(evidenceLink(repo, "main", check)).toBeNull();
+    expect(evidenceLink(repo, sha, { ...check, path: "../secret" })).toBeNull();
+  });
+});

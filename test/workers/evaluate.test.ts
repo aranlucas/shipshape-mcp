@@ -385,6 +385,23 @@ describe("evaluateRepository", () => {
     expect(calls).toEqual([{ method: "GET", path: "/repos/octo/demo/commits/main" }]);
   });
 
+  it("rechecks mutable settings after they change without a new commit", async () => {
+    const practices = [
+      validPractice("squash", "settings", [
+        { type: "setting", key: "allow_squash_merge", equals: true },
+      ]),
+    ];
+    await seed(catalog(practices));
+    mockGitHub({ settings: { allow_squash_merge: true } });
+    await evaluateRepository(appEnv, repoName);
+    expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("pass");
+
+    const calls = mockGitHub({ settings: { allow_squash_merge: false } });
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+    expect(calls.some((call) => call.path === "/repos/octo/demo")).toBe(true);
+    expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("fail");
+  });
+
   it("re-evaluates when force is true even when head and catalog are unchanged", async () => {
     const practices = [
       validPractice("readme", "files", [{ type: "file-exists", path: "README.md", absent: false }]),

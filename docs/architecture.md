@@ -44,8 +44,8 @@ Dependency checks require a non-empty declaration in dependencies,
 devDependencies, optionalDependencies, or peerDependencies. Omit `version` to
 check presence only: `^0.2.2`, `catalog:`, and workspace references all pass.
 An explicit `version` retains exact declaration comparison and reports ranges
-as unknown rather than inferring a resolved version. The Oxforge seed checks
-presence only.
+as unknown rather than inferring a resolved version. Existing presence-only
+Oxforge definitions accept a range without catalog changes.
 
 Workflow pinning inspects job-level reusable workflow calls and step-level
 Actions, including nested parallel steps. Remote references must use full
@@ -68,14 +68,12 @@ auto-merge rule checks file existence; its pass does not establish safe or
 successful merge behavior. Exact file comparisons intentionally report
 template differences, including repository-specific additions.
 
-### Applying catalog changes
+### Refreshing stored results
 
-The live catalog is separate from `catalog-seed`. Deploy the evaluator that
-accepts optional dependency versions before updating the live Oxforge practice
-to omit `version`. Apply the corresponding catalog definitions and instructions,
-then use the owner dashboard's Refresh action to enqueue fresh evaluations.
-Confirm `practice_detail` reflects the new YAML and `repo_practices` reports a
-declared Oxforge range as pass. The read-only MCP tools do not trigger refreshes.
+Deploying an evaluator change does not replace stored results. Use the owner
+dashboard's Refresh action to enqueue fresh evaluations, then confirm that
+`repo_practices` reports a declared Oxforge range as pass for the existing
+presence-only dependency check. The read-only MCP tools do not trigger refreshes.
 
 ## Runtime flow
 
