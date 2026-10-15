@@ -55,8 +55,8 @@ export function Overview({ overview, login, repo, onRefresh }: OverviewProps) {
       <section class="empty-state">
         <h1>No repositories yet</h1>
         <p>
-          Install the Shipshape GitHub App on your account and organizations. Repositories appear
-          here after the first check.
+          Use Find my repositories to load repositories from your GitHub App installations and run
+          their first checks.
         </p>
         <p>
           <a href="https://github.com/aranlucas/shipshape-mcp/blob/main/docs/setup.md">

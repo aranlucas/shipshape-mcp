@@ -190,6 +190,31 @@ function gitDataFetch() {
     const body = request.method === "GET" ? null : JSON.parse(init?.body?.toString() ?? "null");
     requests.push({ method: request.method, path, body });
 
+    if (request.method === "GET" && path === "/app/installations") {
+      return Promise.resolve(
+        Response.json([{ id: 1, account: { login: "aranlucas", type: "User" } }]),
+      );
+    }
+    if (request.method === "GET" && path === "/installation/repositories") {
+      const response = Response.json({
+        total_count: 2,
+        repositories: ["private", "practices"].map((name, index) => ({
+          id: index + 1,
+          name,
+          full_name: `aranlucas/${name}`,
+          private: true,
+          html_url: `https://github.com/aranlucas/${name}`,
+          default_branch: "main",
+          archived: false,
+          fork: false,
+          language: "TypeScript",
+          pushed_at: "2026-10-15T12:00:00Z",
+        })),
+      });
+      Object.defineProperty(response, "url", { value: request.url });
+      return Promise.resolve(response);
+    }
+
     if (request.method === "POST" && path === "/app/installations/1/access_tokens") {
       return Promise.resolve(
         Response.json({ token: "installation-token", expires_at: "2030-01-01T00:00:00Z" }),
@@ -537,6 +562,41 @@ describe("dashboard API", () => {
     expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
       error: expect.any(String),
     });
+  });
+
+  it("discovers installed private repositories and loads the catalog on the first refresh", async () => {
+    await appEnv.DB.batch([
+      appEnv.DB.prepare("DELETE FROM results"),
+      appEnv.DB.prepare("DELETE FROM repositories"),
+      appEnv.DB.prepare("DELETE FROM catalog"),
+    ]);
+    const { fetchMock } = gitDataFetch();
+    vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock);
+    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+
+    const response = await request("/app/api/refresh", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(202);
+    expect(RefreshResponseSchema.parse(await parseJson(response))).toEqual({ queued: 2 });
+    const overview = OverviewResponseSchema.parse(
+      await parseJson(await request("/app/api/overview")),
+    );
+    expect(
+      overview.repos.map(({ fullName, private: isPrivate }) => ({ fullName, isPrivate })),
+    ).toEqual([
+      { fullName: "aranlucas/practices", isPrivate: true },
+      { fullName: "aranlucas/private", isPrivate: true },
+    ]);
+    expect(overview.practices.map(({ id }) => id)).toEqual(["husky"]);
+    expect(sendBatch).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { body: { repo: "aranlucas/private", installationId: 1, reason: "manual" } },
+      ]),
+    );
   });
 
   it("refreshes one known repository with the manual reason", async () => {
