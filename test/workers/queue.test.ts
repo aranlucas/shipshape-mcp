@@ -45,7 +45,7 @@ function practice(id: string): CatalogPractice {
   return {
     id,
     folder: id,
-    yaml: "",
+    yaml: JSON.stringify(value),
     instructions: null,
     files: {},
     parsed: { ok: true, practice: value },

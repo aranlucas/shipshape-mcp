@@ -219,5 +219,14 @@ export async function readStoredCatalog(db: D1Database): Promise<Catalog | null>
   // SAFETY: the catalog row is written only by writeCatalog using CatalogPractice values.
   const practices = JSON.parse(row.practices_json) as CatalogPractice[];
 
-  return { repo: row.repo, sha: row.sha, practices };
+  // Validation is derived from the running schema, not the version that loaded the row.
+  // Keep the original YAML and catalog SHA as evidence; never rewrite the catalog here.
+  return {
+    repo: row.repo,
+    sha: row.sha,
+    practices: practices.map((practice) => ({
+      ...practice,
+      parsed: parsePractice(practice.yaml, practice.folder),
+    })),
+  };
 }
