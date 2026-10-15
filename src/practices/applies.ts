@@ -1,7 +1,42 @@
 import type { RepoSnapshot } from "./snapshot";
 import type { Practice } from "./schema";
 import type { StoredRepository } from "./store";
-import { globMatches } from "../drift/policy";
+
+/** Wildcard matching with `*` and `?`, linear in pattern times name length. */
+export function globMatches(pattern: string, name: string): boolean {
+  const glob = pattern.toLowerCase();
+  const value = name.toLowerCase();
+  let patternIndex = 0;
+  let valueIndex = 0;
+  let star = -1;
+  let resume = 0;
+
+  while (valueIndex < value.length) {
+    if (
+      patternIndex < glob.length &&
+      (glob[patternIndex] === "?" || glob[patternIndex] === value[valueIndex])
+    ) {
+      patternIndex += 1;
+      valueIndex += 1;
+    } else if (patternIndex < glob.length && glob[patternIndex] === "*") {
+      star = patternIndex;
+      resume = valueIndex;
+      patternIndex += 1;
+    } else if (star !== -1) {
+      patternIndex = star + 1;
+      resume += 1;
+      valueIndex = resume;
+    } else {
+      return false;
+    }
+  }
+
+  while (glob[patternIndex] === "*") {
+    patternIndex += 1;
+  }
+
+  return patternIndex === glob.length;
+}
 
 type SnapshotTree = Pick<RepoSnapshot, "tree">;
 

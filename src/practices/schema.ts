@@ -1,8 +1,22 @@
 import { parseDocument } from "yaml";
 import { z } from "zod";
-import { BRANCH_PROTECTION_KEYS } from "../drift/policy";
 
 type BranchProtectionKey = [string, ...string[]];
+
+/** Branch-protection identifiers accepted by practice checks. */
+export const BRANCH_PROTECTION_KEYS = [
+  "enforceAdmins",
+  "requiredConversationResolution",
+  "requiredLinearHistory",
+  "requiredSignatures",
+  "allowForcePushes",
+  "allowDeletions",
+  "requireCodeOwnerReviews",
+  "requireLastPushApproval",
+  "dismissStaleReviews",
+  "requiredApprovingReviews",
+  "requiredStatusChecks",
+] as const;
 
 export const RepoPath = z
   .string()

@@ -2,14 +2,9 @@
 
 import pLimit from "p-limit";
 import { z } from "zod";
-import {
-  GitHubBranchProtectionSchema,
-  GitHubBranchSchema,
-  type GitHubBranchProtection,
-} from "../github/schemas";
+import { GitHubBranchProtectionSchema, GitHubBranchSchema } from "../github/schemas";
 import { MAX_ALLOWED_CONCURRENCY, octokitGet, type GitHubOctokit } from "../github/client";
-import { TreeSchema, decode } from "../standards/collect";
-import type { BranchProtectionFact, ProtectionState } from "../drift/evaluate";
+import { protectionState, type BranchProtectionFact } from "./protection";
 import type { Check, Practice } from "./schema";
 import type { StoredRepository } from "./store";
 
@@ -24,6 +19,27 @@ const ContentsFileSchema = z.object({
 const WORKFLOW_MARKER = ".github/workflows/*";
 const MAX_FILE_READS = 64;
 const MAX_FILE_BYTES = 512 * 1024;
+
+const TreeSchema = z.object({
+  truncated: z.boolean(),
+  tree: z
+    .array(
+      z.object({
+        path: z.string().max(1024),
+        type: z.string(),
+        mode: z.string(),
+        sha: SHA,
+        size: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .max(100_000),
+});
+
+function decode(content: string): string {
+  return new TextDecoder("utf-8", { fatal: true }).decode(
+    Uint8Array.from(atob(content.replaceAll(/\s/g, "")), (char) => char.codePointAt(0) ?? 0),
+  );
+}
 
 export interface RepoSnapshot {
   repo: StoredRepository;
@@ -82,39 +98,6 @@ function readError(error: unknown): string {
   const status = errorStatus(error);
 
   return status === undefined ? "File could not be read" : `GitHub returned HTTP ${status}`;
-}
-
-function protectionState(protection: GitHubBranchProtection): ProtectionState {
-  const reviews = protection.required_pull_request_reviews;
-  const checks = protection.required_status_checks;
-
-  return {
-    requiredSignatures: protection.required_signatures ?? null,
-    enforceAdmins: protection.enforce_admins?.enabled ?? false,
-    requiredLinearHistory: protection.required_linear_history ?? false,
-    allowForcePushes: protection.allow_force_pushes ?? false,
-    allowDeletions: protection.allow_deletions ?? false,
-    requiredConversationResolution: protection.required_conversation_resolution ?? false,
-    reviews: reviews
-      ? {
-          dismissStaleReviews: reviews.dismiss_stale_reviews ?? false,
-          requireCodeOwnerReviews: reviews.require_code_owner_reviews ?? false,
-          requiredApprovingReviews: reviews.required_approving_review_count ?? 0,
-          requireLastPushApproval: reviews.require_last_push_approval ?? false,
-        }
-      : null,
-    statusChecks: checks
-      ? {
-          strict: checks.strict ?? false,
-          checks: checks.checks?.length
-            ? checks.checks.flatMap((check) =>
-                check.context ? [{ context: check.context, appId: check.app_id ?? null }] : [],
-              )
-            : (checks.contexts ?? []).map((context) => ({ context, appId: null })),
-        }
-      : null,
-    restricted: protection.restrictions !== null && protection.restrictions !== undefined,
-  };
 }
 
 async function readProtection(

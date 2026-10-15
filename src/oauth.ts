@@ -3,7 +3,7 @@ import type { AuthRequest, ClientInfo, OAuthHelpers } from "@cloudflare/workers-
 import * as oauth from "oauth4webapi";
 import { z } from "zod";
 
-import { GITHUB_API_VERSION, GITHUB_SCOPE, MCP_SCOPE } from "./config";
+import { GITHUB_API_VERSION, MCP_SCOPE } from "./config";
 import { isOwner, type OwnerIdentity } from "./auth/owner";
 import { GitHubOwnerInputSchema } from "./github/schemas";
 import { landingHandler, methodNotAllowed, notFoundResponse } from "./landing";
@@ -290,10 +290,6 @@ async function beginGitHubAuthorization(
   githubUrl.searchParams.set("client_id", env.GITHUB_APP_CLIENT_ID);
   githubUrl.searchParams.set("redirect_uri", callback.toString());
 
-  if (GITHUB_SCOPE.length > 0) {
-    githubUrl.searchParams.set("scope", GITHUB_SCOPE);
-  }
-
   githubUrl.searchParams.set("state", state);
 
   const response = redirectResponse(githubUrl.toString());
@@ -471,7 +467,7 @@ export function renderConsentDialog(
       <p>This application is requesting read-only access through Shipshape MCP.</p>
       <h2>Requested MCP scopes</h2>
       <ul class="scope-list">${scopes}</ul>
-      <p class="permission-note">GitHub permission: <code>${GITHUB_SCOPE}</code>. Shipshape will inspect public repositories only.</p>
+      <p class="permission-note">GitHub permission: identity only. Repository reads use GitHub App installation tokens, and the user token is never stored.</p>
       ${redirects}
       ${contacts}
       ${legalLinks ? `<p class="legal-links">${legalLinks}</p>` : ""}

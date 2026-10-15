@@ -93,7 +93,7 @@ describe("OAuth provider redirect policy", () => {
       payload: JSON.stringify({
         access_token: "synthetic-web-token",
         token_type: "bearer",
-        scope: "read:user",
+        scope: "",
       }),
     });
     upstream.set("https://api.github.com/user", {
@@ -323,7 +323,7 @@ describe("OAuth provider redirect policy", () => {
       payload: JSON.stringify({
         access_token: "synthetic-github-token",
         token_type: "bearer",
-        scope: "read:user",
+        scope: "",
       }),
     });
     upstream.set("https://api.github.com/user", {

@@ -33,7 +33,7 @@ function toolError(cause: unknown) {
   } else if (cause instanceof Error && status !== undefined) {
     message =
       status === 404
-        ? "The public repository or requested GitHub feature was not found."
+        ? "The repository or requested GitHub feature was not found."
         : status === 403
           ? "GitHub denied this read-only request or the feature is unavailable on the repository's plan."
           : `GitHub returned HTTP ${status} while inspecting the repository.`;

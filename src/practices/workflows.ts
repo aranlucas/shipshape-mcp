@@ -7,8 +7,8 @@ import {
   configObject as object,
   type ConfigDocument,
   type ConfigValue,
-} from "../standards/config-value";
-import { parseYaml } from "../standards/policy";
+} from "./config-value";
+import { parseYaml } from "./yaml";
 
 export type WorkflowCheck = "least-privilege-token" | "pinned-actions" | "dependency-review";
 

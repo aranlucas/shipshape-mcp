@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Practice } from "@/practices/schema";
-import { applies } from "@/practices/applies";
+import { applies, globMatches } from "@/practices/applies";
 import { makeSnapshot, snapshotRepository } from "@test/helpers/snapshot";
 
 type PracticeOverrides = Omit<Partial<Practice>, "appliesTo"> & {
@@ -42,6 +42,20 @@ function practice(overrides: PracticeOverrides = {}): Practice {
 }
 
 describe("practice applicability", () => {
+  it("matches repository globs case-insensitively in linear time", () => {
+    expect(globMatches("svc-*", "svc-api")).toBe(true);
+    expect(globMatches("svc-*", "SVC-api")).toBe(true);
+    expect(globMatches("svc-?", "svc-ab")).toBe(false);
+    expect(globMatches("*-api", "billing-api")).toBe(true);
+    expect(globMatches("*a*b*", "xxaxxbxx")).toBe(true);
+    expect(globMatches("*a*b", "xxaxxbxx")).toBe(false);
+    expect(globMatches("*", "")).toBe(true);
+
+    const started = performance.now();
+    expect(globMatches(`${"*a".repeat(50)}b`, "a".repeat(100))).toBe(false);
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
   it("matches owners case-insensitively", () => {
     expect(
       applies(practice({ appliesTo: { owners: ["OCTO"] } }), snapshotRepository, {

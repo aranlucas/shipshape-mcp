@@ -126,7 +126,7 @@ describe("OAuth proxy flow", () => {
         Response.json({
           access_token: "oauth_test_public_token",
           token_type: "bearer",
-          scope: "read:user",
+          scope: "",
         }),
       )
       .mockResolvedValueOnce(Response.json({ login: "AranLucas", id: 1001 }));

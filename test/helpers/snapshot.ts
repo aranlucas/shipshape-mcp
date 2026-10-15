@@ -1,6 +1,6 @@
 import type { RepoSnapshot } from "@/practices/snapshot";
 import type { StoredRepository } from "@/practices/store";
-import type { BranchProtectionFact } from "@/drift/evaluate";
+import type { BranchProtectionFact } from "@/practices/protection";
 
 export type SnapshotValue =
   | string

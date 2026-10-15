@@ -8,8 +8,7 @@ import {
   makeCookie,
   securityHeaders,
 } from "../oauth-security";
-import { renderSignInPage } from "./page";
-import { renderPlaceholderPage } from "./placeholder";
+import { renderPlaceholderPage, renderSignInPage } from "./placeholder";
 import { apiHandler } from "../api/routes";
 import type { AppEnv } from "../env";
 import {

@@ -2,10 +2,6 @@ import { GitHubPayloadError } from "./payload-error";
 
 export { GitHubPayloadError };
 
-import { PrivateRepositoryError } from "./private-repository-error";
-
-export { PrivateRepositoryError };
-
 import { GitHubInputError } from "./input-error";
 
 export { GitHubInputError };

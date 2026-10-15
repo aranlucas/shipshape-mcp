@@ -3,7 +3,7 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { CheckResult, PracticeState } from "../api/contract";
-import type { BranchProtectionFact, ProtectionState } from "../drift/evaluate";
+import type { BranchProtectionFact, ProtectionState } from "./protection";
 import { checkLabel, type Check } from "./schema";
 import type { RepoSnapshot } from "./snapshot";
 import { inspectWorkflow } from "./workflows";

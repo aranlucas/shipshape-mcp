@@ -1,22 +1,17 @@
-# Shipshape MCP · Know what to fix next
+# Shipshape
 
 [![CI](https://github.com/aranlucas/shipshape-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/aranlucas/shipshape-mcp/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/aranlucas/shipshape-mcp)](LICENSE)
 
-Shipshape is a read-only MCP server that turns public GitHub repository,
-branch, delivery, security, release, and standards signals into a ranked,
-evidence-backed maintenance plan. It is the calm second pair of eyes for a
-portfolio that has more repositories than a person can inspect manually.
+Shipshape checks Lucas's engineering practices across his repositories. A
+GitHub App inventories the repositories it can access, reads a versioned
+practice catalog, evaluates bounded checks at each default-branch commit, and
+stores the results for the dashboard and MCP.
 
-> **A portfolio check in one conversation:** call `portfolio_snapshot`, drill
-> into a candidate with `repo_readiness`, then ask for `action_plan`. Shipshape
-> turns scattered public signals into a bounded queue of next steps.
-
-<p align="center">
-  <img src="docs/images/readme-overview.svg" alt="Shipshape flow from public GitHub signals through MCP tools to an action plan" width="100%" />
-</p>
-
-Production endpoint: `https://shipshape-mcp.aranlucas.workers.dev/mcp`
+The service covers personal and organization repositories, including private
+repositories. The GitHub user token is used only to identify the owner; all
+repository reads use installation tokens. Results preserve `pass`, `fail`,
+`unknown`, and `not_applicable` states.
 
 ## Connect
 
@@ -26,22 +21,21 @@ codex mcp add shipshape \
   --oauth-client-registration auto
 ```
 
-Available tools include `portfolio_snapshot`, `repo_readiness`, `branch_risk`, `delivery_hygiene`, `security_posture`, `standards_audit`, `settings_drift`, and `action_plan`. Shipshape accepts public repositories only and has no mutation or code-execution capability.
+The MCP tools are `practices_overview`, `repo_practices`, and
+`practice_detail`. The browser dashboard is available at
+[`/app`](https://shipshape-mcp.aranlucas.workers.dev/app).
 
-| Tool                 | Use it to                                                           |
-| -------------------- | ------------------------------------------------------------------- |
-| `portfolio_snapshot` | Find recently active public repositories that need attention.       |
-| `repo_readiness`     | Combine publication, default-branch, delivery, and security checks. |
-| `branch_risk`        | Inspect protections and merge-safety signals for a branch.          |
-| `delivery_hygiene`   | Review commits, pull requests, workflows, and release evidence.     |
-| `security_posture`   | Normalize code, dependency, and secret-scanning evidence.           |
-| `standards_audit`    | Compare Node, Go, and Python packages with a pinned baseline.       |
-| `settings_drift`     | Check repository settings against rules and suggest fix commands.   |
-| `action_plan`        | Turn failed and unknown checks into a bounded work queue.           |
+## Practice catalog
 
-The service asks GitHub for public metadata and repository signals through the
-GitHub API. It does not clone or execute repository code, and the MCP scope is
-read-only.
+Practices live in the private `aranlucas/practices` catalog repository. Each
+practice has a strict `practice.yml` definition and may include canonical files
+and agent instructions. Checks cover repository files, JSON/YAML paths,
+dependencies, repository settings, branch protection, and workflow security.
+
+The dashboard and API contract are documented in
+[`docs/architecture.md`](docs/architecture.md). Setup instructions for the
+GitHub App, D1 database, queue, and catalog repository will live in
+[`docs/setup.md`](docs/setup.md).
 
 ## Develop
 
@@ -53,109 +47,33 @@ pnpm check
 pnpm dev
 ```
 
-See [`SECURITY.md`](SECURITY.md) for the security boundary and report vulnerabilities privately.
-
-## Shared standards
-
-Use `standards_audit` to check Node, Go, and Python packages against a pinned
-engineering baseline. Commit `.shipshape.yml` with
-`baseline: shipshape/recommended@1` to adopt it. Shared policies, dated
-exceptions, and evidence semantics are documented in [Shared standards](docs/standards.md).
-
-## Settings drift
-
-Use `settings_drift` to declare the GitHub practices you expect: repository
-settings, community health files, Actions token permissions and SHA pinning,
-dependency review, private vulnerability reporting, active rulesets, and branch
-protection. Select repositories with name globs and paginate through every
-public repository. Settings drift comes with a `gh api` command; file and
-workflow findings include manual steps because Shipshape never edits a
-repository. See [Settings drift](docs/settings-drift.md).
-
-The same check is available in the browser at
-[`/app`](https://shipshape-mcp.aranlucas.workers.dev/app). Sign in with GitHub,
-start new policies with all built-in best-practice checks (team review controls
-remain optional), load that starter into saved policies when you want it, see
-scan progress and results as repositories finish, save rules to your account,
-and copy fix commands from the results.
+See [`SECURITY.md`](SECURITY.md) for the security boundary and reporting
+instructions.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  Client[MCP client] --> OAuth[OAuth 2.1]
-  OAuth --> Worker[Cloudflare Worker]
-  Worker --> MCP[src/mcp.ts]
-  MCP --> GitHub[src/github/*]
-  MCP --> Domain[src/domain/*]
-  MCP --> Standards[src/standards/*]
-  Worker --> KV[(OAuth KV)]
+  GitHub[GitHub App] --> Inventory[Inventory + installation tokens]
+  Catalog[Practice catalog repository] --> Queue[Evaluation queue]
+  Inventory --> Queue
+  Queue --> Engine[Practice check engine]
+  Engine --> DB[(D1 results)]
+  DB --> API[Dashboard API]
+  DB --> MCP[MCP tools]
 ```
 
-- `src/index.ts` wires Cloudflare's OAuth provider and the `/mcp` route.
-- `src/oauth.ts` and `src/oauth-security.ts` handle GitHub login, PKCE, and
-  short-lived OAuth state.
-- `src/github/` collects public API evidence and validates response schemas.
-- `src/domain/` evaluates checks, scores categories, and builds action plans.
-- `src/standards/` collects package manifests and applies the pinned policy.
-- `test/` covers domain scoring, collectors, standards, OAuth, and landing
-  pages.
+- `src/github/app.ts` creates App and installation clients.
+- `src/inventory/sync.ts` refreshes every installation's repositories.
+- `src/practices/` parses the catalog, reads bounded repository snapshots, and
+  evaluates checks.
+- `src/queue.ts` and `src/scheduled.ts` trigger evaluation after pushes and on
+  the daily sweep.
+- `src/api/routes.ts` and `src/mcp.ts` expose the shared response contract.
 
-## Local development
+## Local checks
 
-Local OAuth testing needs a GitHub OAuth app and a generated cookie key:
-
-```bash
-pnpm install --frozen-lockfile
-cp .dev.vars.example .dev.vars
-# replace the placeholder values in .dev.vars
-pnpm types
-pnpm check
-pnpm dev
-```
-
-`pnpm dev` serves the Worker at `https://shipshape-mcp.localhost` through [Portless](https://github.com/vercel-labs/portless) (a dev dependency); its first run may ask for `sudo` to bind port 443 and trust a local certificate.
-In development, `PUBLIC_ORIGIN` and the OAuth resource metadata follow that URL, so
-register `https://shipshape-mcp.localhost/callback` with the local GitHub OAuth app
-(a linked worktree gets a branch-prefixed origin and needs its own callback).
-
-`pnpm check` runs type generation, typechecking, linting, formatting, unit
-tests, and a `cf deploy --dry-run`. Deploy with `pnpm deploy` only after configuring
-the production OAuth secrets and KV binding described in `cloudflare.config.ts`.
-
-Workers Builds runs `pnpm run build`, then `pnpm run deploy:ci` for `main` and
-`pnpm run preview` for other branches.
-
-## Status and limits
-
-The public endpoint is deployed at
-`https://shipshape-mcp.aranlucas.workers.dev/mcp`. Results describe evidence
-visible to the GitHub API at collection time; a missing permission or an
-unavailable check is reported as unknown rather than inferred as healthy.
-Repositories must be public, and the server cannot modify settings, open
-issues, merge code, or run project commands.
-
-### Bounded observation coverage
-
-Delivery counts are observations of the requested branch/window and open pull
-requests. `delivery.coverage` records each endpoint's effective page limits,
-`fetchedCount`, `nextUrl`, and `complete`, `truncated`, or `unavailable` status.
-Counts are `exact` only for an exhausted query; truncated counts (including
-subtotals such as failed runs) are lower bounds. Unavailable counts stay null.
-A passing workflow sample with unscanned pages leaves CI health unknown;
-an observed latest workflow failure remains actionable. Check and action-plan
-evidence includes workflow coverage so uncertainty survives summarization.
-
-`portfolio_snapshot.scope` reports the owner-listing coverage, filters, and
-selected/omitted eligible repositories. `availableRepositories` remains the
-number fetched in the listing, not an owner-wide total when that listing is
-truncated. Each ranked result includes its delivery coverage. Explicit collector
-selections identify themselves as `explicit` and do not imply a full owner scan.
-
-## Repository review desk
-
-Open `/app/review` to inspect public repositories and review evidence-backed next
-steps across standards, pull requests, dependencies, cleanup and repository
-purpose. Filter by repository, category and state; unknown and uninspected work
-stay visible. Shipshape never applies these proposals or broadens repository
-permissions. See [the review guide](docs/repository-review.md).
+`pnpm check` runs generated Worker types, typechecking, linting, formatting,
+the node and Worker test projects, and a Cloudflare dry run. Repository reads
+are bounded and no repository code is cloned, executed, or mutated by the
+Worker.
