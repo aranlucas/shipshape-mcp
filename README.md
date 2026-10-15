@@ -33,8 +33,9 @@ and agent instructions. Checks cover repository files, JSON/YAML paths,
 dependencies, repository settings, branch protection, and workflow security.
 
 The dashboard and API contract are documented in
-[`docs/architecture.md`](docs/architecture.md). Setup instructions for the
-GitHub App, D1 database, queue, and catalog repository will live in
+[`docs/architecture.md`](docs/architecture.md); the TypeScript response source
+of truth is [`src/api/contract.ts`](src/api/contract.ts). Setup instructions
+for the GitHub App, D1 database, queue, and catalog repository are in
 [`docs/setup.md`](docs/setup.md).
 
 ## Develop

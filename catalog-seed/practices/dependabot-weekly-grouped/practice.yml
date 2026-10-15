@@ -1,0 +1,27 @@
+version: 1
+id: dependabot-weekly-grouped
+title: Grouped weekly Dependabot updates
+summary: Group dependency updates into a weekly Thursday Dependabot schedule.
+kind: files
+appliesTo:
+  languages: [TypeScript, JavaScript]
+  hasFiles: [package.json]
+checks:
+  - type: file-exists
+    path: .github/dependabot.yml
+  - type: yaml-path
+    file: .github/dependabot.yml
+    path: multi-ecosystem-groups.weekly-dependencies.schedule.interval
+    equals: weekly
+  - type: yaml-path
+    file: .github/dependabot.yml
+    path: multi-ecosystem-groups.weekly-dependencies.schedule.day
+    equals: thursday
+  - type: yaml-path
+    file: .github/dependabot.yml
+    path: multi-ecosystem-groups.weekly-dependencies.schedule.time
+    equals: "06:00"
+  - type: yaml-path
+    file: .github/dependabot.yml
+    path: multi-ecosystem-groups.weekly-dependencies.schedule.timezone
+    equals: America/Los_Angeles

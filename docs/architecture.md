@@ -53,7 +53,8 @@ the dashboard and tools expose the same states and evidence.
 - `src/practices/` contains catalog schema, applicability, snapshots, checks,
   workflow parsing, and result views.
 - `src/queue.ts` and `src/scheduled.ts` handle asynchronous evaluation.
-- `src/api/contract.ts` is the response type source of truth.
+- [`src/api/contract.ts`](../src/api/contract.ts) is the response type source of
+  truth for both the dashboard API and MCP tools.
 - `src/web/` contains the owner login and signed-in placeholder page.
 
 The GitHub App, Cloudflare bindings, migration, and catalog setup are covered

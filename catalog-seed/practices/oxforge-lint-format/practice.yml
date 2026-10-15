@@ -1,0 +1,19 @@
+version: 1
+id: oxforge-lint-format
+title: Oxforge lint and format configuration
+summary: Use the Oxforge recommended lint rules and shared format configuration.
+kind: files
+appliesTo:
+  languages: [TypeScript, JavaScript]
+  hasFiles: [package.json]
+checks:
+  - type: dependency
+    file: package.json
+    name: "@aranlucas/oxforge"
+    version: "0.2.2"
+  - type: file-contains
+    path: .oxlintrc.json
+    text: "@aranlucas/oxforge/configs/recommended.json"
+  - type: file-matches
+    path: oxfmt.config.ts
+    source: files/oxfmt.config.ts
