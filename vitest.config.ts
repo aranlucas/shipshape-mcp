@@ -1,5 +1,8 @@
-import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
+import { TEST_PRIVATE_KEY_PEM } from "./test/helpers/app-key";
+
+const testMigrations = await readD1Migrations("./migrations");
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
@@ -20,9 +23,18 @@ export default defineConfig({
             experimental: { newConfig: true },
             miniflare: {
               bindings: {
+                GITHUB_APP_ID: "12345",
+                GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
+                GITHUB_APP_CLIENT_SECRET: "synthetic-secret",
+                GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
+                GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
+                OWNER_GITHUB_ID: "1001",
+                CATALOG_REPO: "aranlucas/practices",
+                // Temporary compatibility for legacy OAuth tests until Task 3 migrates them.
                 GITHUB_CLIENT_ID: "synthetic-client",
                 GITHUB_CLIENT_SECRET: "synthetic-secret",
                 COOKIE_ENCRYPTION_KEY: "synthetic-cookie-key",
+                TEST_MIGRATIONS: JSON.stringify(testMigrations),
               },
             },
           }),
@@ -30,6 +42,7 @@ export default defineConfig({
         test: {
           name: "workers",
           include: ["test/workers/**/*.test.ts"],
+          setupFiles: ["./test/workers/setup.ts"],
         },
       },
     ],

@@ -1,4 +1,9 @@
-# Copy to .dev.vars for local OAuth testing. Never commit real credentials.
-GITHUB_CLIENT_ID=""
-GITHUB_CLIENT_SECRET=""
+# Copy to .dev.vars for local development. Never commit real credentials.
+GITHUB_APP_ID=""
+GITHUB_APP_CLIENT_ID=""
+GITHUB_APP_CLIENT_SECRET=""
+# PKCS#8 PEM, newlines as \n. Convert GitHub's key: openssl pkcs8 -topk8 -nocrypt -in app.pem
+GITHUB_APP_PRIVATE_KEY=""
+GITHUB_WEBHOOK_SECRET=""
+OWNER_GITHUB_ID=""
 COOKIE_ENCRYPTION_KEY="generate-with-openssl-rand-32"
