@@ -15,7 +15,16 @@
     "paths": {
       "@/*": ["./src/*"],
       "@test/*": ["./test/*"]
-    }
+    },
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
   },
-  "include": ["src", "test", "cloudflare.config.ts", "vite.config.ts", ".cloudflare/types"]
+  "include": [
+    "src",
+    "test",
+    "cloudflare.config.ts",
+    "vite.config.ts",
+    ".cloudflare/types",
+    "vite.ui.config.ts"
+  ]
 }

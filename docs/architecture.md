@@ -1,83 +1,61 @@
 # Architecture
 
-Shipshape is a stateless, read-only MCP server on Cloudflare Workers.
+Shipshape is a single-user Cloudflare Worker for checking personal engineering
+practices across every repository available through a GitHub App installation.
 
 ```text
-MCP client
-   |  OAuth 2.1 + PKCE
-   v
-Cloudflare OAuth provider ---- KV (short-lived grants and encrypted props)
-   |
-   v
-Stateless MCP handler ---- GitHub REST API 2026-03-10
-   |                              |
-   +---- normalized facts <-------+
-                 |
-                 v
-       deterministic rules and scores
+GitHub App OAuth (identity only)
+             |
+             v
+       owner-gated session ---- KV (short-lived state)
+             |
+             v
+   App installation clients ---- GitHub repositories
+             |
+             v
+       inventory + queue
+             |
+             v
+   bounded snapshot + practice engine
+             |
+             v
+          D1 results
+          /       \
+   dashboard API   MCP tools
 ```
 
 ## Boundaries
 
-- The MCP endpoint is `/mcp` using Streamable HTTP.
-- Cloudflare's `workers-oauth-provider` owns the MCP authorization server;
-  `oauth4webapi` handles the upstream GitHub authorization-code exchange and
-  bearer request with standards-checked responses.
-- Public MCP clients use authorization code flow with S256 PKCE. Plain PKCE and
-  implicit flow are disabled explicitly.
-- GitHub authenticates the user with only `read:user`. Repository tools reject
-  private repositories even if an upstream credential could see one.
-- The Worker performs only `GET` and `HEAD` requests to `api.github.com`.
-- Repository responses are bounded by page limits, timeouts, concurrency caps,
-  and response-size checks. A repository is never cloned or executed.
-- OAuth state is one-time, browser-bound, and short-lived. Dynamic client
-  metadata is escaped before it reaches HTML.
-- GitHub feature endpoints may answer `403` or `404` when a plan or permission
-  is missing. Those signals become `unknown`, never a passing result.
+- The dashboard and MCP are available only to the configured owner.
+- GitHub App OAuth identifies the owner. The resulting user token is never
+  stored or used for repository reads.
+- Installation tokens read repository metadata, files, workflows, settings,
+  and branch protection according to the App permissions.
+- Repository reads use one recursive tree and bounded content reads per
+  evaluation. No repository is cloned or executed.
+- Practice definitions are strict YAML in the catalog repository. Canonical
+  files are compared after line-ending and trailing-whitespace normalization.
+- API errors, missing permissions, unavailable features, truncated trees, and
+  oversized blobs produce `unknown`, never an inferred pass.
 
-## Website companion
+## Runtime flow
 
-`src/web/` serves the settings dashboard on the same Worker under `/app`. It
-does not go through the MCP authorization server: GitHub redirects to
-`/callback/web`, a subdirectory of the registered OAuth callback, with
-one-time state bound to a browser cookie. The resulting token is encrypted with
-AES-GCM under a key derived from an HttpOnly session cookie, and only a hash of
-that cookie is used as the KV key, so KV contents alone cannot recover a token.
-Sessions last eight hours. The page loads one same-origin script under a strict
-CSP and builds the DOM with `textContent`. State-changing API calls require a
-matching `Origin` and a JSON body. The dashboard reuses the read-only drift
-collector.
+GitHub push and installation events, dashboard refreshes, and the daily sweep
+enqueue repository evaluations. A consumer loads the catalog, reads the
+repository's default-branch head, evaluates each applicable practice, and
+stores results in D1. The API and MCP views use the same response builders, so
+the dashboard and tools expose the same states and evidence.
 
-## Scoring
+## Source layout
 
-Rules emit a stable ID, category, state, score impact, confidence, evidence,
-and remediation. Category totals are reproducible; no language model decides a
-score. `action_plan` deduplicates failures and sorts by severity, recoverable
-points, confidence, and rule ID so identical evidence yields identical output.
+- `src/github/` validates GitHub responses and creates authenticated clients.
+- `src/inventory/` synchronizes installations and repositories.
+- `src/practices/` contains catalog schema, applicability, snapshots, checks,
+  workflow parsing, and result views.
+- `src/queue.ts` and `src/scheduled.ts` handle asynchronous evaluation.
+- [`src/api/contract.ts`](../src/api/contract.ts) is the response type source of
+  truth for both the dashboard API and MCP tools.
+- `src/web/` contains the owner login and signed-in placeholder page.
 
-The eight MCP tools intentionally sit above GitHub's generic API surface:
-
-- `portfolio_snapshot`
-- `repo_readiness`
-- `branch_risk`
-- `delivery_hygiene`
-- `security_posture`
-- `standards_audit`
-- `settings_drift`
-- `action_plan`
-
-## Operations
-
-`cloudflare.config.ts` is the source of truth for bindings and runtime flags.
-`cf workers types` generates `.cloudflare/types/index.d.ts`; bindings are not
-hand-written. Logs and traces are enabled, but tokens, OAuth props, and GitHub
-response bodies are never logged.
-
-The standards collector reads bounded Git trees and blobs at an immutable commit,
-then evaluates shared policy and package configuration without executing code.
-See [Shared standards](standards.md) for limits and evidence semantics.
-
-The `/app/review` companion composes existing standards evidence with bounded
-PR-head checks and repository metadata. Its GET-only review APIs validate public
-repository scope before deeper reads, keep unknown/partial evidence explicit, and
-return proposals without mutation endpoints. See [Repository review](repository-review.md).
+The GitHub App, Cloudflare bindings, migration, and catalog setup are covered
+by the setup guide.

@@ -1,0 +1,594 @@
+/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unknown-returns, oxforge/no-inline-types, anti-slop/no-known-value-widening, typescript/no-unsafe-assignment, typescript/no-base-to-string, eslint/no-shadow */
+
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { AppEnv } from "@/env";
+import worker from "@/index";
+import { createSession, SESSION_COOKIE_NAME } from "@/web/session";
+import { parsePractice } from "@/practices/schema";
+import {
+  upsertRepositories,
+  writeCatalog,
+  writeResults,
+  type StoredRepository,
+} from "@/practices/store";
+import {
+  ApiErrorResponseSchema,
+  CatalogWriteResponseSchema,
+  OverviewResponseSchema,
+  PracticeDetailResponseSchema,
+  RefreshResponseSchema,
+  RepoDetailResponseSchema,
+} from "@test/helpers/contract-schemas";
+
+const appEnv = env as AppEnv;
+const ORIGIN = "https://shipshape-mcp.aranlucas.workers.dev";
+const catalogSha = "a".repeat(40);
+const nextCatalogSha = "c".repeat(40);
+
+const validYaml = `version: 1
+id: husky
+title: Husky hooks
+summary: Keep hooks configured
+kind: files
+checks:
+  - type: file-exists
+    path: .husky/pre-commit
+`;
+
+const invalidYaml = `version: 1
+id: husky
+title: Husky hooks
+summary: Keep hooks configured
+kind: files
+checks:
+  - type: file-exist
+    path: .husky/pre-commit
+`;
+
+const brokenYaml = `version: 1
+id: broken
+title: Broken
+summary: Invalid check
+kind: files
+checks:
+  - type: file-exist
+    path: README.md
+`;
+
+function repository(fullName: string, installationId = 1): StoredRepository {
+  const [owner = "owner", name = "repo"] = fullName.split("/");
+
+  return {
+    fullName,
+    owner,
+    name,
+    installationId,
+    private: fullName.endsWith("/private"),
+    archived: false,
+    fork: false,
+    language: "TypeScript",
+    defaultBranch: "main",
+    pushedAt: "2026-10-15T12:00:00.000Z",
+    url: `https://github.com/${fullName}`,
+  };
+}
+
+function practice(id: string, yaml: string, files: Record<string, string> = {}) {
+  const parsed = parsePractice(yaml, id);
+
+  return {
+    id,
+    folder: id,
+    yaml,
+    instructions: id === "husky" ? "Install the hook." : null,
+    files,
+    parsed,
+  };
+}
+
+async function seed() {
+  await appEnv.DB.batch([
+    appEnv.DB.prepare("DELETE FROM results"),
+    appEnv.DB.prepare("DELETE FROM catalog"),
+    appEnv.DB.prepare("DELETE FROM repositories"),
+    appEnv.DB.prepare("UPDATE sweep SET pending = 0, last_completed_at = NULL WHERE id = 1"),
+  ]);
+
+  await upsertRepositories(
+    appEnv.DB,
+    [
+      repository("aranlucas/zeta"),
+      repository("aranlucas/alpha"),
+      repository("aranlucas/practices"),
+    ],
+    new Date().toISOString(),
+  );
+  await writeCatalog(
+    appEnv.DB,
+    {
+      repo: "aranlucas/practices",
+      sha: catalogSha,
+      practices: [
+        practice("husky", validYaml, { "files/pre-commit": "#!/bin/sh\n" }),
+        practice("broken", brokenYaml),
+      ],
+    },
+    "2026-10-15T12:00:00.000Z",
+  );
+  await writeResults(appEnv.DB, [
+    {
+      repo: "aranlucas/alpha",
+      practiceId: "husky",
+      cell: {
+        state: "fail",
+        checkedAt: "2026-10-15T12:30:00.000Z",
+        failing: 1,
+        unknown: 0,
+      },
+      checks: [
+        {
+          type: "file-exists",
+          label: "File exists",
+          state: "fail",
+          path: ".husky/pre-commit",
+          expected: "present",
+          actual: "missing",
+          detail: null,
+        },
+      ],
+      headSha: "h".repeat(40),
+      catalogSha,
+    },
+    {
+      repo: "aranlucas/zeta",
+      practiceId: "broken",
+      cell: { state: "unknown", checkedAt: null, failing: 0, unknown: 1 },
+      checks: [],
+      headSha: null,
+      catalogSha,
+    },
+  ]);
+}
+
+async function request(
+  path: string,
+  init: RequestInit = {},
+  authenticated = true,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (init.body !== undefined && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+
+  if (authenticated) {
+    const secret = await createSession(appEnv.OAUTH_KV, { login: "aranlucas", userId: 1001 });
+    headers.set("cookie", `${SESSION_COOKIE_NAME}=${secret}`);
+  }
+
+  const ctx = createExecutionContext();
+  const response = await worker.fetch(
+    new Request(`${ORIGIN}${path}`, { ...init, headers }),
+    appEnv,
+    ctx,
+  );
+  await waitOnExecutionContext(ctx);
+  return response;
+}
+
+function parseJson(response: Response): Promise<unknown> {
+  return response.json();
+}
+
+function gitDataFetch() {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    const path = decodeURIComponent(url.pathname);
+    const body = request.method === "GET" ? null : JSON.parse(init?.body?.toString() ?? "null");
+    requests.push({ method: request.method, path, body });
+
+    if (request.method === "POST" && path === "/app/installations/1/access_tokens") {
+      return Promise.resolve(
+        Response.json({ token: "installation-token", expires_at: "2030-01-01T00:00:00Z" }),
+      );
+    }
+    if (request.method === "GET" && path === "/repos/aranlucas/practices") {
+      return Promise.resolve(Response.json({ default_branch: "main" }));
+    }
+    if (request.method === "GET" && path === "/repos/aranlucas/practices/git/ref/heads/main") {
+      return Promise.resolve(Response.json({ object: { sha: "b".repeat(40), type: "commit" } }));
+    }
+    if (
+      request.method === "GET" &&
+      path === `/repos/aranlucas/practices/git/commits/${"b".repeat(40)}`
+    ) {
+      return Promise.resolve(Response.json({ tree: { sha: "t".repeat(40) } }));
+    }
+    if (
+      request.method === "GET" &&
+      path === `/repos/aranlucas/practices/git/trees/${"t".repeat(40)}`
+    ) {
+      return Promise.resolve(
+        Response.json({
+          truncated: false,
+          tree: [
+            { path: "practices/husky/practice.yml", mode: "100644", type: "blob", sha: "old-yaml" },
+            {
+              path: "practices/husky/instructions.md",
+              mode: "100644",
+              type: "blob",
+              sha: "old-instructions",
+            },
+            {
+              path: "practices/husky/files/pre-commit",
+              mode: "100755",
+              type: "blob",
+              sha: "old-file",
+            },
+          ],
+        }),
+      );
+    }
+    if (request.method === "POST" && path === "/repos/aranlucas/practices/git/blobs") {
+      return Promise.resolve(Response.json({ sha: `blob-${requests.length}` }));
+    }
+    if (request.method === "POST" && path === "/repos/aranlucas/practices/git/trees") {
+      return Promise.resolve(Response.json({ sha: "n".repeat(40) }));
+    }
+    if (request.method === "POST" && path === "/repos/aranlucas/practices/git/commits") {
+      return Promise.resolve(Response.json({ sha: nextCatalogSha }));
+    }
+    if (request.method === "PATCH" && path === "/repos/aranlucas/practices/git/refs/heads/main") {
+      return Promise.resolve(Response.json({ object: { sha: nextCatalogSha } }));
+    }
+    if (request.method === "GET" && path === "/repos/aranlucas/practices/commits/main") {
+      return Promise.resolve(Response.json({ sha: nextCatalogSha }));
+    }
+    if (
+      request.method === "GET" &&
+      path === `/repos/aranlucas/practices/git/trees/${nextCatalogSha}`
+    ) {
+      return Promise.resolve(
+        Response.json({
+          truncated: false,
+          tree: [
+            {
+              path: "practices/husky/practice.yml",
+              mode: "100644",
+              type: "blob",
+              sha: "new-yaml",
+              size: validYaml.length,
+            },
+            {
+              path: "practices/husky/instructions.md",
+              mode: "100644",
+              type: "blob",
+              sha: "new-instructions",
+              size: 18,
+            },
+            {
+              path: "practices/husky/files/pre-commit",
+              mode: "100755",
+              type: "blob",
+              sha: "new-file",
+              size: 10,
+            },
+          ],
+        }),
+      );
+    }
+    const blobs: Record<string, string> = {
+      "new-yaml": validYaml,
+      "new-instructions": "Install the hook.",
+      "new-file": "#!/bin/sh\n",
+    };
+    if (request.method === "GET" && path.includes("/git/blobs/")) {
+      const sha = path.split("/").at(-1) ?? "";
+      const content = blobs[sha] ?? "";
+      return Promise.resolve(
+        Response.json({ content: btoa(content), encoding: "base64", size: content.length }),
+      );
+    }
+
+    return Promise.resolve(
+      Response.json({ message: `Unexpected ${request.method} ${path}` }, { status: 404 }),
+    );
+  });
+
+  return { fetchMock, requests };
+}
+
+describe("dashboard API", () => {
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    await seed();
+    await appEnv.OAUTH_KV.delete("app:installation-token:1");
+  });
+
+  it("returns a strict overview contract with sorted practices/repos and retained validation errors", async () => {
+    const response = await request("/app/api/overview");
+    expect(response.status).toBe(200);
+    const body = OverviewResponseSchema.parse(await parseJson(response));
+    expect(body.catalog).toEqual({
+      repo: "aranlucas/practices",
+      sha: catalogSha,
+      loadedAt: "2026-10-15T12:00:00.000Z",
+    });
+    expect(body.practices.map(({ id }) => id)).toEqual(["broken", "husky"]);
+    expect(body.practices.find(({ id }) => id === "broken")).toMatchObject({
+      valid: false,
+      error: expect.stringContaining("checks.0.type"),
+    });
+    expect(body.repos.map(({ fullName }) => fullName)).toEqual([
+      "aranlucas/alpha",
+      "aranlucas/practices",
+      "aranlucas/zeta",
+    ]);
+    expect(body.results["aranlucas/alpha"]?.husky).toMatchObject({ state: "fail", failing: 1 });
+    expect(body.results["aranlucas/zeta"]?.broken).toMatchObject({ state: "unknown", unknown: 1 });
+  });
+
+  it("returns an empty overview on a fresh install, before any catalog or inventory loads", async () => {
+    await appEnv.DB.batch([
+      appEnv.DB.prepare("DELETE FROM results"),
+      appEnv.DB.prepare("DELETE FROM repositories"),
+      appEnv.DB.prepare("DELETE FROM catalog"),
+    ]);
+
+    const response = await request("/app/api/overview");
+    expect(response.status).toBe(200);
+    const body = OverviewResponseSchema.parse(await parseJson(response));
+    expect(body.catalog).toEqual({ repo: "aranlucas/practices", sha: null, loadedAt: null });
+    expect(body.practices).toEqual([]);
+    expect(body.repos).toEqual([]);
+    expect(body.results).toEqual({});
+  });
+
+  it("returns repository detail with no practices before the catalog loads", async () => {
+    await appEnv.DB.prepare("DELETE FROM catalog").run();
+
+    const detail = await request("/app/api/repos/aranlucas/alpha");
+    expect(detail.status).toBe(200);
+    const body = RepoDetailResponseSchema.parse(await parseJson(detail));
+    expect(body.repo.fullName).toBe("aranlucas/alpha");
+    expect(body.practices).toEqual([]);
+  });
+
+  it("returns repository detail and a contract 404 for an unknown repository", async () => {
+    const detail = await request("/app/api/repos/aranlucas/alpha");
+    expect(detail.status).toBe(200);
+    const body = RepoDetailResponseSchema.parse(await parseJson(detail));
+    expect(body.repo.fullName).toBe("aranlucas/alpha");
+    expect(body.practices.map(({ practice }) => practice.id)).toEqual(["broken", "husky"]);
+
+    const missing = await request("/app/api/repos/aranlucas/missing");
+    expect(missing.status).toBe(404);
+    expect(ApiErrorResponseSchema.parse(await parseJson(missing))).toEqual({
+      error: "Repository not found",
+    });
+  });
+
+  it("returns practice detail with all state counts, including zero values", async () => {
+    const response = await request("/app/api/practices/husky");
+    expect(response.status).toBe(200);
+    const body = PracticeDetailResponseSchema.parse(await parseJson(response));
+    expect(body.files).toEqual([{ path: "pre-commit", content: "#!/bin/sh\n" }]);
+    expect(body.counts).toEqual({ pass: 0, fail: 1, unknown: 2, not_applicable: 0 });
+  });
+
+  it("rejects invalid YAML at checks.0.type without making a GitHub write", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({ yaml: invalidYaml }),
+    });
+    expect(response.status).toBe(400);
+    const body = ApiErrorResponseSchema.parse(await parseJson(response));
+    expect(body.error).toBe("Practice is invalid");
+    expect(body.issues?.[0]?.path).toBe("checks.0.type");
+    expect(fetchMock.mock.calls).toEqual([]);
+  });
+
+  it("rejects unsafe files paths before a GitHub write", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({ yaml: validYaml, files: [{ path: "../outside", content: "nope" }] }),
+    });
+    expect(response.status).toBe(400);
+    expect(fetchMock.mock.calls).toEqual([]);
+  });
+
+  it("commits a valid PUT, uses Git Data in sequence, and reloads the stored catalog", async () => {
+    const { fetchMock, requests } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({
+        yaml: validYaml,
+        instructions: "Install the hook.",
+        files: [{ path: "pre-commit", content: "#!/bin/sh\n" }],
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(CatalogWriteResponseSchema.parse(await parseJson(response))).toEqual({
+      catalogSha: nextCatalogSha,
+    });
+    const writeMethods = requests
+      .filter(({ method }) => ["POST", "PATCH"].includes(method))
+      .map(({ method, path }) => `${method} ${path}`);
+    expect(writeMethods).toEqual([
+      "POST /app/installations/1/access_tokens",
+      "POST /repos/aranlucas/practices/git/blobs",
+      "POST /repos/aranlucas/practices/git/blobs",
+      "POST /repos/aranlucas/practices/git/blobs",
+      "POST /repos/aranlucas/practices/git/trees",
+      "POST /repos/aranlucas/practices/git/commits",
+      "PATCH /repos/aranlucas/practices/git/refs/heads/main",
+    ]);
+    expect(
+      requests.find(
+        ({ method, path }) => method === "PATCH" && path.endsWith("/git/refs/heads/main"),
+      )?.body,
+    ).toMatchObject({ force: false });
+
+    const overview = await request("/app/api/overview");
+    expect(OverviewResponseSchema.parse(await parseJson(overview)).catalog.sha).toBe(
+      nextCatalogSha,
+    );
+    expect(
+      requests.some(({ method, path }) => method === "GET" && path.endsWith("/commits/main")),
+    ).toBe(true);
+  });
+
+  it("prepends the catalog files directory to repository-relative file paths", async () => {
+    const { fetchMock, requests } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({
+        yaml: validYaml,
+        files: [{ path: "files/foo.txt", content: "nested\n" }],
+      }),
+    });
+    expect(response.status).toBe(200);
+
+    const tree = requests.find(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
+    );
+    const treeBody = tree?.body as { tree?: unknown[] } | undefined;
+    expect(treeBody?.tree ?? []).toContainEqual(
+      expect.objectContaining({
+        path: "practices/husky/files/files/foo.txt",
+        mode: "100644",
+        type: "blob",
+      }),
+    );
+  });
+
+  it("round-trips practice detail file paths through save", async () => {
+    const detail = PracticeDetailResponseSchema.parse(
+      await parseJson(await request("/app/api/practices/husky")),
+    );
+    expect(detail.files).toEqual([{ path: "pre-commit", content: "#!/bin/sh\n" }]);
+
+    const { fetchMock, requests } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({ yaml: detail.yaml, files: detail.files }),
+    });
+    expect(response.status).toBe(200);
+
+    const tree = requests.find(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
+    );
+    const treeBody = tree?.body as { tree?: unknown[] } | undefined;
+    expect(treeBody?.tree ?? []).toContainEqual(
+      expect.objectContaining({
+        path: "practices/husky/files/pre-commit",
+        mode: "100644",
+        type: "blob",
+      }),
+    );
+  });
+
+  it("rejects a mutating request from another origin", async () => {
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: "https://evil.example" },
+      body: JSON.stringify({ yaml: validYaml }),
+    });
+    expect(response.status).toBe(403);
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
+      error: expect.any(String),
+    });
+  });
+
+  it("rejects a mutating request without a JSON content type", async () => {
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: ORIGIN, "content-type": "text/plain" },
+      body: validYaml,
+    });
+    expect(response.status).toBe(400);
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
+      error: expect.any(String),
+    });
+  });
+
+  it("returns 404 when deleting an unknown practice", async () => {
+    const response = await request("/app/api/practices/unknown", {
+      method: "DELETE",
+      headers: { origin: ORIGIN },
+      body: "{}",
+    });
+    expect(response.status).toBe(404);
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
+      error: expect.any(String),
+    });
+  });
+
+  it("refreshes one known repository with the manual reason", async () => {
+    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const response = await request("/app/api/refresh", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({ repo: "aranlucas/alpha" }),
+    });
+    expect(response.status).toBe(202);
+    expect(RefreshResponseSchema.parse(await parseJson(response))).toEqual({ queued: 1 });
+    expect(sendBatch).toHaveBeenCalledWith([
+      { body: { repo: "aranlucas/alpha", installationId: 1, reason: "manual" } },
+    ]);
+  });
+
+  it("returns 404 when refreshing an unknown repository", async () => {
+    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const response = await request("/app/api/refresh", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({ repo: "aranlucas/missing" }),
+    });
+    expect(response.status).toBe(404);
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
+      error: expect.any(String),
+    });
+    expect(sendBatch).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "malformed", "aranlucas/alpha/extra"])(
+    "rejects an invalid explicit repository filter (%s) without queueing",
+    async (repo) => {
+      const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+      const response = await request("/app/api/refresh", {
+        method: "POST",
+        headers: { origin: ORIGIN },
+        body: JSON.stringify({ repo }),
+      });
+      expect(response.status).toBe(400);
+      expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
+        error: expect.any(String),
+      });
+      expect(sendBatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns 401 for an unauthenticated API request", async () => {
+    const response = await request("/app/api/overview", {}, false);
+    expect(response.status).toBe(401);
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
+      error: expect.any(String),
+    });
+  });
+});

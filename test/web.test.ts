@@ -1,15 +1,19 @@
-import { Script } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
+
 import type { OAuthEnv } from "@/oauth";
+import { readSession } from "@/web/session";
 import { isWebPath, webHandler } from "@/web/routes";
 import { memoryKv } from "@test/helpers/oauth-state";
-import { jsonResponse, repository } from "@test/helpers/github-fixtures";
 
 const ORIGIN = "https://shipshape.example";
 
+interface GitHubUserFixture {
+  login: string;
+  id: number;
+}
+
 function environment() {
   const kv = memoryKv();
-  const put = vi.spyOn(kv, "put");
 
   const env: OAuthEnv = {
     OAUTH_KV: kv,
@@ -18,12 +22,13 @@ function environment() {
       lookupClient: vi.fn(),
       completeAuthorization: vi.fn(),
     },
-    GITHUB_CLIENT_ID: "github-client-id",
-    GITHUB_CLIENT_SECRET: "github-client-secret",
+    GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
+    GITHUB_APP_CLIENT_SECRET: "synthetic-secret",
+    OWNER_GITHUB_ID: "1001",
     PUBLIC_ORIGIN: ORIGIN,
   };
 
-  return { env, put };
+  return { env, kv };
 }
 
 function cookie(response: Response, name: string): string {
@@ -38,28 +43,23 @@ function cookie(response: Response, name: string): string {
   return match[1];
 }
 
-async function signIn(env: OAuthEnv) {
+async function callbackFor(env: OAuthEnv, user: GitHubUserFixture) {
   const login = await webHandler(new Request(`${ORIGIN}/app/login`), env);
   const authorize = new URL(login.headers.get("Location") ?? "");
   const browser = cookie(login, "__Host-shipshape-web-login");
 
-  vi.stubGlobal(
-    "fetch",
-    vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({
-          access_token: "gho_synthetic_web_token",
-          token_type: "bearer",
-          scope: "read:user",
-        }),
-      )
-      .mockResolvedValueOnce(Response.json({ login: "octo" })),
-  );
+  const fetchMock = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      Response.json({ access_token: "oauth-token", token_type: "bearer", scope: "" }),
+    )
+    .mockResolvedValueOnce(Response.json(user));
+
+  vi.stubGlobal("fetch", fetchMock);
 
   const callback = await webHandler(
     new Request(
-      `${ORIGIN}/callback?code=github-code&state=${authorize.searchParams.get("state") ?? ""}`,
+      `${ORIGIN}/callback?code=github-code&iss=https%3A%2F%2Fgithub.com%2Flogin%2Foauth&state=${authorize.searchParams.get("state") ?? ""}`,
       { headers: { Cookie: `__Host-shipshape-web-login=${browser}` } },
     ),
     env,
@@ -67,346 +67,148 @@ async function signIn(env: OAuthEnv) {
 
   vi.unstubAllGlobals();
 
-  return {
-    login,
-    authorize,
-    callback,
-    session: `__Host-shipshape-session=${cookie(callback, "__Host-shipshape-session")}`,
-  };
-}
-
-function api(path: string, method: string, session: string | null, body?: string) {
-  const headers = new Headers({
-    Origin: ORIGIN,
-    "Content-Type": "application/json",
-  });
-
-  if (session) {
-    headers.set("Cookie", session);
-  }
-
-  return new Request(`${ORIGIN}${path}`, { method, headers, body });
+  return { callback, fetchMock };
 }
 
 describe("website companion", () => {
-  it("routes only website state to the website's shared callback", () => {
+  it("routes only website state to the shared callback", () => {
     expect(isWebPath("/callback", "web_synthetic-state")).toBe(true);
     expect(isWebPath("/callback", "synthetic-mcp-state")).toBe(false);
     expect(isWebPath("/callback")).toBe(false);
-    expect(isWebPath("/callback/web", "legacy-state")).toBe(true);
   });
 
-  it("offers GitHub sign-in under a strict script policy", async () => {
+  it("uses the App OAuth client and omits the ignored scope", async () => {
     const { env } = environment();
-    const response = await webHandler(new Request(`${ORIGIN}/app`), env);
-    const html = await response.text();
-
-    expect(response.status).toBe(200);
-    expect(html).toContain('href="/app/login"');
-    expect(html).not.toContain("<script");
-    expect(response.headers.get("Content-Security-Policy")).toBe(
-      "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-    );
+    const response = await webHandler(new Request(`${ORIGIN}/app/login`), env);
+    const authorize = new URL(response.headers.get("Location") ?? "");
+    expect(authorize.searchParams.get("client_id")).toBe("Iv1.synthetic");
+    expect(authorize.searchParams.has("scope")).toBe(false);
   });
 
-  it("signs in with read-only GitHub access and keeps the token encrypted", async () => {
-    const { env, put } = environment();
-    const { login, authorize, callback, session } = await signIn(env);
+  it("rejects a non-owner without creating a session", async () => {
+    const { env } = environment();
+    const { callback } = await callbackFor(env, { login: "someone", id: 2002 });
+    expect(callback.status).toBe(403);
+    expect(await callback.text()).toContain(
+      "This Shipshape instance belongs to another GitHub account.",
+    );
+    expect(callback.headers.get("Set-Cookie")).toContain("__Host-shipshape-web-login=");
+    expect(callback.headers.get("Set-Cookie")).not.toContain("__Host-shipshape-session=");
+  });
 
-    expect(login.status).toBe(302);
-    expect(authorize.origin).toBe("https://github.com");
-    expect(authorize.searchParams.get("scope")).toBe("read:user");
-    expect(authorize.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/callback`);
+  it("creates an identity-only owner session", async () => {
+    const { env, kv } = environment();
+    const { callback, fetchMock } = await callbackFor(env, { login: "aranlucas", id: 1001 });
     expect(callback.status).toBe(302);
     expect(callback.headers.get("Location")).toBe("/app");
-    expect(callback.headers.get("Set-Cookie")).toContain("HttpOnly");
+    const session = cookie(callback, "__Host-shipshape-session");
+    expect(
+      await readSession(
+        kv,
+        new Request(`${ORIGIN}/app`, {
+          headers: { Cookie: `__Host-shipshape-session=${session}` },
+        }),
+      ),
+    ).toEqual({
+      login: "aranlucas",
+      userId: 1001,
+    });
 
-    for (const [, value] of put.mock.calls) {
-      expect(value).not.toContain("gho_synthetic_web_token");
+    const tokenExchange = fetchMock.mock.calls[0]?.[1]?.body;
+
+    const tokenExchangeText =
+      tokenExchange instanceof URLSearchParams
+        ? tokenExchange.toString()
+        : tokenExchange instanceof Uint8Array
+          ? new TextDecoder().decode(tokenExchange)
+          : "";
+
+    expect(tokenExchangeText).toContain("client_id=Iv1.synthetic");
+  });
+
+  it("serves the dashboard shell with the signed-in login for every client route", async () => {
+    const { env } = environment();
+
+    const shell =
+      '<!doctype html><html><head><meta name="shipshape-login" content=""></head><body><div id="root"></div></body></html>';
+
+    env.ASSETS = {
+      fetch: vi.fn((request: Request) =>
+        Promise.resolve(
+          new URL(request.url).pathname === "/app/index.html"
+            ? new Response(shell, { headers: { "Content-Type": "text/html" } })
+            : new Response("Not found", { status: 404 }),
+        ),
+      ),
+    };
+
+    const { callback } = await callbackFor(env, { login: "aranlucas", id: 1001 });
+    const session = `__Host-shipshape-session=${cookie(callback, "__Host-shipshape-session")}`;
+
+    const paths = [
+      "/app",
+      "/app/repos/aranlucas/shipshape-mcp",
+      "/app/practices",
+      "/app/practices/husky-lint-staged",
+      "/app/practices/new",
+    ];
+
+    const pages = await Promise.all(
+      paths.map(async (path) => {
+        const page = await webHandler(
+          new Request(`${ORIGIN}${path}`, { headers: { Cookie: session } }),
+          env,
+        );
+
+        return { page, body: await page.text() };
+      }),
+    );
+
+    for (const { page, body } of pages) {
+      expect(page.status).toBe(200);
+      expect(body).toContain('<meta name="shipshape-login" content="aranlucas">');
+      expect(page.headers.get("Content-Security-Policy")).toContain("font-src 'self'");
+      expect(page.headers.get("Cache-Control")).toBe("no-store");
     }
+  });
+
+  it("asks signed-out visitors to sign in on any dashboard route", async () => {
+    const { env } = environment();
+    const page = await webHandler(new Request(`${ORIGIN}/app/practices/husky-lint-staged`), env);
+
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Continue with GitHub");
+  });
+
+  it("explains a missing bundle and removes retired APIs and assets", async () => {
+    const { env } = environment();
+    const { callback } = await callbackFor(env, { login: "aranlucas", id: 1001 });
+    const session = `__Host-shipshape-session=${cookie(callback, "__Host-shipshape-session")}`;
 
     const page = await webHandler(
       new Request(`${ORIGIN}/app`, { headers: { Cookie: session } }),
       env,
     );
 
-    const html = await page.text();
-    expect(html).toContain("@octo");
-    expect(html).toContain('<script src="/app/app.js" defer></script>');
+    expect(await page.text()).toContain("pnpm ui:build");
+    expect(
+      (await webHandler(new Request(`${ORIGIN}/app/api/drift`, { method: "POST" }), env)).status,
+    ).toBe(404);
+    expect((await webHandler(new Request(`${ORIGIN}/app/app.js`), env)).status).toBe(404);
+    expect((await webHandler(new Request(`${ORIGIN}/app/review.js`), env)).status).toBe(404);
+    expect((await webHandler(new Request(`${ORIGIN}/app/review`), env)).status).toBe(404);
   });
 
-  it("rejects callbacks from another browser and replayed state", async () => {
+  it("keeps sign-out same-origin protected", async () => {
     const { env } = environment();
-    const login = await webHandler(new Request(`${ORIGIN}/app/login`), env);
+    const { callback } = await callbackFor(env, { login: "aranlucas", id: 1001 });
+    const session = `__Host-shipshape-session=${cookie(callback, "__Host-shipshape-session")}`;
 
-    const state = new URL(login.headers.get("Location") ?? "").searchParams.get("state");
+    const crossSite = new Request(`${ORIGIN}/app/logout`, {
+      method: "POST",
+      headers: { Cookie: session, Origin: "https://evil.example" },
+    });
 
-    const fetchMock = vi.fn<typeof fetch>();
-    vi.stubGlobal("fetch", fetchMock);
-
-    const forged = await webHandler(
-      new Request(`${ORIGIN}/callback/web?code=x&state=${state ?? ""}`, {
-        headers: {
-          Cookie: "__Host-shipshape-web-login=attacker-browser-token-000000000",
-        },
-      }),
-      env,
-    );
-
-    const replay = await webHandler(
-      new Request(`${ORIGIN}/callback/web?code=x&state=${state ?? ""}`, {
-        headers: {
-          Cookie: `__Host-shipshape-web-login=${cookie(login, "__Host-shipshape-web-login")}`,
-        },
-      }),
-      env,
-    );
-
-    expect(forged.status).toBe(400);
-    expect(replay.status).toBe(400);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("requires a session and a same-origin request for the API", async () => {
-    const { env } = environment();
-    const { session } = await signIn(env);
-    const body = JSON.stringify({ owner: "octo", policy: "version: 1" });
-
-    const anonymous = await webHandler(api("/app/api/drift", "POST", null, body), env);
-
-    expect(anonymous.status).toBe(401);
-
-    const crossSite = api("/app/api/drift", "POST", session, body);
-    crossSite.headers.set("Origin", "https://evil.example");
     expect((await webHandler(crossSite, env)).status).toBe(403);
-
-    const invalid = await webHandler(api("/app/api/drift", "POST", session, body), env);
-
-    expect(invalid.status).toBe(400);
-    const expectedMatcher1: unknown = expect.stringContaining("Invalid settings policy");
-
-    expect(await invalid.json()).toMatchObject({
-      error: expectedMatcher1,
-    });
-  });
-
-  it("runs settings drift with the signed-in user's token", async () => {
-    const { env } = environment();
-    const { session } = await signIn(env);
-    const authorizations: string[] = [];
-
-    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(input instanceof Request ? input.url : input.toString());
-      authorizations.push(new Headers(init?.headers).get("authorization") ?? "");
-      expect(init?.method ?? "GET").toBe("GET");
-
-      const response =
-        url.pathname === "/users/octo/repos"
-          ? jsonResponse([{ ...repository, has_wiki: true }])
-          : jsonResponse({ ...repository, has_wiki: true });
-
-      Object.defineProperty(response, "url", { value: url.href });
-
-      return Promise.resolve(response);
-    });
-
-    const response = await webHandler(
-      api(
-        "/app/api/drift",
-        "POST",
-        session,
-        JSON.stringify({
-          owner: "octo",
-          policy: "version: 1\nrules:\n  - id: tidy\n    features: {wiki: false}\n",
-          limit: 5,
-        }),
-      ),
-      env,
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      status: "drifted",
-      repositories: [
-        {
-          repository: "octo/demo",
-          remediation: [{ method: "PATCH", body: { has_wiki: false } }],
-        },
-      ],
-    });
-    expect(authorizations.every((value) => value === "token gho_synthetic_web_token")).toBe(true);
-  });
-
-  it("saves valid rules per account and signs out", async () => {
-    const { env } = environment();
-    const { session } = await signIn(env);
-
-    const policy = "version: 1\nrules:\n  - id: tidy\n    features: {wiki: false}\n";
-
-    const invalid = await webHandler(
-      api("/app/api/rules", "PUT", session, JSON.stringify({ policy: "rules: []" })),
-      env,
-    );
-
-    expect(invalid.status).toBe(400);
-
-    const saved = await webHandler(
-      api("/app/api/rules", "PUT", session, JSON.stringify({ policy })),
-      env,
-    );
-
-    expect(await saved.json()).toEqual({ saved: true });
-
-    const loaded = await webHandler(api("/app/api/rules", "GET", session), env);
-    expect(await loaded.json()).toEqual({ policy });
-
-    const logout = await webHandler(api("/app/logout", "POST", session), env);
-    expect(logout.status).toBe(303);
-
-    const after = await webHandler(api("/app/api/rules", "GET", session), env);
-    expect(after.status).toBe(401);
-  });
-
-  it("serves the dashboard script", async () => {
-    const { env } = environment();
-    const response = await webHandler(new Request(`${ORIGIN}/app/app.js`), env);
-
-    expect(response.headers.get("Content-Type")).toBe("text/javascript; charset=utf-8");
-    const script = await response.text();
-
-    // Parsing (not running) the script catches template-string escaping mistakes.
-    expect(() => new Script(script)).not.toThrow();
-    expect(script).toContain("textContent");
-    expect(script).not.toContain("innerHTML");
-  });
-
-  it("serves the authenticated review page and a text-only CSP-safe script", async () => {
-    const { env } = environment();
-    const { session } = await signIn(env);
-
-    const page = await webHandler(
-      new Request(`${ORIGIN}/app/review`, { headers: { Cookie: session } }),
-      env,
-    );
-
-    const html = await page.text();
-    expect(html).toContain("Your repository review desk.");
-    expect(html).toContain('src="/app/review.js"');
-    expect(html).toContain('id="review-category"');
-    expect(html).toContain('id="review-state"');
-    expect(page.headers.get("Cache-Control")).toBe("no-store");
-    const response = await webHandler(new Request(`${ORIGIN}/app/review.js`), env);
-    const script = await response.text();
-    expect(() => new Script(script)).not.toThrow();
-    expect(script).toContain("textContent");
-    expect(script).not.toContain("innerHTML");
-    expect(script).toContain('parsed.protocol !== "https:"');
-  });
-
-  it("requires authentication and validated coordinates for read-only review APIs", async () => {
-    const { env } = environment();
-    const anonymous = await webHandler(api("/app/api/review/repos?owner=octo", "GET", null), env);
-    expect(anonymous.status).toBe(401);
-    const { session } = await signIn(env);
-    const fetchMock = vi.fn<typeof fetch>();
-    vi.stubGlobal("fetch", fetchMock);
-
-    const invalidPaths = [
-      "/app/api/review/repos?owner=https://evil.test",
-      "/app/api/review/repos?owner=octo&page=0",
-      "/app/api/review/repository?owner=octo&repo=../private",
-    ];
-
-    const responses = await Promise.all(
-      invalidPaths.map((path) => webHandler(api(path, "GET", session), env)),
-    );
-
-    for (const response of responses) {
-      expect(response.status).toBe(400);
-    }
-
-    const mutation = await webHandler(
-      api("/app/api/review/repository?owner=octo&repo=demo", "POST", session, "{}"),
-      env,
-    );
-
-    expect(mutation.status).toBe(405);
-    expect(fetchMock).not.toHaveBeenCalled();
-    vi.unstubAllGlobals();
-  });
-
-  it("lists public repositories as uninspected with pagination and no deeper reads", async () => {
-    const { env } = environment();
-    const { session } = await signIn(env);
-
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(input instanceof Request ? input.url : input.toString());
-      expect(url.hostname).toBe("api.github.com");
-      expect(url.pathname).toBe("/users/octo/repos");
-      expect(url.searchParams.get("page")).toBe("2");
-      expect(url.searchParams.get("per_page")).toBe("20");
-      expect(init?.method ?? "GET").toBe("GET");
-
-      return Promise.resolve(
-        jsonResponse(
-          [
-            repository,
-            { ...repository, name: "secret", private: true },
-            { ...repository, name: "internal", visibility: "internal" },
-          ],
-          200,
-          "https://api.github.com/users/octo/repos?page=3",
-        ),
-      );
-    });
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    const response = await webHandler(
-      api("/app/api/review/repos?owner=octo&page=2", "GET", session),
-      env,
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      page: 2,
-      hasNextPage: true,
-      repositories: [{ repository: "octo/demo", state: "not_checked" }],
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    vi.unstubAllGlobals();
-  });
-
-  it("exempts forks and refuses private repository inspection before reading source", async () => {
-    const { env } = environment();
-    const { session } = await signIn(env);
-
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse({ ...repository, fork: true }))
-      .mockResolvedValueOnce(jsonResponse({ ...repository, private: true }));
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    const fork = await webHandler(
-      api("/app/api/review/repository?owner=octo&repo=demo", "GET", session),
-      env,
-    );
-
-    expect(fork.status).toBe(200);
-    expect(await fork.json()).toMatchObject({
-      commit: null,
-      findings: [{ state: "not_applicable", approvalRequired: false }],
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    const privateRepo = await webHandler(
-      api("/app/api/review/repository?owner=octo&repo=demo", "GET", session),
-      env,
-    );
-
-    expect(privateRepo.status).toBe(400);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    vi.unstubAllGlobals();
   });
 });

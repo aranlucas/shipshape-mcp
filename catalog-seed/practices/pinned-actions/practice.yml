@@ -1,0 +1,11 @@
+version: 1
+id: pinned-actions
+title: Pinned GitHub Actions
+summary: Pin every GitHub Action reference in workflow files to a full commit SHA.
+kind: files
+appliesTo:
+  languages: [TypeScript, JavaScript]
+  hasFiles: [package.json]
+checks:
+  - type: workflow
+    check: pinned-actions

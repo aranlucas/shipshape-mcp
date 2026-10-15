@@ -9,41 +9,22 @@ const LANDING_PAGE = `<!doctype html>
 <html lang="en">
   <head>
     ${HEAD}
-    <meta name="description" content="Read-only, evidence-backed GitHub maintenance priorities over MCP.">
-    <title>Shipshape MCP — know what to fix next</title>
+    <meta name="description" content="Shipshape checks Lucas's engineering practices across his repositories.">
+    <title>Shipshape — personal engineering practices</title>
   </head>
   <body>
     <main class="site-shell">
       <header class="masthead">
-        <a class="wordmark" href="/">Shipshape <span>/ MCP</span></a>
-        <nav aria-label="Service links"><ul class="nav-list"><li><a href="/app">Dashboard</a></li><li><a href="/privacy">Privacy</a></li><li><a href="/health">Health</a></li></ul></nav>
+        <a class="wordmark" href="/">Shipshape</a>
+        <nav aria-label="Service links"><ul class="nav-list"><li><a href="/app">Dashboard</a></li><li><a href="/privacy">Privacy</a></li></ul></nav>
       </header>
       <section class="hero">
-        <p class="eyebrow">Repository intelligence, without the guesswork</p>
-        <h1>Know what to fix next.</h1>
-        <p class="lead">Shipshape turns public GitHub evidence into a small, ranked maintenance queue. It reads; it never pushes, edits, clones, or executes a repository.</p>
-        <div class="endpoint"><span class="status-dot" aria-hidden="true"></span><code>shipshape-mcp.aranlucas.workers.dev/mcp</code></div>
-        <p class="lead">Prefer a browser? <a href="/app">Open the settings dashboard</a> to check repository settings against your own rules.</p>
+        <h1>Keep every repository in practice.</h1>
+        <p class="lead">Shipshape checks Lucas's engineering practices across his repositories.</p>
+        <p class="lead"><a href="/app">Sign in with GitHub</a> to see which repositories are behind.</p>
+        <p class="endpoint">MCP endpoint: <code>shipshape-mcp.aranlucas.workers.dev/mcp</code></p>
       </section>
-      <section class="signal-grid" aria-label="Design principles">
-        <article class="signal"><span class="signal-number">01 / READ ONLY</span><h2>Safe by construction</h2><p>One narrow GitHub OAuth scope, public repositories only, and a client with no mutation method.</p></article>
-        <article class="signal"><span class="signal-number">02 / REPRODUCIBLE</span><h2>Rules, not vibes</h2><p>Stable checks and fixed weights make every score explainable and every recommendation traceable.</p></article>
-        <article class="signal"><span class="signal-number">03 / HONEST</span><h2>Unknown stays unknown</h2><p>Permission- and plan-gated evidence never quietly becomes a passing security signal.</p></article>
-      </section>
-      <section class="tools">
-        <p class="section-label">Eight focused tools</p>
-        <div class="tool-grid">
-          <article class="tool"><h3>portfolio_snapshot</h3><p>Find recently active public repositories that most need attention.</p></article>
-          <article class="tool"><h3>repo_readiness</h3><p>Audit publication, branch, delivery, and security signals together.</p></article>
-          <article class="tool"><h3>branch_risk</h3><p>Inspect the protections around a branch before follow-up work begins.</p></article>
-          <article class="tool"><h3>delivery_hygiene</h3><p>Summarize recent commits, pull requests, and workflow health.</p></article>
-          <article class="tool"><h3>security_posture</h3><p>Normalize code, dependency, and secret-scanning evidence.</p></article>
-          <article class="tool"><h3>standards_audit</h3><p>Check packages against a shared engineering baseline with commit-pinned evidence.</p></article>
-          <article class="tool"><h3>settings_drift</h3><p>Compare repository settings with declarative rules and get reviewable fix commands.</p></article>
-          <article class="tool"><h3>action_plan</h3><p>Turn failed and unknown checks into a bounded maintenance queue.</p></article>
-        </div>
-      </section>
-      <footer class="site-footer"><span>Built on Cloudflare Workers.</span><span>Public evidence in. Concrete next steps out.</span></footer>
+      <footer class="site-footer">Practices live in a catalog repository and are checked on every push.</footer>
     </main>
   </body>
 </html>`;
@@ -53,12 +34,12 @@ const PRIVACY_PAGE = `<!doctype html>
   <head>${HEAD}<title>Privacy — Shipshape MCP</title></head>
   <body>
     <main class="consent-shell"><article class="legal-page">
-      <a class="wordmark" href="/">Shipshape <span>/ MCP</span></a>
+      <a class="wordmark" href="/">Shipshape</a>
       <h1>Privacy, in plain language.</h1>
-      <p>Shipshape uses GitHub OAuth to identify you and make authorized, read-only requests about public repositories. It requests <code>read:user</code>; it does not request the broad <code>repo</code> scope.</p>
-      <p>OAuth access tokens are stored only in encrypted authorization properties. They are never put in URLs, logs, tool output, or rendered pages.</p>
-      <p>The <a href="/app">dashboard</a> keeps an eight-hour session in an HttpOnly cookie. Its GitHub token is encrypted with a key derived from that cookie before it is stored in Cloudflare KV. Rules you choose to save are stored in KV under your GitHub login until you replace them.</p>
-      <p>Short-lived OAuth state and grants are stored in Cloudflare KV. You can revoke access from GitHub or your MCP client. Shipshape does not sell personal information and does not clone or execute repository code.</p>
+      <p>Shipshape uses the GitHub App OAuth flow to identify Lucas and protect the dashboard and MCP. GitHub App installation tokens read every repository the App can access, including private and organization repositories.</p>
+      <p>The user token used to identify the account is not stored. The dashboard session stores only the GitHub login and numeric user id in an encrypted, HttpOnly cookie-backed session.</p>
+      <p>Short-lived OAuth state and grants are stored in Cloudflare KV. You can revoke the App installation or MCP client authorization from GitHub.</p>
+      <p>Shipshape does not sell personal information and does not clone or execute repository code.</p>
       <p><a href="/">Return to Shipshape MCP</a></p>
     </article></main>
   </body>
@@ -67,7 +48,7 @@ const PRIVACY_PAGE = `<!doctype html>
 const NOT_FOUND_PAGE = `<!doctype html>
 <html lang="en">
   <head>${HEAD}<title>Not found — Shipshape MCP</title></head>
-  <body><main class="consent-shell"><article class="legal-page"><a class="wordmark" href="/">Shipshape <span>/ MCP</span></a><h1>Off the chart.</h1><p>The requested page does not exist.</p><p><a href="/">Return to safe harbor</a></p></article></main></body>
+  <body><main class="consent-shell"><article class="legal-page"><a class="wordmark" href="/">Shipshape</a><h1>Off the chart.</h1><p>The requested page does not exist.</p><p><a href="/">Return to safe harbor</a></p></article></main></body>
 </html>`;
 
 export function landingHandler(request: Request): Response {

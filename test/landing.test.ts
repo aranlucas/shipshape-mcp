@@ -12,7 +12,10 @@ describe("public landing handlers", () => {
       "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
     );
     expect(body).not.toContain("<script");
-    expect(body).toContain("Know what to fix next");
+    expect(body).toContain(
+      "Shipshape checks Lucas's engineering practices across his repositories.",
+    );
+    expect(body).toContain('<a href="/app">Sign in with GitHub</a>');
   });
 
   it("serves the same-origin stylesheet with an explicit content type", async () => {
@@ -21,7 +24,7 @@ describe("public landing handlers", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/css");
     expect(response.headers.get("Cache-Control")).toContain("max-age=86400");
-    expect(await response.text()).toContain("--ocean");
+    expect(await response.text()).toContain("--paper");
   });
 
   it("serves health and privacy endpoints", async () => {
