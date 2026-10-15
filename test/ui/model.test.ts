@@ -94,6 +94,25 @@ describe("dashboard model", () => {
     });
   });
 
+  it("does not count partially checked repositories as following every practice", () => {
+    const repos = [repo("partial")];
+    const data = overview({ "aranlucas/partial": { husky: cell("pass") } }, repos);
+    expect(summarize(repos.map((item) => tallyRepo(data, item)))).toMatchObject({
+      clear: 0,
+      unchecked: 1,
+    });
+  });
+
+  it("keeps known failures visible when other practices are still pending", () => {
+    const repos = [repo("partial")];
+    const data = overview({ "aranlucas/partial": { husky: cell("fail") } }, repos);
+    expect(summarize(repos.map((item) => tallyRepo(data, item)))).toMatchObject({
+      clear: 0,
+      behindRepos: 1,
+      unchecked: 1,
+    });
+  });
+
   it("sorts the most-behind repositories first, then couldn't-check, then by name", () => {
     const repos = [repo("b-clear"), repo("a-clear"), repo("unsure"), repo("worst"), repo("bad")];
 

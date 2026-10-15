@@ -2,7 +2,7 @@ import { useMemo, useState } from "preact/hooks";
 import type { OverviewResponse } from "../../api/contract";
 import { Matrix } from "../components/matrix";
 import { RepoPanel } from "../components/repo-panel";
-import { plural } from "../format";
+import { plural, timeAgo } from "../format";
 import { compareTallies, summarize, tallyRepo } from "../model";
 import { linkHandler, paths } from "../router";
 
@@ -97,9 +97,15 @@ export function Overview({ overview, login, repo, onRefresh }: OverviewProps) {
           {summary.unknownRepos > 0 &&
             `${plural(summary.unknownRepos, "repository has", "repositories have")} checks Shipshape couldn't run. `}
           {summary.unchecked > 0 &&
-            `${plural(summary.unchecked, "repository hasn't", "repositories haven't")} been checked yet.`}
+            `${plural(summary.unchecked, "repository hasn't", "repositories haven't")} been fully checked against the current catalog yet.`}
         </p>
       </section>
+
+      <p class="catalog-coverage">
+        Coverage: {overview.practices.length - invalid.length} valid practices from your installed
+        catalog. Catalog loaded {timeAgo(overview.catalog.loadedAt)}. Only adopted practices are
+        assessed; available seed definitions are not automatically installed.
+      </p>
 
       {invalid.length > 0 && (
         <p class="notice notice-error">

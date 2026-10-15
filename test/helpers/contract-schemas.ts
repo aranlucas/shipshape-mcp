@@ -73,6 +73,8 @@ export const RepoDetailResponseSchema = z
           practice: practiceSummary,
           result: cellResult,
           checks: z.array(checkResult),
+          headSha: z.string().nullable(),
+          catalogSha: z.string().nullable(),
         })
         .strict(),
     ),

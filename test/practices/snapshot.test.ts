@@ -291,3 +291,59 @@ describe("takeSnapshot API reads", () => {
     expect(snapshot.protection.has("main")).toBe(true);
   });
 });
+
+describe("semantic lint snapshot collection", () => {
+  it("follows local inherited JSONC at the pinned commit without reading plugin code", async () => {
+    const shared = "./node_modules/@aranlucas/oxforge/configs/base.json";
+
+    const contents = {
+      "package.json": {
+        content: JSON.stringify({ devDependencies: { "@aranlucas/oxforge": "0.2.2" } }),
+      },
+      ".oxlintrc.json": { content: JSON.stringify({ extends: ["./policy/base.jsonc"] }) },
+      "policy/base.jsonc": { content: `{/* shared */ "extends": [".${shared}"]}` },
+      "scripts/unrelated.js": { content: "throw new Error('do not execute')" },
+    };
+
+    const { client, calls } = snapshotClient({ treePaths: Object.keys(contents), contents });
+    const selected = check({ type: "oxforge" });
+    const snapshot = await takeSnapshot(client, snapshotRepository, [practice([selected])]);
+    expect(runCheck(selected, snapshot, {}).state).toBe("pass");
+    const reads = calls.filter((url) => url.pathname.includes("/contents/"));
+    expect(reads).toHaveLength(3);
+    expect(reads.every((url) => url.searchParams.get("ref") === headSha)).toBe(true);
+  });
+});
+
+describe("semantic lint read budget", () => {
+  it("reports unknown when inherited policy is beyond the shared read budget", async () => {
+    const contents: NonNullable<SnapshotClientOptions["contents"]> = {};
+    const checks: Check[] = [];
+
+    for (let index = 0; index < 62; index += 1) {
+      const path = `checks/${index}.json`;
+      contents[path] = { content: "{}" };
+      checks.push(check({ type: "file-contains", path, text: "{}" }));
+    }
+
+    contents["package.json"] = {
+      content: JSON.stringify({ devDependencies: { "@aranlucas/oxforge": "0.2.2" } }),
+    };
+    contents[".oxlintrc.json"] = { content: JSON.stringify({ extends: ["./policy/base.json"] }) };
+    contents["policy/base.json"] = {
+      content: JSON.stringify({
+        extends: ["../node_modules/@aranlucas/oxforge/configs/base.json"],
+      }),
+    };
+    const { client, calls } = snapshotClient({ treePaths: Object.keys(contents), contents });
+    const semantic = check({ type: "oxforge" });
+
+    const snapshot = await takeSnapshot(client, snapshotRepository, [
+      practice([...checks, semantic]),
+    ]);
+
+    expect(snapshot.files.get("policy/base.json")).toEqual({ error: "Read budget exceeded" });
+    expect(runCheck(semantic, snapshot, {}).state).toBe("unknown");
+    expect(calls.filter((url) => url.pathname.includes("/contents/"))).toHaveLength(64);
+  });
+});

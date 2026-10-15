@@ -61,6 +61,22 @@ const YamlPathCheck = z
 
 export const CheckSchema = z.discriminatedUnion("type", [
   z
+    .object({
+      type: z.literal("oxforge"),
+      directory: RepoPath.default("."),
+      minimumVersion: z
+        .string()
+        .regex(/^\d+\.\d+\.\d+$/u)
+        .default("0.2.0"),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("dependabot-grouped"),
+      path: RepoPath.default(".github/dependabot.yml"),
+    })
+    .strict(),
+  z
     .object({ type: z.literal("file-exists"), path: RepoPath, absent: z.boolean().default(false) })
     .strict(),
   z
@@ -236,6 +252,10 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
 
 export function checkLabel(check: Check): string {
   switch (check.type) {
+    case "oxforge":
+      return `Shared Oxforge >= ${check.minimumVersion} in ${check.directory}`;
+    case "dependabot-grouped":
+      return "One grouped dependency-update pull request";
     case "file-exists":
       return `${check.path} ${check.absent ? "absent" : "exists"}`;
     case "file-matches":

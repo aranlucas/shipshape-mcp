@@ -1137,3 +1137,13 @@ tbody:first-of-type .owner-row th {
     text-overflow: ellipsis;
   }
 }
+
+.entry-evidence,
+.catalog-coverage {
+  color: var(--sounding);
+  font-size: var(--step--1);
+}
+
+.check a {
+  font-size: var(--step--1);
+}
