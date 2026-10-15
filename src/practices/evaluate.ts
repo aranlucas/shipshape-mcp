@@ -162,8 +162,18 @@ export async function evaluateRepository(
   const previousResults = await readResults(env.DB, fullName);
   const hasRetriableUnknown = previousResults.some((result) => result.cell.unknown > 0);
 
+  // Repository settings and branch protections can change without a Git commit.
+  const hasMutableChecks = catalog.practices.some(
+    (practice) =>
+      practice.parsed.ok &&
+      practice.parsed.practice.checks.some(
+        (check) => check.type === "setting" || check.type === "branch-protection",
+      ),
+  );
+
   if (
     !options.force &&
+    !hasMutableChecks &&
     preloadedHead.sha !== null &&
     !hasRetriableUnknown &&
     previous?.headSha === preloadedHead.sha &&

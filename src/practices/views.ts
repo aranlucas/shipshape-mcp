@@ -48,7 +48,9 @@ export async function buildOverview(env: AppEnv): Promise<OverviewResponse> {
   const resultMap: Record<string, Record<string, CellResult>> = {};
 
   for (const result of results) {
-    (resultMap[result.repo] ??= {})[result.practiceId] = result.cell;
+    if (result.catalogSha === catalog?.sha) {
+      (resultMap[result.repo] ??= {})[result.practiceId] = result.cell;
+    }
   }
 
   return {
@@ -90,12 +92,15 @@ export async function buildRepoDetail(
     practices: (catalog?.practices ?? [])
       .toSorted((left, right) => left.id.localeCompare(right.id))
       .map((practice) => {
-        const result = resultFor(results, practice.id);
+        const stored = resultFor(results, practice.id);
+        const result = stored?.catalogSha === catalog?.sha ? stored : undefined;
 
         return {
           practice: practiceSummary(practice),
           result: result?.cell ?? defaultCell(),
           checks: result?.checks ?? [],
+          headSha: result?.headSha ?? null,
+          catalogSha: result?.catalogSha ?? null,
         };
       }),
   };
@@ -129,7 +134,10 @@ export async function buildPracticeDetail(
 
   for (const repo of repos) {
     const result = results.find(
-      (candidate) => candidate.repo === repo.fullName && candidate.practiceId === practiceId,
+      (candidate) =>
+        candidate.repo === repo.fullName &&
+        candidate.practiceId === practiceId &&
+        candidate.catalogSha === catalog?.sha,
     );
 
     counts[result?.cell.state ?? "unknown"] += 1;

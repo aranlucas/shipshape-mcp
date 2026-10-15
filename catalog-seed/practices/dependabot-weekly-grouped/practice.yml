@@ -7,6 +7,7 @@ appliesTo:
   languages: [TypeScript, JavaScript]
   hasFiles: [package.json]
 checks:
+  - type: dependabot-grouped
   - type: file-exists
     path: .github/dependabot.yml
   - type: yaml-path

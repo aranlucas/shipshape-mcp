@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { CheckResult, OverviewResponse, RepoDetailResponse } from "../../api/contract";
+import type {
+  CheckResult,
+  OverviewResponse,
+  RepoDetailResponse,
+  RepoSummary,
+} from "../../api/contract";
 import { api, ApiError } from "../api";
+import { evidenceLink } from "../evidence";
 import { STATE_WORDS, timeAgo } from "../format";
 import { linkHandler, navigate, paths } from "../router";
 import { startTask } from "../tasks";
@@ -21,11 +27,11 @@ interface CheckProps {
 
 interface PracticeEntryProps {
   entry: Entry;
-  open: boolean;
+  repo: RepoSummary;
 }
 
 interface Section {
-  state: "fail" | "unknown" | "pass" | "not_applicable";
+  state: "fail" | "unknown" | "pass" | "not_applicable" | "pending";
   open: boolean;
   entries: Entry[];
 }
@@ -44,6 +50,11 @@ function sectionsFor(detail: RepoDetailResponse | null): Section[] {
   const checked = valid.filter((entry) => entry.result.checkedAt !== null);
 
   const sections: Section[] = [
+    {
+      state: "pending",
+      open: true,
+      entries: valid.filter((entry) => entry.result.checkedAt === null),
+    },
     {
       state: "fail",
       open: true,
@@ -132,10 +143,9 @@ function FileComparison({ check }: CheckProps) {
   );
 }
 
-function PracticeEntry({ entry, open }: PracticeEntryProps) {
+function PracticeEntry({ entry, repo }: PracticeEntryProps) {
   const { practice, result, checks } = entry;
   const href = paths.practice(practice.id);
-  const relevant = checks.filter((check) => check.state !== "pass");
 
   return (
     <li class={`entry entry-${result.state}`}>
@@ -145,21 +155,42 @@ function PracticeEntry({ entry, open }: PracticeEntryProps) {
           {practice.title}
         </a>
       </div>
-      {open && relevant.length > 0 && (
+      <p class="entry-evidence">
+        {result.checkedAt
+          ? `Checked ${timeAgo(result.checkedAt)}`
+          : "Not checked against the current catalog yet"}
+        {practice.kind === "files" && entry.headSha && ` · commit ${entry.headSha.slice(0, 7)}`}
+        {practice.kind === "settings" && result.checkedAt && " · live settings at check time"}
+      </p>
+      {result.state === "not_applicable" && (
+        <p class="entry-evidence">Outside this practice’s repository applicability rules.</p>
+      )}
+      {checks.length > 0 && (
         <ul class="checks">
-          {relevant.map((check) => (
+          {checks.map((check) => (
             <li key={check.label} class={`check check-${check.state}`}>
               <span class="check-label">{check.label}</span>
-              <span class="check-outcome">{outcome(check)}</span>
+              <span class="check-outcome">
+                {check.state === "pass" ? (check.detail ?? "Check passed.") : outcome(check)}
+              </span>
+              {evidenceLink(repo, entry.headSha, check) && (
+                <a
+                  href={evidenceLink(repo, entry.headSha, check) ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View source at checked commit
+                </a>
+              )}
               <FileComparison check={check} />
             </li>
           ))}
         </ul>
       )}
       {result.state === "fail" && (
-        <button type="button" class="button button-small" disabled aria-describedby="fix-note">
-          Request fix
-        </button>
+        <a class="button button-small" href={href} onClick={linkHandler(href)}>
+          View practice and fix instructions
+        </a>
       )}
     </li>
   );
@@ -280,40 +311,41 @@ export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) 
           </p>
         )}
 
-        {sections.map((section) => (
-          <section key={section.state} class="panel-section">
-            {section.open ? (
-              <>
-                <h3>
-                  {STATE_WORDS[section.state]}{" "}
-                  <span class="section-count">{section.entries.length}</span>
-                </h3>
-                <ul class="entries">
-                  {section.entries.map((entry) => (
-                    <PracticeEntry key={entry.practice.id} entry={entry} open />
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <details>
-                <summary>
-                  {STATE_WORDS[section.state]}{" "}
-                  <span class="section-count">{section.entries.length}</span>
-                </summary>
-                <ul class="entries">
-                  {section.entries.map((entry) => (
-                    <PracticeEntry key={entry.practice.id} entry={entry} open={false} />
-                  ))}
-                </ul>
-              </details>
-            )}
-          </section>
-        ))}
+        {repo &&
+          sections.map((section) => (
+            <section key={section.state} class="panel-section">
+              {section.open ? (
+                <>
+                  <h3>
+                    {STATE_WORDS[section.state]}{" "}
+                    <span class="section-count">{section.entries.length}</span>
+                  </h3>
+                  <ul class="entries">
+                    {section.entries.map((entry) => (
+                      <PracticeEntry key={entry.practice.id} entry={entry} repo={repo} />
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <details>
+                  <summary>
+                    {STATE_WORDS[section.state]}{" "}
+                    <span class="section-count">{section.entries.length}</span>
+                  </summary>
+                  <ul class="entries">
+                    {section.entries.map((entry) => (
+                      <PracticeEntry key={entry.practice.id} entry={entry} repo={repo} />
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </section>
+          ))}
 
         {sections.some((section) => section.state === "fail") && (
           <p id="fix-note" class="panel-foot">
-            Request fix will hand the practice to an agent that opens a pull request. It isn't
-            available yet; the checks above show what to change.
+            Fix instructions come from your current catalog. These checks are read-only; changes are
+            made through a separately reviewed pull request.
           </p>
         )}
       </aside>

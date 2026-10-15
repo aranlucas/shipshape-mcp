@@ -586,6 +586,8 @@ export function repoDetail(store: FixtureStore, fullName: string): RepoDetailRes
         practice: summary,
         result: value?.cell ?? { state: "unknown", checkedAt: null, failing: 0, unknown: 0 },
         checks: value?.checks ?? [],
+        headSha: value ? "a".repeat(40) : null,
+        catalogSha: value ? store.catalogSha : null,
       };
     }),
   };

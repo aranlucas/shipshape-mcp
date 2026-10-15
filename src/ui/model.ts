@@ -2,7 +2,9 @@ import type { OverviewResponse, PracticeSummary, RepoSummary } from "../api/cont
 import type { CellState } from "./format";
 
 export function cellState(overview: OverviewResponse, repo: string, practice: string): CellState {
-  return overview.results[repo]?.[practice]?.state ?? "pending";
+  const cell = overview.results[repo]?.[practice];
+
+  return cell?.checkedAt ? cell.state : "pending";
 }
 
 export interface RepoTally {
@@ -21,7 +23,9 @@ export function tallyRepo(overview: OverviewResponse, repo: RepoSummary): RepoTa
     unknown: 0,
     following: 0,
     applies: 0,
-    checked: overview.results[repo.fullName] !== undefined,
+    checked: overview.practices
+      .filter((item) => item.valid)
+      .every((item) => cellState(overview, repo.fullName, item.id) !== "pending"),
   };
 
   for (const practice of overview.practices.filter((item) => item.valid)) {
@@ -52,10 +56,11 @@ export interface PortfolioSummary {
 }
 
 export function summarize(tallies: RepoTally[]): PortfolioSummary {
-  const applicable = tallies.filter((tally) => tally.checked && tally.applies > 0);
+  const applicable = tallies.filter((tally) => tally.applies > 0);
 
   return {
-    clear: applicable.filter((tally) => tally.behind === 0 && tally.unknown === 0).length,
+    clear: applicable.filter((tally) => tally.checked && tally.behind === 0 && tally.unknown === 0)
+      .length,
     applicable: applicable.length,
     behindRepos: applicable.filter((tally) => tally.behind > 0).length,
     unknownRepos: applicable.filter((tally) => tally.behind === 0 && tally.unknown > 0).length,
