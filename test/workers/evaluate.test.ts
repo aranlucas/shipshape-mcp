@@ -65,7 +65,7 @@ function validPractice(
   return {
     id,
     folder: id,
-    yaml: "",
+    yaml: JSON.stringify(practice),
     instructions: null,
     files: {},
     parsed: { ok: true, practice },
@@ -257,6 +257,37 @@ afterEach(() => {
 });
 
 describe("evaluateRepository", () => {
+  it("revalidates a cached dependency definition and replaces its old invalid result", async () => {
+    const practice = validPractice("dependency-presence", "files", [
+      { type: "dependency", file: "package.json", name: "example-package" },
+    ]);
+    practice.parsed = {
+      ok: false,
+      id: practice.id,
+      issues: [
+        { path: "checks.0.version", message: "Invalid input: expected string, received undefined" },
+      ],
+    };
+    const previous = storedRow(practice.id, "unknown");
+    previous.cell.unknown = 1;
+    await seed(catalog([practice]), [previous]);
+    mockGitHub({
+      treePaths: ["package.json"],
+      fileContent: JSON.stringify({ devDependencies: { "example-package": "^1.2.3" } }),
+    });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    const [stored] = await readResults(appEnv.DB, repoName);
+    expect(stored).toMatchObject({
+      headSha,
+      catalogSha,
+      cell: { state: "pass", unknown: 0 },
+      checks: [{ label: "example-package declared", actual: "^1.2.3" }],
+    });
+    expect(stored?.cell.checkedAt).not.toBe(oldCheckedAt);
+  });
+
   it("retries a transient content read and persists a passing presence-only dependency result", async () => {
     const practice = validPractice("oxforge", "files", [
       { type: "dependency", file: "package.json", name: "@aranlucas/oxforge" },

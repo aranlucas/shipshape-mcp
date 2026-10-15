@@ -2,6 +2,8 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppEnv } from "@/env";
+import { readCatalogRow, writeCatalog } from "@/practices/store";
+import { parsePractice } from "@/practices/schema";
 import {
   CatalogUnavailableError,
   loadCatalog,
@@ -164,6 +166,56 @@ describe("practice catalog", () => {
         return request.url.includes("README");
       }),
     ).toBe(false);
+  });
+
+  it("revalidates persisted YAML without changing source evidence or accepting invalid definitions", async () => {
+    const presenceYaml = validYaml.replace(
+      "type: file-exists\n    path: .husky/pre-commit",
+      "type: dependency\n    name: example-package",
+    );
+    const oldValidation = {
+      ok: false,
+      id: "husky",
+      issues: [
+        { path: "checks.0.version", message: "Invalid input: expected string, received undefined" },
+      ],
+    };
+    const saved = {
+      repo: "aranlucas/practices",
+      sha,
+      practices: [
+        {
+          id: "husky",
+          folder: "husky",
+          yaml: presenceYaml,
+          instructions: "Keep these instructions.",
+          files: {},
+          parsed: oldValidation,
+        },
+        {
+          id: "broken",
+          folder: "broken",
+          yaml: "version: 1\nid: broken\nchecks: []\n",
+          instructions: null,
+          files: {},
+          parsed: parsePractice(validYaml, "husky"),
+        },
+      ],
+    };
+    await writeCatalog(env.DB, saved, "2026-10-01T12:00:00.000Z");
+    const before = await readCatalogRow(env.DB);
+
+    const loaded = await readStoredCatalog(env.DB);
+
+    expect(loaded).toMatchObject({
+      repo: saved.repo,
+      sha,
+      practices: [
+        { yaml: presenceYaml, instructions: "Keep these instructions.", parsed: { ok: true } },
+        { parsed: { ok: false } },
+      ],
+    });
+    expect(await readCatalogRow(env.DB)).toEqual(before);
   });
 
   it("reports a catalog that is not installed", async () => {
