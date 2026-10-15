@@ -1,0 +1,18 @@
+version: 1
+id: squash-only-merges
+title: Squash-only merge policy
+summary: Use squash merges, disable merge commits and rebase merges, and delete merged branches.
+kind: settings
+checks:
+  - type: setting
+    key: allow_squash_merge
+    equals: true
+  - type: setting
+    key: allow_merge_commit
+    equals: false
+  - type: setting
+    key: allow_rebase_merge
+    equals: false
+  - type: setting
+    key: delete_branch_on_merge
+    equals: true

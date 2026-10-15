@@ -1,0 +1,12 @@
+version: 1
+id: secret-scanning
+title: Secret scanning protection
+summary: Enable secret scanning and push protection for repository content.
+kind: settings
+checks:
+  - type: setting
+    key: security_and_analysis.secret_scanning.status
+    equals: enabled
+  - type: setting
+    key: security_and_analysis.secret_scanning_push_protection.status
+    equals: enabled

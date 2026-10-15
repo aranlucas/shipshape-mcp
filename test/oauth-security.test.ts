@@ -24,7 +24,7 @@ function authRequest(): AuthRequest {
     codeChallengeMethod: "S256",
     redirectUri: "https://client.example/callback",
     responseType: "code",
-    scope: ["portfolio:read"],
+    scope: ["mcp:read"],
     state: "client-state",
   };
 }
@@ -55,7 +55,7 @@ describe("OAuth security primitives", () => {
       clientId: "client-1",
       expiresAt: Date.now() + 60_000,
       redirectUri: "https://client.example/callback",
-      scope: "portfolio:read",
+      scope: "mcp:read",
     };
 
     const cookie = await createSignedApprovalCookie(record, "test-cookie-secret");

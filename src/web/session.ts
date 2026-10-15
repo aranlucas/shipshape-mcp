@@ -24,8 +24,7 @@ const encoder = new TextEncoder();
 const SessionRecordSchema = z
   .object({
     login: GitHubOwnerInputSchema,
-    iv: z.string().max(64),
-    token: z.string().max(12_000),
+    userId: z.number().int().positive(),
     createdAt: z.number().int().safe(),
   })
   .strict();
@@ -36,7 +35,7 @@ const LoginStateSchema = z
 
 export interface WebSession {
   readonly login: string;
-  readonly accessToken: string;
+  readonly userId: number;
 }
 
 function base64Url(bytes: ArrayBuffer | Uint8Array): string {
@@ -48,12 +47,6 @@ function base64Url(bytes: ArrayBuffer | Uint8Array): string {
     .replace(/=+$/u, "");
 }
 
-function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/"));
-
-  return Uint8Array.from(binary, (char) => char.codePointAt(0) ?? 0);
-}
-
 function digest(label: string, secret: string) {
   return crypto.subtle.digest("SHA-256", encoder.encode(`${label}:${secret}`));
 }
@@ -63,30 +56,14 @@ async function sessionKey(secret: string) {
   return `web:session:${base64Url(await digest("session", secret))}`;
 }
 
-/** The token key derives from the cookie secret, so KV alone cannot decrypt. */
-async function tokenKey(secret: string) {
-  return crypto.subtle.importKey("raw", await digest("token", secret), "AES-GCM", false, [
-    "encrypt",
-    "decrypt",
-  ]);
-}
-
 export async function createSession(kv: OAuthStateStore, session: WebSession): Promise<string> {
   const secret = randomToken(32);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-
-  const token = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    await tokenKey(secret),
-    encoder.encode(session.accessToken),
-  );
 
   await kv.put(
     await sessionKey(secret),
     JSON.stringify({
       login: session.login,
-      iv: base64Url(iv),
-      token: base64Url(token),
+      userId: session.userId,
       createdAt: Date.now(),
     }),
     { expirationTtl: SESSION_TTL_SECONDS },
@@ -123,20 +100,7 @@ export async function readSession(
     return null;
   }
 
-  try {
-    const token = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: fromBase64Url(record.iv) },
-      await tokenKey(secret),
-      fromBase64Url(record.token),
-    );
-
-    return {
-      login: record.login,
-      accessToken: new TextDecoder().decode(token),
-    };
-  } catch {
-    return null;
-  }
+  return { login: record.login, userId: record.userId };
 }
 
 export async function deleteSession(kv: OAuthStateStore, request: Request): Promise<void> {

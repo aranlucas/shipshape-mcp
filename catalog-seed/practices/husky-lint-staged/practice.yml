@@ -1,0 +1,22 @@
+version: 1
+id: husky-lint-staged
+title: Husky lint-staged pre-commit checks
+summary: Run lint-staged from a Husky pre-commit hook before changes are committed.
+kind: files
+appliesTo:
+  languages: [TypeScript, JavaScript]
+  hasFiles: [package.json]
+checks:
+  - type: file-exists
+    path: .husky/pre-commit
+  - type: file-matches
+    path: .husky/pre-commit
+    source: files/.husky/pre-commit
+  - type: json-path
+    file: package.json
+    path: scripts.prepare
+    equals: husky
+  - type: json-path
+    file: package.json
+    path: lint-staged
+    exists: true

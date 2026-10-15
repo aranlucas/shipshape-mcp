@@ -1,4 +1,4 @@
-import { bindings, defineConfig } from "cf/config";
+import { bindings, defineConfig, triggers } from "cf/config";
 import * as entrypoint from "./src/index" with { type: "cf-worker" };
 
 export default defineConfig(({ mode }) => ({
@@ -19,6 +19,10 @@ export default defineConfig(({ mode }) => ({
         headSamplingRate: 0.05,
       },
     },
+    triggers: [
+      triggers.queue({ name: "shipshape-evaluations", maxBatchSize: 5 }),
+      triggers.scheduled({ schedule: "0 13 * * *" }),
+    ],
     env: {
       GITHUB_API_VERSION: bindings.text("2026-03-10"),
       PUBLIC_ORIGIN: bindings.text(
@@ -26,12 +30,19 @@ export default defineConfig(({ mode }) => ({
           ? process.env.PORTLESS_URL
           : "https://shipshape-mcp.aranlucas.workers.dev",
       ),
-      GITHUB_CLIENT_ID: bindings.secret(),
-      GITHUB_CLIENT_SECRET: bindings.secret(),
+      GITHUB_APP_ID: bindings.text(process.env.GITHUB_APP_ID ?? "0"),
+      GITHUB_APP_CLIENT_ID: bindings.text(process.env.GITHUB_APP_CLIENT_ID ?? "unset"),
+      OWNER_GITHUB_ID: bindings.text(process.env.OWNER_GITHUB_ID ?? "0"),
+      CATALOG_REPO: bindings.text(process.env.CATALOG_REPO ?? "aranlucas/practices"),
+      GITHUB_APP_PRIVATE_KEY: bindings.secret(),
+      GITHUB_APP_CLIENT_SECRET: bindings.secret(),
+      GITHUB_WEBHOOK_SECRET: bindings.secret(),
       COOKIE_ENCRYPTION_KEY: bindings.secret(),
       OAUTH_KV: bindings.kv({
         id: "9653a49921874566b41d5d4e17c88c15",
       }),
+      DB: bindings.d1({ name: "shipshape" }),
+      EVALUATIONS: bindings.queue({ name: "shipshape-evaluations" }),
     },
   },
 }));

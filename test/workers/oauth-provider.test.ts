@@ -1,10 +1,15 @@
+/* oxlint-disable anti-slop/require-readable-spacing */
+
 import { exports } from "cloudflare:workers";
+import { env } from "cloudflare:test";
 import { assert, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { MCP_RESOURCE, MCP_SCOPE } from "@/config";
-import { repository } from "@test/helpers/github-fixtures";
+import type { AppEnv } from "@/env";
 
 const outbound: string[] = [];
+// SAFETY: the Workers test bindings include the application-specific OAuth provider binding.
+const appEnv = env as AppEnv;
 
 const upstream = new Map<string, UpstreamFixture>();
 
@@ -88,12 +93,12 @@ describe("OAuth provider redirect policy", () => {
       payload: JSON.stringify({
         access_token: "synthetic-web-token",
         token_type: "bearer",
-        scope: "read:user",
+        scope: "",
       }),
     });
     upstream.set("https://api.github.com/user", {
       method: "GET",
-      payload: JSON.stringify({ login: "octo" }),
+      payload: JSON.stringify({ login: "aranlucas", id: 1001 }),
     });
     callback.search = new URLSearchParams({
       code: "synthetic-web-code",
@@ -116,7 +121,7 @@ describe("OAuth provider redirect policy", () => {
       headers: { Cookie: `__Host-shipshape-session=${session}` },
     });
 
-    expect(await page.text()).toContain("Signed in as <strong>@octo</strong>");
+    expect(await page.text()).toContain("Signed in as <strong>@aranlucas</strong>");
 
     const replay = await dispatch(callback, {
       headers: { Cookie: `__Host-shipshape-web-login=${browser}` },
@@ -154,6 +159,116 @@ describe("OAuth provider redirect policy", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("WWW-Authenticate")).toContain(`scope="${MCP_SCOPE}"`);
   });
+
+  it.each([
+    ["legacy grant props", "legacy-user", { login: "aranlucas", accessToken: "legacy-token" }],
+    ["non-owner props", "non-owner", { login: "intruder", userId: 2002 }],
+  ])("rejects %s before constructing the MCP server", async (_label, userId, props) => {
+    const verifier = "synthetic-pkce-verifier-which-is-at-least-forty-three-characters";
+    const challenge = Buffer.from(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
+    ).toString("base64url");
+    const registration = await register(["https://client.example/callback"]);
+    const { client_id: clientId } = z
+      .object({ client_id: z.string() })
+      .parse(await registration.json());
+    const request = {
+      responseType: "code",
+      clientId,
+      redirectUri: "https://client.example/callback",
+      scope: [MCP_SCOPE],
+      state: "",
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+      resource: MCP_RESOURCE,
+    };
+    const completed = await appEnv.OAUTH_PROVIDER.completeAuthorization({
+      request,
+      userId,
+      metadata: {},
+      scope: [MCP_SCOPE],
+      props,
+    });
+    const code = new URL(completed.redirectTo).searchParams.get("code");
+    const token = await dispatch(new URL("/oauth/token", MCP_RESOURCE), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: clientId,
+        redirect_uri: request.redirectUri,
+        code: code ?? "",
+        code_verifier: verifier,
+      }).toString(),
+    });
+    const access = z.object({ access_token: z.string() }).parse(await token.json());
+    const response = await dispatch(MCP_RESOURCE, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${access.access_token}`,
+        "MCP-Protocol-Version": "2025-03-26",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it("accepts owner props on the protected MCP route", async () => {
+    const verifier = "synthetic-pkce-verifier-which-is-at-least-forty-three-characters";
+    const challenge = Buffer.from(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
+    ).toString("base64url");
+    const registration = await register(["https://client.example/callback"]);
+    const { client_id: clientId } = z
+      .object({ client_id: z.string() })
+      .parse(await registration.json());
+    const request = {
+      responseType: "code",
+      clientId,
+      redirectUri: "https://client.example/callback",
+      scope: [MCP_SCOPE],
+      state: "",
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+      resource: MCP_RESOURCE,
+    };
+    const completed = await appEnv.OAUTH_PROVIDER.completeAuthorization({
+      request,
+      userId: "owner-user",
+      metadata: {},
+      scope: [MCP_SCOPE],
+      props: { login: "aranlucas", userId: 1001 },
+    });
+    const code = new URL(completed.redirectTo).searchParams.get("code");
+    const token = await dispatch(new URL("/oauth/token", MCP_RESOURCE), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: clientId,
+        redirect_uri: request.redirectUri,
+        code: code ?? "",
+        code_verifier: verifier,
+      }).toString(),
+    });
+    const access = z.object({ access_token: z.string() }).parse(await token.json());
+    const response = await dispatch(MCP_RESOURCE, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${access.access_token}`,
+        "MCP-Protocol-Version": "2025-03-26",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+
+    expect(response.status).toBe(200);
+  });
+
   it("uses the real provider, KV, GitHub OAuth adapter and MCP handler together", async () => {
     const registration = await register(["https://client.example/callback"]);
 
@@ -202,18 +317,18 @@ describe("OAuth provider redirect policy", () => {
     expect(approved.status).toBe(302);
     const github = new URL(approved.headers.get("Location") ?? "");
     expect(github.origin).toBe("https://github.com");
-    expect(github.searchParams.get("scope")).toBe("read:user");
+    expect(github.searchParams.has("scope")).toBe(false);
     upstream.set("https://github.com/login/oauth/access_token", {
       method: "POST",
       payload: JSON.stringify({
         access_token: "synthetic-github-token",
         token_type: "bearer",
-        scope: "read:user",
+        scope: "",
       }),
     });
     upstream.set("https://api.github.com/user", {
       method: "GET",
-      payload: JSON.stringify({ login: "octo" }),
+      payload: JSON.stringify({ login: "aranlucas", id: 1001 }),
     });
     const callback = new URL("/callback", MCP_RESOURCE);
     callback.search = new URLSearchParams({
@@ -272,13 +387,8 @@ describe("OAuth provider redirect policy", () => {
 
     const listingBody = await listing.text();
     expect({ status: listing.status, body: listingBody }).toMatchObject({ status: 200 });
-    expect(listingBody).toContain('"standards_audit"');
+    expect(listingBody).toContain('"practices_overview"');
     expect(upstream.size).toBe(0);
-    upstream.set("https://api.github.com/repos/octo/demo", {
-      method: "GET",
-      token: "synthetic-github-token",
-      payload: JSON.stringify({ ...repository, private: true }),
-    });
 
     const privateAudit = await dispatch(MCP_RESOURCE, {
       method: "POST",
@@ -293,14 +403,14 @@ describe("OAuth provider redirect policy", () => {
         id: 2,
         method: "tools/call",
         params: {
-          name: "standards_audit",
+          name: "repo_practices",
           arguments: { owner: "octo", repo: "demo" },
         },
       }),
     });
 
     expect(privateAudit.status).toBe(200);
-    expect(await privateAudit.text()).toContain("Shipshape only inspects public repositories.");
+    expect(await privateAudit.text()).toContain("Repository not found");
     expect(upstream.size).toBe(0);
 
     const invalidHost = await dispatch(MCP_RESOURCE, {

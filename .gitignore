@@ -9,3 +9,6 @@ coverage/
 
 # Cloudflare CLI build output and generated types
 .cloudflare/
+
+# Local task briefs, reports, and review scratch files.
+.superpowers/

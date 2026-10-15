@@ -1,74 +1,23 @@
-import { collectPortfolioReport } from "./github/portfolio";
-import { collectStandards } from "./standards/collect";
-import { PolicySourceSchema, collectSettingsDrift, readPinnedPolicy } from "./drift/collect";
-import { SETTINGS_DRIFT_PAGE_SIZE } from "./drift/limits";
-import { DriftPolicySchema } from "./drift/policy";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-import {
-  evaluateBranchRisk,
-  evaluateDeliveryHygiene,
-  evaluateRepositoryReadiness,
-  evaluateSecurityPosture,
-} from "./domain/evaluate";
-import { buildActionPlan, categoryRollup, scoreChecks } from "./domain/scoring";
-import type { RuleCategory } from "./domain/types";
-import {
-  collectBranchRisk,
-  collectDeliveryHygiene,
-  collectPublicRepository,
-  collectRepositoryReadiness,
-  collectSecurityPosture,
-} from "./github/collectors";
-import {
-  GitHubInputError,
-  GitHubPayloadError,
-  PrivateRepositoryError,
-  type GitHubOctokit,
-} from "./github/client";
-import {
-  GitHubOwnerInputSchema,
-  GitHubRefInputSchema,
-  RepositoryCoordinatesSchema,
-} from "./github/schemas";
+import type { AppEnv } from "./env";
+import type { OverviewResponse, PracticeDetailResponse, RepoDetailResponse } from "./api/contract";
+import { GitHubInputError, GitHubPayloadError } from "./github/client";
+import { GitHubOwnerInputSchema } from "./github/schemas";
+import { buildOverview, buildPracticeDetail, buildRepoDetail } from "./practices/views";
+import { listRepositories } from "./practices/store";
 
-const CoordinatesSchema = RepositoryCoordinatesSchema.extend({
-  owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
-  repo: RepositoryCoordinatesSchema.shape.repo.describe("Public GitHub repository name"),
-});
-
-const READ_ONLY_ANNOTATIONS = {
+export const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: true,
 } as const;
 
-type ToolPayload =
-  | Awaited<ReturnType<typeof collectPortfolioReport>>
-  | Awaited<ReturnType<typeof collectStandards>>
-  | Awaited<ReturnType<typeof collectSettingsDrift>>
-  | {
-      readiness: Awaited<ReturnType<typeof collectRepositoryReadiness>>;
-      audit: ReturnType<typeof scoreChecks>;
-    }
-  | {
-      repository: z.infer<typeof RepositoryCoordinatesSchema>;
-      risk?: Awaited<ReturnType<typeof collectBranchRisk>>;
-      delivery?: Awaited<ReturnType<typeof collectDeliveryHygiene>>;
-      security?: Awaited<ReturnType<typeof collectSecurityPosture>>;
-      branch?: string;
-      audit: ReturnType<typeof categoryResult>;
-    }
-  | {
-      repository: Awaited<ReturnType<typeof collectRepositoryReadiness>>["repository"];
-      standards: Awaited<ReturnType<typeof collectStandards>>;
-      score: ReturnType<typeof scoreChecks>;
-      plan: ReturnType<typeof buildActionPlan>;
-    };
+type PracticePayload = OverviewResponse | RepoDetailResponse | PracticeDetailResponse;
 
-function jsonResult(payload: ToolPayload) {
+function jsonResult(payload: PracticePayload) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
     structuredContent: payload,
@@ -76,32 +25,36 @@ function jsonResult(payload: ToolPayload) {
 }
 
 function toolError(cause: unknown) {
-  const error = cause;
-  const status = z.object({ status: z.number() }).safeParse(error).data?.status;
-  let message = "The repository could not be inspected right now.";
+  const status = z.object({ status: z.number() }).safeParse(cause).data?.status;
+  let message = "The practice could not be read right now.";
 
-  if (error instanceof PrivateRepositoryError) {
-    message = "Shipshape only inspects public repositories.";
-  } else if (error instanceof GitHubInputError) {
-    message = error.message;
-  } else if (error instanceof Error && status !== undefined) {
+  if (cause instanceof GitHubInputError) {
+    message = cause.message;
+  } else if (cause instanceof Error && status !== undefined) {
     message =
       status === 404
-        ? "The public repository or requested GitHub feature was not found."
+        ? "The repository or requested GitHub feature was not found."
         : status === 403
           ? "GitHub denied this read-only request or the feature is unavailable on the repository's plan."
           : `GitHub returned HTTP ${status} while inspecting the repository.`;
-  } else if (error instanceof GitHubPayloadError) {
+  } else if (cause instanceof GitHubPayloadError) {
     message = "GitHub returned an invalid or incomplete response.";
+  } else if (cause instanceof Error) {
+    message = cause.message;
   }
 
   return {
     isError: true,
-    content: [{ type: "text" as const, text: message }],
+    content: [
+      {
+        type: "text" as const,
+        text: message,
+      },
+    ],
   };
 }
 
-async function safely(operation: () => Promise<ToolPayload>) {
+async function safely(operation: () => Promise<PracticePayload>) {
   try {
     return jsonResult(await operation());
   } catch (error) {
@@ -109,266 +62,100 @@ async function safely(operation: () => Promise<ToolPayload>) {
   }
 }
 
-function categoryResult(
-  category: RuleCategory,
-  checks: ReturnType<typeof evaluateRepositoryReadiness>,
-) {
-  return {
-    summary: categoryRollup(category, checks),
-    checks: checks.filter((check) => check.category === category),
-  };
-}
+const RepoInputSchema = z
+  .object({
+    owner: GitHubOwnerInputSchema.describe("Repository owner"),
+    repo: z.string().min(1).max(100).describe("Repository name"),
+  })
+  .strict();
 
-export function createPortfolioServer(githubClient: () => GitHubOctokit): McpServer {
-  const server = new McpServer({
-    name: "Shipshape",
-    version: "0.1.0",
-  });
+export function createPracticesServer(env: AppEnv): McpServer {
+  const server = new McpServer({ name: "Shipshape", version: "0.1.0" });
 
   server.registerTool(
-    "portfolio_snapshot",
+    "practices_overview",
     {
-      title: "Portfolio snapshot",
-      description:
-        "Rank a bounded set of recently updated public repositories by maintenance need. Deep-scans at most eight repositories.",
-      inputSchema: z.object({
-        owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
-        limit: z.number().int().min(1).max(8).default(4),
-        includeForks: z.boolean().default(false),
-        includeArchived: z.boolean().default(false),
-      }),
+      title: "Practices overview",
+      description: "Summarize tracked repositories and practice results.",
+      inputSchema: z
+        .object({
+          owner: GitHubOwnerInputSchema.optional().describe("Filter by repository owner"),
+          state: z
+            .enum(["pass", "fail", "unknown", "not_applicable"])
+            .optional()
+            .describe("Keep only cells with this state"),
+        })
+        .strict(),
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    ({ owner, limit, includeForks, includeArchived }) =>
-      safely(() =>
-        collectPortfolioReport(githubClient(), owner, {
-          limit,
-          includeForks,
-          includeArchived,
-        }),
-      ),
-  );
-
-  server.registerTool(
-    "repo_readiness",
-    {
-      title: "Repository readiness",
-      description:
-        "Audit a public repository's publication, branch, delivery, and security signals with explicit unknown states.",
-      inputSchema: CoordinatesSchema,
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    (repository) =>
+    ({ owner, state }) =>
       safely(async () => {
-        const readiness = await collectRepositoryReadiness(githubClient(), repository, {
-          maxPages: 2,
-          perPage: 25,
-          concurrency: 3,
-        });
+        const overview = await buildOverview(env);
+        const ownerKey = owner?.toLowerCase();
 
-        const checks = evaluateRepositoryReadiness(readiness);
+        const allowedRepos = overview.repos.filter(
+          (repo) => ownerKey === undefined || repo.owner.toLowerCase() === ownerKey,
+        );
 
-        return {
-          readiness,
-          audit: scoreChecks(checks),
-        };
-      }),
-  );
+        const results: typeof overview.results = {};
 
-  server.registerTool(
-    "branch_risk",
-    {
-      title: "Branch controls",
-      description:
-        "Inspect protection controls for a named branch of a public repository. Unavailable plan- or permission-gated evidence remains unknown.",
-      inputSchema: CoordinatesSchema.extend({
-        branch: GitHubRefInputSchema.describe("Branch name"),
-      }),
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    ({ owner, repo, branch }) =>
-      safely(async () => {
-        const risk = await collectBranchRisk(githubClient(), { owner, repo }, branch);
+        for (const repo of allowedRepos) {
+          const repoResults = overview.results[repo.fullName] ?? {};
 
-        const checks = evaluateBranchRisk(risk);
+          const filtered = state
+            ? Object.fromEntries(
+                Object.entries(repoResults).filter(([, cell]) => cell.state === state),
+              )
+            : repoResults;
 
-        return {
-          repository: { owner, repo },
-          risk,
-          audit: categoryResult("branch_risk", checks),
-        };
-      }),
-  );
-
-  server.registerTool(
-    "delivery_hygiene",
-    {
-      title: "Delivery hygiene",
-      description:
-        "Summarize recent commits, open pull requests, and CI health for a public repository branch.",
-      inputSchema: CoordinatesSchema.extend({
-        branch: GitHubRefInputSchema.describe("Branch name"),
-        recentDays: z.number().int().min(1).max(180).default(30),
-      }),
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    ({ owner, repo, branch, recentDays }) =>
-      safely(async () => {
-        const delivery = await collectDeliveryHygiene(githubClient(), { owner, repo }, branch, {
-          since: new Date(Date.now() - recentDays * 86_400_000).toISOString(),
-          maxPages: 2,
-          perPage: 25,
-          concurrency: 3,
-        });
-
-        const checks = evaluateDeliveryHygiene(delivery);
-
-        return {
-          repository: { owner, repo },
-          branch,
-          delivery,
-          audit: categoryResult("delivery_hygiene", checks),
-        };
-      }),
-  );
-
-  server.registerTool(
-    "security_posture",
-    {
-      title: "Security posture",
-      description:
-        "Inspect public GitHub security signals. Permission- and plan-gated endpoints are reported as unknown, never as healthy.",
-      inputSchema: CoordinatesSchema,
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    (repository) =>
-      safely(async () => {
-        const client = githubClient();
-        const fact = await collectPublicRepository(client, repository);
-        const options = { maxPages: 1, perPage: 25, concurrency: 3 };
-
-        const [branchRisk, security] = await Promise.all([
-          collectBranchRisk(client, repository, fact.defaultBranch, options),
-          collectSecurityPosture(client, repository, options),
-        ]);
-
-        const checks = evaluateSecurityPosture(security, fact, branchRisk);
-
-        return {
-          repository,
-          security,
-          audit: categoryResult("security_posture", checks),
-        };
-      }),
-  );
-
-  server.registerTool(
-    "standards_audit",
-    {
-      title: "Shared engineering standards",
-      description:
-        "Audit a public repository against a versioned shared baseline, with Node, Go, and Python package discovery, optional Oxforge convergence checks, and static configuration evidence. Commands are never executed.",
-      inputSchema: CoordinatesSchema,
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    (repository) =>
-      safely(async () => ({
-        ...(await collectStandards(githubClient(), repository)),
-      })),
-  );
-
-  server.registerTool(
-    "settings_drift",
-    {
-      title: "Repository settings drift",
-      description:
-        "Compare one page of an owner's public repositories with declarative GitHub best-practice rules for repository settings, community files, Actions workflow security, active rulesets, and branch protection. Pass increasing page values until scope.hasNextPage is false to scan every page. Returns per-setting drift, manual guidance, and reviewable gh api remediation commands; nothing is ever changed. Supply inline rules or a policy file pinned to a commit.",
-      inputSchema: z.object({
-        owner: GitHubOwnerInputSchema.describe("GitHub user or organization"),
-        rules: DriftPolicySchema.optional().describe("Inline policy: { version: 1, rules: [...] }"),
-        policy: PolicySourceSchema.optional().describe(
-          "A YAML policy in a public repository, pinned to a full commit SHA",
-        ),
-        page: z
-          .number()
-          .int()
-          .min(1)
-          .default(1)
-          .describe("One-based page of the owner's GitHub repository listing"),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(SETTINGS_DRIFT_PAGE_SIZE)
-          .default(SETTINGS_DRIFT_PAGE_SIZE)
-          .describe("Repositories per page; this does not cap later pages"),
-      }),
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    ({ owner, rules, policy, page, limit }) =>
-      safely(async () => {
-        if ((rules === undefined) === (policy === undefined)) {
-          throw new GitHubInputError("Provide exactly one of rules or policy.");
+          if (Object.keys(filtered).length > 0 || state === undefined) {
+            results[repo.fullName] = filtered;
+          }
         }
 
-        const client = githubClient();
+        const repos = state
+          ? allowedRepos.filter((repo) => Object.keys(results[repo.fullName] ?? {}).length > 0)
+          : allowedRepos;
 
-        if (rules) {
-          return collectSettingsDrift(client, owner, rules, {
-            page,
-            perPage: limit,
-            source: { kind: "inline" },
-          });
-        }
-
-        if (policy === undefined) {
-          throw new GitHubInputError("Provide exactly one of rules or policy.");
-        }
-
-        const pinned = await readPinnedPolicy(client, policy);
-
-        return collectSettingsDrift(client, owner, pinned.policy, {
-          page,
-          perPage: limit,
-          source: { kind: "policy", url: pinned.url },
-        });
+        return { ...overview, repos, results };
       }),
   );
 
   server.registerTool(
-    "action_plan",
+    "repo_practices",
     {
-      title: "Maintenance action plan",
-      description:
-        "Return a deterministic, evidence-backed queue of the highest-value maintenance work for one public repository.",
-      inputSchema: CoordinatesSchema.extend({
-        limit: z.number().int().min(1).max(20).default(8),
-      }),
+      title: "Repository practices",
+      description: "Show practice results and checks for one tracked repository.",
+      inputSchema: RepoInputSchema,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    ({ owner, repo, limit }) =>
+    ({ owner, repo }) =>
       safely(async () => {
-        const client = githubClient();
-        const repository = { owner, repo };
+        const repositories = await listRepositories(env.DB);
 
-        const [readiness, standards] = await Promise.all([
-          collectRepositoryReadiness(client, repository, {
-            maxPages: 2,
-            perPage: 25,
-            concurrency: 3,
-          }),
-          collectStandards(client, repository),
-        ]);
+        const found = repositories.find(
+          (candidate) =>
+            candidate.owner.toLowerCase() === owner.toLowerCase() &&
+            candidate.name.toLowerCase() === repo.toLowerCase(),
+        );
 
-        const checks = [...evaluateRepositoryReadiness(readiness), ...standards.audit.checks];
+        if (!found) {
+          throw new Error("Repository not found");
+        }
 
-        return {
-          repository: readiness.repository,
-          standards,
-          score: scoreChecks(checks),
-          plan: buildActionPlan(checks, { maxItems: limit }),
-        };
+        return buildRepoDetail(env, found);
       }),
+  );
+
+  server.registerTool(
+    "practice_detail",
+    {
+      title: "Practice detail",
+      description: "Show a practice definition and its result counts.",
+      inputSchema: z.object({ id: z.string().min(1).max(64) }).strict(),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    ({ id }) => safely(() => buildPracticeDetail(env, id)),
   );
 
   return server;
