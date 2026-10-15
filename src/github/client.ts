@@ -43,6 +43,10 @@ interface GitHubClientOptions {
   retry?: boolean;
 }
 
+interface PaginatedResponseData {
+  total_count?: unknown;
+}
+
 export function createGitHubOctokit(
   auth: string,
   fetch?: typeof globalThis.fetch,
@@ -202,10 +206,11 @@ export async function octokitPaginate<T>(
   parameters: GitHubReadParameters,
   itemSchema: ZodType<T>,
   options: PaginationOptions = {},
-): Promise<GitHubResult<T[]>> {
+): Promise<PaginatedGitHubResult<T>> {
   const { maxPages, perPage } = paginationLimits(options);
   const data: T[] = [];
   let metadata: GitHubResponseMetadata | null = null;
+  let totalCount: number | null = null;
   let page = 0;
 
   for await (const response of octokit.paginate.iterator(route, {
@@ -215,10 +220,45 @@ export async function octokitPaginate<T>(
     page += 1;
 
     const pageSchema = z
-      .union([z.array(itemSchema), z.object({ workflow_runs: z.array(itemSchema) })])
-      .transform((value) => (Array.isArray(value) ? value : value.workflow_runs));
+      .union([
+        z.array(itemSchema),
+        z.object({ workflow_runs: z.array(itemSchema) }),
+        z.object({ total_count: z.number(), repositories: z.array(itemSchema) }),
+      ])
+      .transform((value) => {
+        if (Array.isArray(value)) {
+          return value;
+        }
+
+        if ("workflow_runs" in value) {
+          return value.workflow_runs;
+        }
+
+        return value.repositories;
+      });
 
     data.push(...parseGitHubResponse(pageSchema, response));
+
+    // SAFETY: Octokit normalizes list responses to arrays while preserving total_count as an own property.
+    const responseTotalCountValue = (response.data as PaginatedResponseData).total_count;
+
+    const responseTotalCount =
+      responseTotalCountValue === undefined
+        ? null
+        : z.number().int().nonnegative().safeParse(responseTotalCountValue);
+
+    if (responseTotalCount && !responseTotalCount.success) {
+      throw new GitHubPayloadError("GitHub pagination total_count must be a nonnegative integer");
+    }
+
+    if (responseTotalCount?.success) {
+      if (totalCount !== null && totalCount !== responseTotalCount.data) {
+        throw new GitHubPayloadError("GitHub pagination total_count changed between pages");
+      }
+
+      totalCount = responseTotalCount.data;
+    }
+
     metadata = responseMetadata(response);
 
     if (page >= maxPages) {
@@ -230,7 +270,7 @@ export async function octokitPaginate<T>(
     throw new GitHubInputError("Pagination produced no request");
   }
 
-  return { data, metadata };
+  return { data, metadata, totalCount };
 }
 
 export type MetadataResponse = {
@@ -240,5 +280,7 @@ export type MetadataResponse = {
 };
 
 export type GitHubResult<T> = { data: T; metadata: GitHubResponseMetadata };
+
+export type PaginatedGitHubResult<T> = GitHubResult<T[]> & { totalCount: number | null };
 
 export type PaginationOptions = { maxPages?: number; perPage?: number };
