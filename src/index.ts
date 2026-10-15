@@ -4,33 +4,43 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 
-import { GitHubInputError } from "./github/client";
 import { verifyWebhookSignature } from "./github/webhook";
 
 import { MCP_RESOURCE, MCP_SCOPE, PUBLIC_ORIGIN } from "./config";
+import { isOwner } from "./auth/owner";
 import type { AppEnv } from "./env";
+import { GitHubOwnerInputSchema } from "./github/schemas";
 import { loadCatalog } from "./practices/catalog";
 import { listRepositories, type StoredRepository } from "./practices/store";
 import { enqueueRepositories, handleQueue } from "./queue";
 import { handleScheduled, inventoryForTrigger } from "./scheduled";
-import { createPortfolioServer } from "./mcp";
+import { createPracticesServer } from "./mcp";
 import type { OAuthEnv } from "./oauth";
 import { defaultHandler } from "./oauth-runtime";
 
-const apiHandler = createMcpHandler(
-  () =>
-    createPortfolioServer(() => {
-      throw new GitHubInputError("Re-implemented in Task 11");
-    }),
-  {
-    route: "/mcp",
-    legacy: "stateless",
-  },
-);
+const mcpOptions = { route: "/mcp", legacy: "stateless" } as const;
+const protectedIdentitySchema = z
+  .object({
+    login: GitHubOwnerInputSchema,
+    userId: z.number().int().positive(),
+  })
+  .strict();
 
 const protectedHandler = {
   fetch(request, env, ctx) {
-    return apiHandler(request, env, ctx);
+    const identity = protectedIdentitySchema.safeParse(ctx.props);
+
+    if (!identity.success || !isOwner(env, identity.data)) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    // SAFETY: OAuthProvider passes the Worker bindings through to the protected API handler.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
+    return createMcpHandler(() => createPracticesServer(env as unknown as AppEnv), mcpOptions)(
+      request,
+      env,
+      ctx,
+    );
   },
 } satisfies ProtectedHandler;
 
