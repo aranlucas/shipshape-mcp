@@ -60,7 +60,8 @@ export default defineConfig(({ mode }) => ({
         id: "9653a49921874566b41d5d4e17c88c15",
       }),
       ASSETS: bindings.assets(),
-      DB: bindings.d1({ name: "shipshape" }),
+      // Preview uploads need the database ID; a name-only D1 binding is omitted.
+      DB: bindings.d1({ name: "shipshape", id: "cac9757f-24e3-45fb-aee3-f66601f0bffe" }),
       EVALUATIONS: bindings.queue({ name: "shipshape-evaluations" }),
     },
   },

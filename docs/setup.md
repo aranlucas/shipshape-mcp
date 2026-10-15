@@ -225,7 +225,7 @@ npx wrangler@4.151.0 preview secret bulk /secure/path/preview-secrets.json \
 This updates only the named Preview deployment. Do not use a production
 `workers secrets` command when the intended target is a Preview.
 
-The current bindings point to the named `shipshape` D1 database,
+The current bindings point to the `shipshape` D1 database by its explicit ID,
 `shipshape-evaluations` queue, and OAuth KV namespace. These resources are
 shared with production. A Preview can enqueue checks, but cannot consume them;
 without a deployed consumer, checks remain pending. Use local D1 and Queue
