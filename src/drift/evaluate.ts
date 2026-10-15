@@ -1,5 +1,12 @@
 import { ruleSelects, type DriftPolicy, type DriftRule } from "./policy";
 
+// Compatibility exports while workflow evaluation moves to the practices engine.
+export {
+  actionUsesArePinned,
+  hasDependencyReview,
+  permissionBlocksAreMinimal,
+} from "../practices/workflows";
+
 /**
  * Repository-level settings that one `PATCH /repos/{owner}/{repo}` can set.
  * Identifiers are API: they appear in tool output and in policy files.

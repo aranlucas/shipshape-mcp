@@ -1,0 +1,306 @@
+/* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/require-readable-spacing, typescript/switch-exhaustiveness-check */
+
+import pLimit from "p-limit";
+import { z } from "zod";
+import {
+  GitHubBranchProtectionSchema,
+  GitHubBranchSchema,
+  type GitHubBranchProtection,
+} from "../github/schemas";
+import { MAX_ALLOWED_CONCURRENCY, octokitGet, type GitHubOctokit } from "../github/client";
+import { TreeSchema, decode } from "../standards/collect";
+import type { BranchProtectionFact, ProtectionState } from "../drift/evaluate";
+import type { Check, Practice } from "./schema";
+import type { StoredRepository } from "./store";
+
+const SHA = z.string().regex(/^[a-f0-9]{40}$/u);
+const ContentsFileSchema = z.object({
+  type: z.literal("file"),
+  encoding: z.literal("base64"),
+  content: z.string(),
+  size: z.number().int().nonnegative(),
+});
+
+const WORKFLOW_MARKER = ".github/workflows/*";
+const MAX_FILE_READS = 64;
+const MAX_FILE_BYTES = 512 * 1024;
+
+export interface RepoSnapshot {
+  repo: StoredRepository;
+  headSha: string | null;
+  tree: { paths: Set<string>; truncated: boolean } | null;
+  treeError: string | null;
+  files: Map<string, string | { error: string }>;
+  settings: Record<string, unknown> | { error: string } | null;
+  protection: Map<string, BranchProtectionFact>;
+}
+
+function checkFilePath(check: Check): string | null {
+  switch (check.type) {
+    case "file-matches":
+    case "file-contains":
+      return check.path;
+    case "json-path":
+    case "yaml-path":
+    case "dependency":
+      return check.file;
+    default:
+      return null;
+  }
+}
+
+export function filesNeeded(practices: Practice[]): string[] {
+  const paths = new Set<string>();
+
+  for (const practice of practices) {
+    for (const check of practice.checks) {
+      const path = checkFilePath(check);
+
+      if (path) {
+        paths.add(path);
+      }
+
+      if (check.type === "workflow") {
+        paths.add(WORKFLOW_MARKER);
+      }
+    }
+  }
+
+  return [...paths];
+}
+
+function errorStatus(error: unknown): number | undefined {
+  return z.object({ status: z.number() }).safeParse(error).data?.status;
+}
+
+function readError(error: unknown): string {
+  const status = errorStatus(error);
+
+  return status === undefined ? "File could not be read" : `GitHub returned HTTP ${status}`;
+}
+
+function protectionState(protection: GitHubBranchProtection): ProtectionState {
+  const reviews = protection.required_pull_request_reviews;
+  const checks = protection.required_status_checks;
+
+  return {
+    requiredSignatures: protection.required_signatures ?? null,
+    enforceAdmins: protection.enforce_admins?.enabled ?? false,
+    requiredLinearHistory: protection.required_linear_history ?? false,
+    allowForcePushes: protection.allow_force_pushes ?? false,
+    allowDeletions: protection.allow_deletions ?? false,
+    requiredConversationResolution: protection.required_conversation_resolution ?? false,
+    reviews: reviews
+      ? {
+          dismissStaleReviews: reviews.dismiss_stale_reviews ?? false,
+          requireCodeOwnerReviews: reviews.require_code_owner_reviews ?? false,
+          requiredApprovingReviews: reviews.required_approving_review_count ?? 0,
+          requireLastPushApproval: reviews.require_last_push_approval ?? false,
+        }
+      : null,
+    statusChecks: checks
+      ? {
+          strict: checks.strict ?? false,
+          checks: checks.checks?.length
+            ? checks.checks.flatMap((check) =>
+                check.context ? [{ context: check.context, appId: check.app_id ?? null }] : [],
+              )
+            : (checks.contexts ?? []).map((context) => ({ context, appId: null })),
+        }
+      : null,
+    restricted: protection.restrictions !== null && protection.restrictions !== undefined,
+  };
+}
+
+async function readProtection(
+  client: GitHubOctokit,
+  repo: StoredRepository,
+  branch: string,
+): Promise<BranchProtectionFact> {
+  try {
+    const branchResponse = await octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/branches/{branch}",
+      { owner: repo.owner, repo: repo.name, branch },
+      GitHubBranchSchema,
+    );
+
+    if (branchResponse.data.protected === false) {
+      return { status: "unprotected" };
+    }
+
+    const protectionResponse = await octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/branches/{branch}/protection",
+      { owner: repo.owner, repo: repo.name, branch },
+      GitHubBranchProtectionSchema,
+    );
+
+    return { status: "protected", protection: protectionState(protectionResponse.data) };
+  } catch (error) {
+    const status = errorStatus(error);
+
+    return {
+      status: "unknown",
+      reason:
+        status === undefined
+          ? "Branch protection could not be read."
+          : `GitHub returned HTTP ${status} for branch protection.`,
+    };
+  }
+}
+
+function workflowPath(path: string): boolean {
+  return /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(path);
+}
+
+function contentPaths(treePaths: Set<string>, needed: string[]): string[] {
+  const expanded = new Set<string>();
+
+  for (const path of needed) {
+    if (path === WORKFLOW_MARKER) {
+      for (const treePath of treePaths) {
+        if (workflowPath(treePath)) {
+          expanded.add(treePath);
+        }
+      }
+    } else if (treePaths.has(path)) {
+      expanded.add(path);
+    }
+  }
+
+  return [...expanded];
+}
+
+export async function takeSnapshot(
+  client: GitHubOctokit,
+  repo: StoredRepository,
+  practices: Practice[],
+): Promise<RepoSnapshot> {
+  const needed = filesNeeded(practices);
+  const needsSettings = practices.some((practice) =>
+    practice.checks.some((check) => check.type === "setting"),
+  );
+  const branchNames = new Set(
+    practices.flatMap((practice) =>
+      practice.checks.flatMap((check) =>
+        check.type === "branch-protection" ? [check.branch ?? repo.defaultBranch] : [],
+      ),
+    ),
+  );
+
+  let headSha: string | null = null;
+  let headError: string | null = null;
+
+  try {
+    const headResponse = await octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/commits/{ref}",
+      { owner: repo.owner, repo: repo.name, ref: repo.defaultBranch },
+      z.object({ sha: SHA }),
+    );
+    headSha = headResponse.data.sha;
+  } catch (error) {
+    const status = errorStatus(error);
+    headError = status === 409 ? "Repository has no commits" : readError(error);
+  }
+
+  let tree: RepoSnapshot["tree"] = null;
+  let treeError: string | null = null;
+
+  try {
+    if (!headSha) {
+      throw new Error(headError ?? "Repository head could not be read.");
+    }
+
+    const treeResponse = await octokitGet(
+      client,
+      "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
+      { owner: repo.owner, repo: repo.name, tree_sha: headSha, recursive: "1" },
+      TreeSchema,
+    );
+    tree = {
+      paths: new Set(
+        treeResponse.data.tree
+          .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
+          .map((entry) => entry.path),
+      ),
+      truncated: treeResponse.data.truncated,
+    };
+  } catch (error) {
+    const status = errorStatus(error);
+    treeError = status === 409 ? "Repository has no commits" : (headError ?? readError(error));
+  }
+
+  const snapshot: RepoSnapshot = {
+    repo,
+    headSha,
+    tree,
+    treeError,
+    files: new Map(),
+    settings: null,
+    protection: new Map(),
+  };
+
+  if (needsSettings) {
+    try {
+      const response = await octokitGet(
+        client,
+        "GET /repos/{owner}/{repo}",
+        { owner: repo.owner, repo: repo.name },
+        z.record(z.string(), z.unknown()),
+      );
+      snapshot.settings = response.data;
+    } catch (error) {
+      snapshot.settings = { error: readError(error) };
+    }
+  }
+
+  if (branchNames.size) {
+    const protections = await Promise.all(
+      [...branchNames].map(
+        async (branch) => [branch, await readProtection(client, repo, branch)] as const,
+      ),
+    );
+
+    snapshot.protection = new Map(protections);
+  }
+
+  if (!tree) {
+    return snapshot;
+  }
+
+  const paths = contentPaths(tree.paths, needed);
+  const limit = pLimit(MAX_ALLOWED_CONCURRENCY);
+
+  await Promise.all(
+    paths.map((path, index) =>
+      limit(async () => {
+        if (index >= MAX_FILE_READS) {
+          snapshot.files.set(path, { error: "Read budget exceeded" });
+          return;
+        }
+
+        try {
+          const response = await octokitGet(
+            client,
+            "GET /repos/{owner}/{repo}/contents/{path}",
+            { owner: repo.owner, repo: repo.name, path, ref: headSha ?? undefined },
+            ContentsFileSchema,
+          );
+
+          if (response.data.size > MAX_FILE_BYTES) {
+            snapshot.files.set(path, { error: "File larger than 512 KB" });
+            return;
+          }
+
+          snapshot.files.set(path, decode(response.data.content));
+        } catch (error) {
+          snapshot.files.set(path, { error: readError(error) });
+        }
+      }),
+    ),
+  );
+
+  return snapshot;
+}

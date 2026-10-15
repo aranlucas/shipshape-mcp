@@ -207,7 +207,17 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
     };
   }
 
-  return { ok: true, practice: result.data };
+  return {
+    ok: true,
+    practice: {
+      ...result.data,
+      checks: result.data.checks.map((check) =>
+        check.type === "branch-protection" && check.key === "required_linear_history"
+          ? { ...check, key: "requiredLinearHistory" }
+          : check,
+      ),
+    },
+  };
 }
 
 export function checkLabel(check: Check): string {

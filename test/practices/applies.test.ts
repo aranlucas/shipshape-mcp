@@ -1,0 +1,128 @@
+import { describe, expect, it } from "vitest";
+import type { Practice } from "@/practices/schema";
+import { applies } from "@/practices/applies";
+import { makeSnapshot, snapshotRepository } from "@test/helpers/snapshot";
+
+type PracticeOverrides = Omit<Partial<Practice>, "appliesTo"> & {
+  appliesTo?: Partial<Practice["appliesTo"]>;
+};
+
+function practice(overrides: PracticeOverrides = {}): Practice {
+  const { appliesTo, ...rest } = overrides;
+
+  const selection: Practice["appliesTo"] = {
+    include: appliesTo?.include ?? ["*"],
+    exclude: appliesTo?.exclude ?? [],
+    archived: appliesTo?.archived ?? false,
+    forks: appliesTo?.forks ?? false,
+  };
+
+  if (appliesTo?.owners) {
+    selection.owners = appliesTo.owners;
+  }
+
+  if (appliesTo?.languages) {
+    selection.languages = appliesTo.languages;
+  }
+
+  if (appliesTo?.hasFiles) {
+    selection.hasFiles = appliesTo.hasFiles;
+  }
+
+  return {
+    version: 1,
+    id: "practice",
+    title: "Practice",
+    summary: "A practice for testing selection.",
+    kind: "files",
+    appliesTo: selection,
+    checks: [{ type: "file-exists", path: "README.md", absent: false }],
+    ...rest,
+  };
+}
+
+describe("practice applicability", () => {
+  it("matches owners case-insensitively", () => {
+    expect(
+      applies(practice({ appliesTo: { owners: ["OCTO"] } }), snapshotRepository, {
+        tree: makeSnapshot({}).tree,
+      }),
+    ).toBe(true);
+  });
+
+  it("requires an exact GitHub language name", () => {
+    expect(
+      applies(
+        practice({ appliesTo: { languages: ["JavaScript"] } }),
+        snapshotRepository,
+        makeSnapshot({}),
+      ),
+    ).toBe(false);
+    expect(
+      applies(
+        practice({ appliesTo: { languages: ["TypeScript"] } }),
+        snapshotRepository,
+        makeSnapshot({}),
+      ),
+    ).toBe(true);
+  });
+
+  it("applies include and exclude repository globs", () => {
+    expect(
+      applies(practice({ appliesTo: { include: ["dem*"] } }), snapshotRepository, makeSnapshot({})),
+    ).toBe(true);
+    expect(
+      applies(
+        practice({ appliesTo: { include: ["*"], exclude: ["demo"] } }),
+        snapshotRepository,
+        makeSnapshot({}),
+      ),
+    ).toBe(false);
+  });
+
+  it("filters archived repositories and honors the archived flag", () => {
+    const archived = { ...snapshotRepository, archived: true };
+    expect(applies(practice(), archived, makeSnapshot({ repo: archived }))).toBe(false);
+    expect(
+      applies(
+        practice({ appliesTo: { archived: true } }),
+        archived,
+        makeSnapshot({ repo: archived }),
+      ),
+    ).toBe(true);
+  });
+
+  it("filters forks and honors the forks flag", () => {
+    const fork = { ...snapshotRepository, fork: true };
+    expect(applies(practice(), fork, makeSnapshot({ repo: fork }))).toBe(false);
+    expect(
+      applies(practice({ appliesTo: { forks: true } }), fork, makeSnapshot({ repo: fork })),
+    ).toBe(true);
+  });
+
+  it("requires every hasFiles path in a complete tree", () => {
+    const selected = practice({ appliesTo: { hasFiles: ["README.md", "package.json"] } });
+    expect(
+      applies(selected, snapshotRepository, makeSnapshot({ paths: ["README.md", "package.json"] })),
+    ).toBe(true);
+    expect(applies(selected, snapshotRepository, makeSnapshot({ paths: ["README.md"] }))).toBe(
+      false,
+    );
+  });
+
+  it("returns unknown when hasFiles needs an unreadable tree", () => {
+    const selected = practice({ appliesTo: { hasFiles: ["README.md"] } });
+    expect(applies(selected, snapshotRepository, makeSnapshot({ tree: null }))).toBe("unknown");
+  });
+
+  it("returns unknown when a required path is missing from a truncated tree", () => {
+    const selected = practice({ appliesTo: { hasFiles: ["README.md"] } });
+    expect(
+      applies(
+        selected,
+        snapshotRepository,
+        makeSnapshot({ paths: ["package.json"], truncated: true }),
+      ),
+    ).toBe("unknown");
+  });
+});
