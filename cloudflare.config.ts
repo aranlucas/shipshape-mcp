@@ -23,10 +23,15 @@ export default defineConfig(({ mode }) => ({
       // Hashed bundles are public; the HTML shell and API go through the Worker's session check.
       runWorkerFirst: ["/app", "/app/*", "!/app/assets/*"],
     },
-    triggers: [
-      triggers.queue({ name: "shipshape-evaluations", maxBatchSize: 5 }),
-      triggers.scheduled({ schedule: "0 13 * * *" }),
-    ],
+    // Preview uploads reject the triggers field, so previews (built with
+    // `--mode preview`) serve requests but never consume the queue or run the sweep.
+    triggers:
+      mode === "preview"
+        ? undefined
+        : [
+            triggers.queue({ name: "shipshape-evaluations", maxBatchSize: 5 }),
+            triggers.scheduled({ schedule: "0 13 * * *" }),
+          ],
     env: {
       GITHUB_API_VERSION: bindings.text("2026-03-10"),
       PUBLIC_ORIGIN: bindings.text(
