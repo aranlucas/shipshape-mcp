@@ -1,34 +1,23 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
-import { createMcpHandler, getMcpAuthContext } from "agents/mcp/server";
+import { createMcpHandler } from "agents/mcp/server";
 
-import { z } from "zod";
-import { GitHubOwnerInputSchema } from "./github/schemas";
-import { createGitHubOctokit, GitHubInputError } from "./github/client";
+import { GitHubInputError } from "./github/client";
 
 import { MCP_RESOURCE, MCP_SCOPE, PUBLIC_ORIGIN } from "./config";
 import { createPortfolioServer } from "./mcp";
 import type { OAuthEnv } from "./oauth";
 import { defaultHandler } from "./oauth-runtime";
 
-const AuthPropsSchema = z.object({
-  accessToken: z.string().min(1).max(4_096),
-  login: GitHubOwnerInputSchema,
-});
-
-function githubClient() {
-  const parsed = AuthPropsSchema.safeParse(getMcpAuthContext()?.props);
-
-  if (!parsed.success) {
-    throw new GitHubInputError("GitHub authorization is required");
-  }
-
-  return createGitHubOctokit(parsed.data.accessToken);
-}
-
-const apiHandler = createMcpHandler(() => createPortfolioServer(githubClient), {
-  route: "/mcp",
-  legacy: "stateless",
-});
+const apiHandler = createMcpHandler(
+  () =>
+    createPortfolioServer(() => {
+      throw new GitHubInputError("Re-implemented in Task 11");
+    }),
+  {
+    route: "/mcp",
+    legacy: "stateless",
+  },
+);
 
 const protectedHandler = {
   fetch(request, env, ctx) {

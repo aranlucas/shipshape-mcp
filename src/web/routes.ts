@@ -1,15 +1,6 @@
-import { z } from "zod";
-import { collectRepositoryReview, listReviewRepositories } from "../review/collect";
-import { renderReviewPage } from "./review-page";
-import { REVIEW_SCRIPT } from "./review-script";
-import { RepositoryCoordinatesSchema, GitHubOwnerInputSchema } from "../github/schemas";
-import { GITHUB_SCOPE } from "../config";
-import { collectSettingsDrift } from "../drift/collect";
-import { SETTINGS_DRIFT_PAGE_SIZE } from "../drift/limits";
-import { parseDriftPolicy } from "../drift/policy";
-import { GitHubInputError, PrivateRepositoryError, createGitHubOctokit } from "../github/client";
-import { ConfigValueSchema, type ConfigValue } from "../standards/config-value";
+import { isOwner } from "../auth/owner";
 import { methodNotAllowed, notFoundResponse } from "../landing";
+import { CALLBACK_PATH, callbackUrl, completeGitHubLogin, type OAuthEnv } from "../oauth";
 import {
   appendSetCookie,
   clearCookie,
@@ -17,9 +8,8 @@ import {
   makeCookie,
   securityHeaders,
 } from "../oauth-security";
-import { CALLBACK_PATH, callbackUrl, completeGitHubLogin, type OAuthEnv } from "../oauth";
-import { APP_SCRIPT } from "./script";
-import { renderAppPage, renderSignInPage } from "./page";
+import { renderSignInPage } from "./page";
+import { renderPlaceholderPage } from "./placeholder";
 import {
   LOGIN_COOKIE_NAME,
   LOGIN_STATE_TTL_SECONDS,
@@ -31,40 +21,16 @@ import {
   createSession,
   deleteSession,
   readSession,
-  type WebSession,
 } from "./session";
 
 export const APP_PATH = "/app" as const;
 
-// Reuse the GitHub OAuth app's registered callback for website and MCP logins.
-// Website state selects its handler; cookie binding still authenticates state.
 export const WEB_CALLBACK_PATH = CALLBACK_PATH;
 
 const LEGACY_WEB_CALLBACK_PATH = "/callback/web";
 
-export const APP_SCRIPT_PATH = "/app/app.js" as const;
-
-const MAX_POLICY_LENGTH = 64_000;
-
 const APP_CONTENT_SECURITY_POLICY =
   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
-
-const DriftRequestSchema = z
-  .object({
-    owner: GitHubOwnerInputSchema,
-    policy: z.string().min(1).max(MAX_POLICY_LENGTH),
-    page: z.number().int().min(1).default(1),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(SETTINGS_DRIFT_PAGE_SIZE)
-      .optional()
-      .describe("Repositories per GitHub page; later pages are not capped"),
-  })
-  .strict();
-
-const RulesRequestSchema = z.object({ policy: z.string().min(1).max(MAX_POLICY_LENGTH) }).strict();
 
 export function isWebPath(pathname: string, state: string | null = null): boolean {
   return (
@@ -85,21 +51,7 @@ function appHeaders(contentType: string): Headers {
 }
 
 function html(body: string, status = 200): Response {
-  return new Response(body, {
-    status,
-    headers: appHeaders("text/html; charset=utf-8"),
-  });
-}
-
-function json(payload: ConfigValue, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: appHeaders("application/json; charset=utf-8"),
-  });
-}
-
-function jsonError(status: number, message: string): Response {
-  return json({ error: message }, status);
+  return new Response(body, { status, headers: appHeaders("text/html; charset=utf-8") });
 }
 
 function redirect(location: string, status: 302 | 303 = 302): Response {
@@ -114,11 +66,6 @@ function publicOrigin(request: Request, env: OAuthEnv): string {
   return callbackUrl(request, env, "/").origin;
 }
 
-/**
- * State-changing requests must come from this origin.  Session cookies are
- * SameSite=Lax as well, and JSON bodies cannot be sent cross-origin without a
- * CORS preflight this Worker never answers.
- */
 function sameOrigin(request: Request, env: OAuthEnv): boolean {
   const site = request.headers.get("Sec-Fetch-Site");
 
@@ -128,93 +75,19 @@ function sameOrigin(request: Request, env: OAuthEnv): boolean {
   );
 }
 
-async function readJson(request: Request): Promise<ConfigValue> {
-  if (!(request.headers.get("Content-Type") ?? "").toLowerCase().startsWith("application/json")) {
-    throw new GitHubInputError("Send a JSON request body.");
-  }
-
-  const text = await request.text();
-
-  if (text.length > MAX_POLICY_LENGTH + 1_000) {
-    throw new GitHubInputError("The request body is too large.");
-  }
-
-  try {
-    return ConfigValueSchema.parse(JSON.parse(text));
-  } catch {
-    throw new GitHubInputError("Send a valid JSON request body.");
-  }
-}
-
-function errorMessage(cause: unknown) {
-  const status = z.object({ status: z.number() }).safeParse(cause).data?.status;
-
-  if (cause instanceof GitHubInputError) {
-    return { status: 400, message: cause.message };
-  }
-
-  if (cause instanceof z.ZodError) {
-    return {
-      status: 400,
-      message: cause.issues[0]?.message ?? "Check the request fields.",
-    };
-  }
-
-  if (cause instanceof PrivateRepositoryError) {
-    return {
-      status: 400,
-      message: "Shipshape only inspects public repositories.",
-    };
-  }
-
-  if (status === 401) {
-    return {
-      status: 401,
-      message: "Your GitHub session expired. Sign in again.",
-    };
-  }
-
-  if (status === 404) {
-    return { status: 404, message: "That GitHub owner was not found." };
-  }
-
-  if (status === 403) {
-    return {
-      status: 502,
-      message: "GitHub denied the request or the rate limit was reached.",
-    };
-  }
-
-  return {
-    status: 502,
-    message: "GitHub could not be reached right now. Try again shortly.",
-  };
-}
-
-function rulesKey(session: WebSession): string {
-  return `web:rules:${session.login.toLowerCase()}`;
-}
-
 async function startLogin(request: Request, env: OAuthEnv): Promise<Response> {
   const { state, browser } = await createLoginState(env.OAUTH_KV);
   const authorize = new URL("https://github.com/login/oauth/authorize");
-  authorize.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
-
+  authorize.searchParams.set("client_id", env.GITHUB_APP_CLIENT_ID);
   authorize.searchParams.set(
     "redirect_uri",
     callbackUrl(request, env, WEB_CALLBACK_PATH).toString(),
   );
-
-  authorize.searchParams.set("scope", GITHUB_SCOPE);
   authorize.searchParams.set("state", state);
-
   const response = redirect(authorize.toString());
-
   appendSetCookie(
     response.headers,
-    makeCookie(LOGIN_COOKIE_NAME, browser, {
-      maxAge: LOGIN_STATE_TTL_SECONDS,
-    }),
+    makeCookie(LOGIN_COOKIE_NAME, browser, { maxAge: LOGIN_STATE_TTL_SECONDS }),
   );
 
   return response;
@@ -229,9 +102,9 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
     getCookie(request, LOGIN_COOKIE_NAME),
   );
 
-  const login = valid ? await completeGitHubLogin(request, env, url.pathname) : null;
+  const identity = valid ? await completeGitHubLogin(request, env, url.pathname) : null;
 
-  if (!login) {
+  if (identity === null) {
     const response = html(
       renderSignInPage("GitHub sign-in could not be completed. Please try again."),
       400,
@@ -242,10 +115,20 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
     return response;
   }
 
-  const secret = await createSession(env.OAUTH_KV, login);
+  if (!isOwner(env, identity)) {
+    const response = html(
+      renderSignInPage("This Shipshape instance belongs to another GitHub account."),
+      403,
+    );
+
+    appendSetCookie(response.headers, clearCookie(LOGIN_COOKIE_NAME));
+
+    return response;
+  }
+
+  const secret = await createSession(env.OAUTH_KV, identity);
   const response = redirect(APP_PATH);
   appendSetCookie(response.headers, clearCookie(LOGIN_COOKIE_NAME));
-
   appendSetCookie(
     response.headers,
     makeCookie(SESSION_COOKIE_NAME, secret, { maxAge: SESSION_TTL_SECONDS }),
@@ -254,133 +137,26 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
   return response;
 }
 
-async function driftApi(request: Request, session: WebSession): Promise<Response> {
-  const input = DriftRequestSchema.parse(await readJson(request));
-  const policy = parseDriftPolicy(input.policy);
-  const client = createGitHubOctokit(session.accessToken);
-
-  const options = {
-    page: input.page,
-    perPage: input.limit ?? SETTINGS_DRIFT_PAGE_SIZE,
-    source: { kind: "inline" as const },
-  };
-
-  if (request.headers.get("accept")?.includes("application/x-ndjson")) {
-    const encoder = new TextEncoder();
-    const headers = appHeaders("application/x-ndjson; charset=utf-8");
-    let cancelled = false;
-
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const send = (event: ConfigValue) => {
-          if (cancelled) {
-            return;
-          }
-
-          try {
-            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-          } catch {
-            cancelled = true;
-          }
-        };
-
-        void collectSettingsDrift(client, input.owner, policy, {
-          ...options,
-          onProgress: (progress) =>
-            send(
-              ConfigValueSchema.parse(
-                JSON.parse(JSON.stringify({ type: "progress", ...progress })),
-              ),
-            ),
-        })
-          .then((report) =>
-            send(ConfigValueSchema.parse(JSON.parse(JSON.stringify({ type: "complete", report })))),
-          )
-          .catch((error) => {
-            const { message } = errorMessage(error);
-            send(
-              ConfigValueSchema.parse(
-                JSON.parse(JSON.stringify({ type: "error", error: message })),
-              ),
-            );
-          })
-          .finally(() => {
-            if (!cancelled) {
-              controller.close();
-            }
-          });
-      },
-      cancel() {
-        cancelled = true;
-      },
-    });
-
-    return new Response(stream, { headers });
-  }
-
-  const report = await collectSettingsDrift(client, input.owner, policy, options);
-
-  return json(ConfigValueSchema.parse(JSON.parse(JSON.stringify(report))));
-}
-
-async function rulesApi(request: Request, env: OAuthEnv, session: WebSession): Promise<Response> {
-  if (request.method === "GET") {
-    return json({ policy: await env.OAUTH_KV.get(rulesKey(session)) });
-  }
-
-  const { policy } = RulesRequestSchema.parse(await readJson(request));
-  parseDriftPolicy(policy);
-  await env.OAUTH_KV.put(rulesKey(session), policy);
-
-  return json({ saved: true });
-}
-
 export async function webHandler(request: Request, env: OAuthEnv): Promise<Response> {
   const { pathname } = new URL(request.url);
 
-  if (pathname === APP_SCRIPT_PATH || pathname === "/app/review.js") {
-    if (request.method !== "GET") {
-      return methodNotAllowed();
-    }
-
-    const headers = appHeaders("text/javascript; charset=utf-8");
-
-    return new Response(pathname === APP_SCRIPT_PATH ? APP_SCRIPT : REVIEW_SCRIPT, {
-      status: 200,
-      headers,
-    });
-  }
-
   if (pathname === "/app/login") {
-    if (request.method !== "GET") {
-      return methodNotAllowed();
-    }
-
-    return startLogin(request, env);
+    return request.method === "GET" ? startLogin(request, env) : methodNotAllowed();
   }
 
   if (pathname === WEB_CALLBACK_PATH || pathname === LEGACY_WEB_CALLBACK_PATH) {
-    if (request.method !== "GET") {
-      return methodNotAllowed();
-    }
-
-    return finishLogin(request, env);
+    return request.method === "GET" ? finishLogin(request, env) : methodNotAllowed();
   }
 
-  const session = await readSession(env.OAUTH_KV, request);
+  const storedSession = await readSession(env.OAUTH_KV, request);
+  const session = storedSession !== null && isOwner(env, storedSession) ? storedSession : null;
 
   if (pathname === APP_PATH || pathname === "/app/review") {
     if (request.method !== "GET") {
       return methodNotAllowed();
     }
 
-    return html(
-      session
-        ? pathname === "/app/review"
-          ? renderReviewPage(session.login)
-          : renderAppPage(session.login)
-        : renderSignInPage(),
-    );
+    return html(session ? renderPlaceholderPage(session.login) : renderSignInPage());
   }
 
   if (pathname === "/app/logout") {
@@ -389,7 +165,10 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
     }
 
     if (!sameOrigin(request, env)) {
-      return jsonError(403, "Cross-origin request refused.");
+      return new Response(JSON.stringify({ error: "Cross-origin request refused." }), {
+        status: 403,
+        headers: appHeaders("application/json; charset=utf-8"),
+      });
     }
 
     await deleteSession(env.OAUTH_KV, request);
@@ -399,69 +178,5 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
     return response;
   }
 
-  const api =
-    pathname === "/app/api/drift"
-      ? "drift"
-      : pathname === "/app/api/rules"
-        ? "rules"
-        : pathname === "/app/api/review/repos"
-          ? "review-list"
-          : pathname === "/app/api/review/repository"
-            ? "review-repository"
-            : null;
-
-  if (!api) {
-    return notFoundResponse();
-  }
-
-  const allowed = api === "drift" ? ["POST"] : api === "rules" ? ["GET", "PUT"] : ["GET"];
-
-  if (!allowed.includes(request.method)) {
-    return methodNotAllowed(allowed.join(", "));
-  }
-
-  if (request.method !== "GET" && !sameOrigin(request, env)) {
-    return jsonError(403, "Cross-origin request refused.");
-  }
-
-  if (!session) {
-    return jsonError(401, "Sign in with GitHub to continue.");
-  }
-
-  try {
-    if (api === "review-list" || api === "review-repository") {
-      const params = new URL(request.url).searchParams;
-      const client = createGitHubOctokit(session.accessToken, undefined, { retry: false });
-
-      const report =
-        api === "review-list"
-          ? await listReviewRepositories(
-              client,
-              GitHubOwnerInputSchema.parse(params.get("owner")),
-              z.coerce
-                .number()
-                .int()
-                .min(1)
-                .max(10_000)
-                .parse(params.get("page") ?? "1"),
-            )
-          : await collectRepositoryReview(
-              client,
-              RepositoryCoordinatesSchema.parse({
-                owner: params.get("owner"),
-                repo: params.get("repo"),
-              }),
-            );
-
-      return json(ConfigValueSchema.parse(JSON.parse(JSON.stringify(report))));
-    }
-
-    return api === "drift"
-      ? await driftApi(request, session)
-      : await rulesApi(request, env, session);
-  } catch (error) {
-    const { status, message } = errorMessage(error);
-
-    return jsonError(status, message);
-  }
+  return notFoundResponse();
 }

@@ -4,6 +4,7 @@ import * as oauth from "oauth4webapi";
 import { z } from "zod";
 
 import { GITHUB_API_VERSION, GITHUB_SCOPE, MCP_SCOPE } from "./config";
+import { isOwner, type OwnerIdentity } from "./auth/owner";
 import { GitHubOwnerInputSchema } from "./github/schemas";
 import { landingHandler, methodNotAllowed, notFoundResponse } from "./landing";
 import {
@@ -56,13 +57,17 @@ const GITHUB_AUTHORIZATION_SERVER: oauth.AuthorizationServer = {
 
 const GITHUB_CLIENT_USER_ENDPOINT = new URL("https://api.github.com/user");
 
-const GitHubUserSchema = z.object({ login: GitHubOwnerInputSchema });
+const GitHubUserSchema = z.object({
+  login: GitHubOwnerInputSchema,
+  id: z.number().int().positive(),
+});
 
 export interface OAuthEnv {
   OAUTH_KV: OAuthStateStore;
   OAUTH_PROVIDER: Pick<OAuthHelpers, "parseAuthRequest" | "lookupClient" | "completeAuthorization">;
-  GITHUB_CLIENT_ID: string;
-  GITHUB_CLIENT_SECRET: string;
+  GITHUB_APP_CLIENT_ID: string;
+  GITHUB_APP_CLIENT_SECRET: string;
+  OWNER_GITHUB_ID: string;
   COOKIE_ENCRYPTION_KEY?: string;
   GITHUB_API_VERSION?: string;
   PUBLIC_ORIGIN?: string;
@@ -282,9 +287,13 @@ async function beginGitHubAuthorization(
 
   const callback = callbackUrl(request, env);
   const githubUrl = new URL("https://github.com/login/oauth/authorize");
-  githubUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+  githubUrl.searchParams.set("client_id", env.GITHUB_APP_CLIENT_ID);
   githubUrl.searchParams.set("redirect_uri", callback.toString());
-  githubUrl.searchParams.set("scope", GITHUB_SCOPE);
+
+  if (GITHUB_SCOPE.length > 0) {
+    githubUrl.searchParams.set("scope", GITHUB_SCOPE);
+  }
+
   githubUrl.searchParams.set("state", state);
 
   const response = redirectResponse(githubUrl.toString());
@@ -335,7 +344,7 @@ async function handleCallback(request: Request, env: OAuthEnv): Promise<Response
   try {
     callbackParameters = oauth.validateAuthResponse(
       GITHUB_AUTHORIZATION_SERVER,
-      { client_id: env.GITHUB_CLIENT_ID },
+      { client_id: env.GITHUB_APP_CLIENT_ID },
       url.searchParams,
       oauth.skipStateCheck,
     );
@@ -351,12 +360,16 @@ async function handleCallback(request: Request, env: OAuthEnv): Promise<Response
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
   }
 
-  const login = await fetchAndValidateGitHubUser(accessToken, env, request.signal);
+  const identity = await fetchAndValidateGitHubUser(accessToken, env, request.signal);
 
-  if (login === null) {
+  if (identity === null) {
     reportOAuthFailure("github_user_validation");
 
     return oauthErrorRedirect(stateRecord.oauthRequest, "server_error");
+  }
+
+  if (!isOwner(env, identity)) {
+    return ownerDeniedResponse();
   }
 
   let client: ClientInfo | null;
@@ -380,10 +393,10 @@ async function handleCallback(request: Request, env: OAuthEnv): Promise<Response
   try {
     const completed = await env.OAUTH_PROVIDER.completeAuthorization({
       request: stateRecord.oauthRequest,
-      userId: `github-${login.toLowerCase()}`,
+      userId: `github-${identity.userId}`,
       metadata: { clientName: sanitizeClientMetadata(client).clientName },
       scope: stateRecord.oauthRequest.scope.filter((scope) => scope === MCP_SCOPE),
-      props: { accessToken, login },
+      props: { login: identity.login, userId: identity.userId },
     });
 
     redirectTo = completed.redirectTo;
@@ -485,12 +498,12 @@ async function exchangeGitHubCode(
   const callback = callbackUrl(request, env, callbackPath);
 
   try {
-    const client: oauth.Client = { client_id: env.GITHUB_CLIENT_ID };
+    const client: oauth.Client = { client_id: env.GITHUB_APP_CLIENT_ID };
 
     const response = await oauth.authorizationCodeGrantRequest(
       GITHUB_AUTHORIZATION_SERVER,
       client,
-      oauth.ClientSecretPost(env.GITHUB_CLIENT_SECRET),
+      oauth.ClientSecretPost(env.GITHUB_APP_CLIENT_SECRET),
       callbackParameters,
       callback.toString(),
       oauth.nopkce,
@@ -515,7 +528,7 @@ async function fetchAndValidateGitHubUser(
   accessToken: string,
   env: OAuthEnv,
   signal?: AbortSignal,
-): Promise<string | null> {
+): Promise<OwnerIdentity | null> {
   let response: Response;
 
   try {
@@ -549,7 +562,7 @@ async function fetchAndValidateGitHubUser(
   const payload = await readJson(response);
   const user = GitHubUserSchema.safeParse(payload);
 
-  return user.success ? user.data.login : null;
+  return user.success ? { login: user.data.login, userId: user.data.id } : null;
 }
 
 async function boundedOAuthFetch(
@@ -737,7 +750,7 @@ export async function completeGitHubLogin(
   request: Request,
   env: OAuthEnv,
   callbackPath: string,
-): Promise<GitHubLogin | null> {
+): Promise<OwnerIdentity | null> {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
 
@@ -750,7 +763,7 @@ export async function completeGitHubLogin(
   try {
     callbackParameters = oauth.validateAuthResponse(
       GITHUB_AUTHORIZATION_SERVER,
-      { client_id: env.GITHUB_CLIENT_ID },
+      { client_id: env.GITHUB_APP_CLIENT_ID },
       url.searchParams,
       oauth.skipStateCheck,
     );
@@ -766,21 +779,32 @@ export async function completeGitHubLogin(
     return null;
   }
 
-  const login = await fetchAndValidateGitHubUser(accessToken, env, request.signal);
+  const identity = await fetchAndValidateGitHubUser(accessToken, env, request.signal);
 
-  if (login === null) {
+  if (identity === null) {
     reportOAuthFailure("github_user_validation");
 
     return null;
   }
 
-  return { accessToken, login };
+  return identity;
 }
 
 function reportOAuthFailure(stage: string): void {
   // Operational OAuth failures must remain observable; only the stage is logged, never credentials.
   // oxlint-disable-next-line no-console
   console.warn("OAuth callback could not be completed", { stage });
+}
+
+function ownerDeniedResponse(): Response {
+  const headers = securityHeaders();
+  headers.set("Content-Type", "text/html; charset=utf-8");
+  headers.set("Cache-Control", "no-store");
+
+  return new Response(
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign-in refused</title></head><body><main><p>This Shipshape instance belongs to another GitHub account.</p></main></body></html>',
+    { status: 403, headers },
+  );
 }
 
 async function makeApprovalCookie(request: AuthRequest, env: OAuthEnv): Promise<string | null> {
@@ -907,5 +931,3 @@ function formValue(form: FormData, key: string): string | null {
 function isSafeUpstreamValue(value: string): boolean {
   return value.length > 0 && value.length <= MAX_OAUTH_VALUE_LENGTH && !hasControlCharacters(value);
 }
-
-type GitHubLogin = { accessToken: string; login: string };

@@ -69,8 +69,9 @@ describe("OAuth proxy flow", () => {
     const env: OAuthEnv = {
       OAUTH_KV: memoryKv(),
       OAUTH_PROVIDER: helpers,
-      GITHUB_CLIENT_ID: "github-client-id",
-      GITHUB_CLIENT_SECRET: "github-client-secret",
+      GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
+      GITHUB_APP_CLIENT_SECRET: "github-client-secret",
+      OWNER_GITHUB_ID: "1001",
       COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
       GITHUB_API_VERSION: "2026-03-10",
       PUBLIC_ORIGIN: "https://shipshape.example",
@@ -114,7 +115,7 @@ describe("OAuth proxy flow", () => {
 
     expect(approve.status).toBe(302);
     expect(githubAuthorize.origin).toBe("https://github.com");
-    expect(githubAuthorize.searchParams.get("scope")).toBe("read:user");
+    expect(githubAuthorize.searchParams.has("scope")).toBe(false);
     expect(githubAuthorize.searchParams.get("redirect_uri")).toBe(
       "https://shipshape.example/callback",
     );
@@ -128,7 +129,7 @@ describe("OAuth proxy flow", () => {
           scope: "read:user",
         }),
       )
-      .mockResolvedValueOnce(Response.json({ login: "AranLucas" }));
+      .mockResolvedValueOnce(Response.json({ login: "AranLucas", id: 1001 }));
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -147,14 +148,80 @@ describe("OAuth proxy flow", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(completeAuthorization).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: "github-aranlucas",
+        userId: "github-1001",
         scope: ["mcp:read"],
         props: {
-          accessToken: "oauth_test_public_token",
           login: "AranLucas",
+          userId: 1001,
         },
       }),
     );
+  });
+
+  it("rejects a non-owner MCP callback before completing authorization", async () => {
+    const completeAuthorization = vi.fn();
+
+    const env: OAuthEnv = {
+      OAUTH_KV: memoryKv(),
+      OAUTH_PROVIDER: {
+        parseAuthRequest: vi.fn().mockResolvedValue(requestDetails),
+        lookupClient: vi.fn().mockResolvedValue(client),
+        completeAuthorization,
+      },
+      GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
+      GITHUB_APP_CLIENT_SECRET: "github-client-secret",
+      OWNER_GITHUB_ID: "1001",
+      COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
+      PUBLIC_ORIGIN: "https://shipshape.example",
+    };
+
+    const consent = await handleDefaultRequest(
+      new Request("https://shipshape.example/authorize"),
+      env,
+    );
+
+    const consentHtml = await consent.text();
+    const browser = cookieValue(consent, "__Host-shipshape-browser");
+    const csrf = cookieValue(consent, "__Host-shipshape-csrf");
+
+    const approved = await handleDefaultRequest(
+      new Request("https://shipshape.example/authorize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: `__Host-shipshape-browser=${browser}; __Host-shipshape-csrf=${csrf}`,
+        },
+        body: new URLSearchParams({
+          state: hiddenValue(consentHtml, "state"),
+          csrf,
+          decision: "approve",
+        }),
+      }),
+      env,
+    );
+
+    const github = new URL(approved.headers.get("Location") ?? "");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json({ access_token: "token", token_type: "bearer" }))
+        .mockResolvedValueOnce(Response.json({ login: "someone", id: 2002 })),
+    );
+
+    const response = await handleDefaultRequest(
+      new Request(
+        `https://shipshape.example/callback?code=github-code&state=${github.searchParams.get("state") ?? ""}`,
+        { headers: { Cookie: `__Host-shipshape-browser=${browser}` } },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain(
+      "This Shipshape instance belongs to another GitHub account.",
+    );
+    expect(completeAuthorization).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -176,8 +243,9 @@ describe("OAuth proxy flow", () => {
         completeAuthorization: () =>
           Promise.reject(new Error("Unexpected authorization completion")),
       } satisfies OAuthEnv["OAUTH_PROVIDER"],
-      GITHUB_CLIENT_ID: "github-client-id",
-      GITHUB_CLIENT_SECRET: "github-client-secret",
+      GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
+      GITHUB_APP_CLIENT_SECRET: "github-client-secret",
+      OWNER_GITHUB_ID: "1001",
       COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
       PUBLIC_ORIGIN: "https://shipshape.example",
     };
@@ -225,8 +293,9 @@ describe("OAuth proxy flow", () => {
         completeAuthorization: () =>
           Promise.reject(new Error("Unexpected authorization completion")),
       } satisfies OAuthEnv["OAUTH_PROVIDER"],
-      GITHUB_CLIENT_ID: "github-client-id",
-      GITHUB_CLIENT_SECRET: "github-client-secret",
+      GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
+      GITHUB_APP_CLIENT_SECRET: "github-client-secret",
+      OWNER_GITHUB_ID: "1001",
       COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
       PUBLIC_ORIGIN: "https://shipshape.example",
     };
@@ -269,8 +338,9 @@ describe("OAuth proxy flow", () => {
         completeAuthorization: () =>
           Promise.reject(new Error("Unexpected authorization completion")),
       } satisfies OAuthEnv["OAUTH_PROVIDER"],
-      GITHUB_CLIENT_ID: "github-client-id",
-      GITHUB_CLIENT_SECRET: "github-client-secret",
+      GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
+      GITHUB_APP_CLIENT_SECRET: "github-client-secret",
+      OWNER_GITHUB_ID: "1001",
       COOKIE_ENCRYPTION_KEY: "cookie-signing-key",
       PUBLIC_ORIGIN: "https://shipshape.example",
     };

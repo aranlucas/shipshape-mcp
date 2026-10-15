@@ -30,9 +30,6 @@ export default defineConfig({
                 GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
                 OWNER_GITHUB_ID: "1001",
                 CATALOG_REPO: "aranlucas/practices",
-                // Temporary compatibility for legacy OAuth tests until Task 3 migrates them.
-                GITHUB_CLIENT_ID: "synthetic-client",
-                GITHUB_CLIENT_SECRET: "synthetic-secret",
                 COOKIE_ENCRYPTION_KEY: "synthetic-cookie-key",
                 TEST_MIGRATIONS: JSON.stringify(testMigrations),
               },

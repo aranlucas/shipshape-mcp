@@ -2,7 +2,6 @@ import { exports } from "cloudflare:workers";
 import { assert, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { MCP_RESOURCE, MCP_SCOPE } from "@/config";
-import { repository } from "@test/helpers/github-fixtures";
 
 const outbound: string[] = [];
 
@@ -93,7 +92,7 @@ describe("OAuth provider redirect policy", () => {
     });
     upstream.set("https://api.github.com/user", {
       method: "GET",
-      payload: JSON.stringify({ login: "octo" }),
+      payload: JSON.stringify({ login: "aranlucas", id: 1001 }),
     });
     callback.search = new URLSearchParams({
       code: "synthetic-web-code",
@@ -116,7 +115,7 @@ describe("OAuth provider redirect policy", () => {
       headers: { Cookie: `__Host-shipshape-session=${session}` },
     });
 
-    expect(await page.text()).toContain("Signed in as <strong>@octo</strong>");
+    expect(await page.text()).toContain("Signed in as <strong>@aranlucas</strong>");
 
     const replay = await dispatch(callback, {
       headers: { Cookie: `__Host-shipshape-web-login=${browser}` },
@@ -202,7 +201,7 @@ describe("OAuth provider redirect policy", () => {
     expect(approved.status).toBe(302);
     const github = new URL(approved.headers.get("Location") ?? "");
     expect(github.origin).toBe("https://github.com");
-    expect(github.searchParams.get("scope")).toBe("read:user");
+    expect(github.searchParams.has("scope")).toBe(false);
     upstream.set("https://github.com/login/oauth/access_token", {
       method: "POST",
       payload: JSON.stringify({
@@ -213,7 +212,7 @@ describe("OAuth provider redirect policy", () => {
     });
     upstream.set("https://api.github.com/user", {
       method: "GET",
-      payload: JSON.stringify({ login: "octo" }),
+      payload: JSON.stringify({ login: "aranlucas", id: 1001 }),
     });
     const callback = new URL("/callback", MCP_RESOURCE);
     callback.search = new URLSearchParams({
@@ -274,11 +273,6 @@ describe("OAuth provider redirect policy", () => {
     expect({ status: listing.status, body: listingBody }).toMatchObject({ status: 200 });
     expect(listingBody).toContain('"standards_audit"');
     expect(upstream.size).toBe(0);
-    upstream.set("https://api.github.com/repos/octo/demo", {
-      method: "GET",
-      token: "synthetic-github-token",
-      payload: JSON.stringify({ ...repository, private: true }),
-    });
 
     const privateAudit = await dispatch(MCP_RESOURCE, {
       method: "POST",
@@ -300,7 +294,7 @@ describe("OAuth provider redirect policy", () => {
     });
 
     expect(privateAudit.status).toBe(200);
-    expect(await privateAudit.text()).toContain("Shipshape only inspects public repositories.");
+    expect(await privateAudit.text()).toContain("Re-implemented in Task 11");
     expect(upstream.size).toBe(0);
 
     const invalidHost = await dispatch(MCP_RESOURCE, {
