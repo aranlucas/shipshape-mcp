@@ -24,7 +24,7 @@ describe("public landing handlers", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/css");
     expect(response.headers.get("Cache-Control")).toContain("max-age=86400");
-    expect(await response.text()).toContain("--ocean");
+    expect(await response.text()).toContain("--paper");
   });
 
   it("serves health and privacy endpoints", async () => {

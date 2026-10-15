@@ -4,11 +4,12 @@ import { CALLBACK_PATH, callbackUrl, completeGitHubLogin, type OAuthEnv } from "
 import {
   appendSetCookie,
   clearCookie,
+  escapeHtml,
   getCookie,
   makeCookie,
   securityHeaders,
 } from "../oauth-security";
-import { renderPlaceholderPage, renderSignInPage } from "./placeholder";
+import { renderMissingBundlePage, renderSignInPage } from "./placeholder";
 import { apiHandler } from "../api/routes";
 import type { AppEnv } from "../env";
 import {
@@ -31,7 +32,39 @@ export const WEB_CALLBACK_PATH = CALLBACK_PATH;
 const LEGACY_WEB_CALLBACK_PATH = "/callback/web";
 
 const APP_CONTENT_SECURITY_POLICY =
-  "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+  "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
+const SHELL_PATH = "/app/index.html";
+
+const LOGIN_META = /<meta name="shipshape-login" content="[^"]*"\s*\/?>/u;
+
+/** Client-side routes rendered by the dashboard bundle (src/ui/router.ts). */
+function isDashboardPage(pathname: string): boolean {
+  const parts = pathname.split("/").filter(Boolean).slice(1);
+
+  return (
+    parts.length === 0 ||
+    (parts[0] === "repos" && parts.length === 3) ||
+    (parts[0] === "practices" && parts.length <= 2)
+  );
+}
+
+/** Serves the built shell with the signed-in login, or explains how to build it. */
+async function dashboardShell(request: Request, env: OAuthEnv, login: string): Promise<Response> {
+  const shell = env.ASSETS
+    ? await env.ASSETS.fetch(new Request(new URL(SHELL_PATH, request.url)))
+    : null;
+
+  if (!shell?.ok) {
+    return html(renderMissingBundlePage(login));
+  }
+
+  const page = await shell.text();
+
+  return html(
+    page.replace(LOGIN_META, `<meta name="shipshape-login" content="${escapeHtml(login)}">`),
+  );
+}
 
 export function isWebPath(pathname: string, state: string | null = null): boolean {
   return (
@@ -191,12 +224,12 @@ export async function webHandler(
     return apiHandler(request, env as AppEnv, session, executionContext);
   }
 
-  if (pathname === APP_PATH || pathname === "/app/review") {
+  if ((pathname === APP_PATH || pathname.startsWith(`${APP_PATH}/`)) && isDashboardPage(pathname)) {
     if (request.method !== "GET") {
       return methodNotAllowed();
     }
 
-    return html(session ? renderPlaceholderPage(session.login) : renderSignInPage());
+    return session ? dashboardShell(request, env, session.login) : html(renderSignInPage());
   }
 
   if (pathname === "/app/logout") {

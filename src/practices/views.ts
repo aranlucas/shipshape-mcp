@@ -6,7 +6,7 @@ import type {
   RepoSummary,
 } from "../api/contract";
 import type { AppEnv } from "../env";
-import { practiceSummary, readStoredCatalog, type Catalog } from "./catalog";
+import { practiceSummary, readStoredCatalog } from "./catalog";
 import {
   listRepositories,
   readCatalogRow,
@@ -36,14 +36,6 @@ export function repoSummary(repo: StoredRepository): RepoSummary {
   };
 }
 
-function storedCatalogOrThrow(catalog: Catalog | null): Catalog {
-  if (!catalog) {
-    throw new Error("Practice catalog is unavailable");
-  }
-
-  return catalog;
-}
-
 export async function buildOverview(env: AppEnv): Promise<OverviewResponse> {
   const [catalog, row, repos, results, sweep] = await Promise.all([
     readStoredCatalog(env.DB),
@@ -53,7 +45,6 @@ export async function buildOverview(env: AppEnv): Promise<OverviewResponse> {
     env.DB.prepare("SELECT last_completed_at, pending FROM sweep WHERE id = 1").first<SweepRow>(),
   ]);
 
-  const loaded = storedCatalogOrThrow(catalog);
   const resultMap: Record<string, Record<string, CellResult>> = {};
 
   for (const result of results) {
@@ -61,12 +52,13 @@ export async function buildOverview(env: AppEnv): Promise<OverviewResponse> {
   }
 
   return {
+    // Before the first catalog load (a fresh install), the overview is empty, not an error.
     catalog: {
-      repo: loaded.repo,
-      sha: loaded.sha,
-      loadedAt: row?.loaded_at ?? null,
+      repo: catalog?.repo ?? env.CATALOG_REPO,
+      sha: catalog?.sha ?? null,
+      loadedAt: catalog ? (row?.loaded_at ?? null) : null,
     },
-    practices: loaded.practices
+    practices: (catalog?.practices ?? [])
       .toSorted((left, right) => left.id.localeCompare(right.id))
       .map(practiceSummary),
     repos: repos
@@ -88,14 +80,14 @@ export async function buildRepoDetail(
   env: AppEnv,
   repo: StoredRepository,
 ): Promise<RepoDetailResponse> {
-  const catalog = storedCatalogOrThrow(await readStoredCatalog(env.DB));
+  const catalog = await readStoredCatalog(env.DB);
   const results = await readResults(env.DB, repo.fullName);
   const latestHeadSha = results.find((result) => result.headSha !== null)?.headSha ?? null;
 
   return {
     repo: repoSummary(repo),
     headSha: latestHeadSha,
-    practices: catalog.practices
+    practices: (catalog?.practices ?? [])
       .toSorted((left, right) => left.id.localeCompare(right.id))
       .map((practice) => {
         const result = resultFor(results, practice.id);
@@ -119,8 +111,8 @@ export async function buildPracticeDetail(
   env: AppEnv,
   practiceId: string,
 ): Promise<PracticeDetailResponse> {
-  const catalog = storedCatalogOrThrow(await readStoredCatalog(env.DB));
-  const practice = catalog.practices.find((candidate) => candidate.id === practiceId);
+  const catalog = await readStoredCatalog(env.DB);
+  const practice = catalog?.practices.find((candidate) => candidate.id === practiceId);
 
   if (!practice) {
     throw new PracticeNotFoundError();

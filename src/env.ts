@@ -10,6 +10,8 @@ export interface EvaluationMessage {
 export interface AppEnv {
   OAUTH_KV: OAuthStateStore & KVNamespace;
   OAUTH_PROVIDER: Pick<OAuthHelpers, "parseAuthRequest" | "lookupClient" | "completeAuthorization">;
+  /** Static dashboard bundle (public/app); absent in unit tests. */
+  ASSETS?: Fetcher;
   DB: D1Database;
   EVALUATIONS: Queue<EvaluationMessage>;
   GITHUB_APP_ID: string;

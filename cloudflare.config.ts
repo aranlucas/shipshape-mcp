@@ -19,6 +19,10 @@ export default defineConfig(({ mode }) => ({
         headSamplingRate: 0.05,
       },
     },
+    assets: {
+      // Hashed bundles are public; the HTML shell and API go through the Worker's session check.
+      runWorkerFirst: ["/app", "/app/*", "!/app/assets/*"],
+    },
     triggers: [
       triggers.queue({ name: "shipshape-evaluations", maxBatchSize: 5 }),
       triggers.scheduled({ schedule: "0 13 * * *" }),
@@ -41,6 +45,7 @@ export default defineConfig(({ mode }) => ({
       OAUTH_KV: bindings.kv({
         id: "9653a49921874566b41d5d4e17c88c15",
       }),
+      ASSETS: bindings.assets(),
       DB: bindings.d1({ name: "shipshape" }),
       EVALUATIONS: bindings.queue({ name: "shipshape-evaluations" }),
     },

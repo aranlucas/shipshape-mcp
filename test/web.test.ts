@@ -126,7 +126,61 @@ describe("website companion", () => {
     expect(tokenExchangeText).toContain("client_id=Iv1.synthetic");
   });
 
-  it("serves the placeholder and removes retired APIs and assets", async () => {
+  it("serves the dashboard shell with the signed-in login for every client route", async () => {
+    const { env } = environment();
+
+    const shell =
+      '<!doctype html><html><head><meta name="shipshape-login" content=""></head><body><div id="root"></div></body></html>';
+
+    env.ASSETS = {
+      fetch: vi.fn((request: Request) =>
+        Promise.resolve(
+          new URL(request.url).pathname === "/app/index.html"
+            ? new Response(shell, { headers: { "Content-Type": "text/html" } })
+            : new Response("Not found", { status: 404 }),
+        ),
+      ),
+    };
+
+    const { callback } = await callbackFor(env, { login: "aranlucas", id: 1001 });
+    const session = `__Host-shipshape-session=${cookie(callback, "__Host-shipshape-session")}`;
+
+    const paths = [
+      "/app",
+      "/app/repos/aranlucas/shipshape-mcp",
+      "/app/practices",
+      "/app/practices/husky-lint-staged",
+      "/app/practices/new",
+    ];
+
+    const pages = await Promise.all(
+      paths.map(async (path) => {
+        const page = await webHandler(
+          new Request(`${ORIGIN}${path}`, { headers: { Cookie: session } }),
+          env,
+        );
+
+        return { page, body: await page.text() };
+      }),
+    );
+
+    for (const { page, body } of pages) {
+      expect(page.status).toBe(200);
+      expect(body).toContain('<meta name="shipshape-login" content="aranlucas">');
+      expect(page.headers.get("Content-Security-Policy")).toContain("font-src 'self'");
+      expect(page.headers.get("Cache-Control")).toBe("no-store");
+    }
+  });
+
+  it("asks signed-out visitors to sign in on any dashboard route", async () => {
+    const { env } = environment();
+    const page = await webHandler(new Request(`${ORIGIN}/app/practices/husky-lint-staged`), env);
+
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Continue with GitHub");
+  });
+
+  it("explains a missing bundle and removes retired APIs and assets", async () => {
     const { env } = environment();
     const { callback } = await callbackFor(env, { login: "aranlucas", id: 1001 });
     const session = `__Host-shipshape-session=${cookie(callback, "__Host-shipshape-session")}`;
@@ -136,12 +190,13 @@ describe("website companion", () => {
       env,
     );
 
-    expect(await page.text()).toContain("The new dashboard is being built");
+    expect(await page.text()).toContain("pnpm ui:build");
     expect(
       (await webHandler(new Request(`${ORIGIN}/app/api/drift`, { method: "POST" }), env)).status,
     ).toBe(404);
     expect((await webHandler(new Request(`${ORIGIN}/app/app.js`), env)).status).toBe(404);
     expect((await webHandler(new Request(`${ORIGIN}/app/review.js`), env)).status).toBe(404);
+    expect((await webHandler(new Request(`${ORIGIN}/app/review`), env)).status).toBe(404);
   });
 
   it("keeps sign-out same-origin protected", async () => {

@@ -48,6 +48,17 @@ pnpm check
 pnpm dev
 ```
 
+The dashboard is a Preact bundle in `src/ui`. Work on it without GitHub
+credentials using fixture data in the API contract's shape:
+
+```bash
+pnpm ui:dev   # http://localhost:5200/app/
+```
+
+`pnpm ui:build` writes the bundle to `public/app/`, which the Worker serves as
+static assets; `pnpm build`, `pnpm dry-run`, and `pnpm preview` run it first.
+Run it once before `pnpm dev` so the Worker can serve the dashboard shell.
+
 See [`SECURITY.md`](SECURITY.md) for the security boundary and reporting
 instructions.
 

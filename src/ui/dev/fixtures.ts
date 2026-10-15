@@ -412,6 +412,54 @@ interface Evaluated {
   checks: CheckResult[];
 }
 
+type SeedCheck = PracticeSeed["checks"][number];
+
+function catalogCopy(item: SeedCheck, seed: PracticeSeed): string | null {
+  return seed.files.find((file) => file.path === item.path)?.content ?? null;
+}
+
+/** Mirrors src/practices/checks.ts: raw expected values, stringified. */
+function expectedFor(item: SeedCheck, seed: PracticeSeed): string | null {
+  if (item.type === "file-exists") {
+    return "true";
+  }
+
+  if (item.type === "file-matches") {
+    return catalogCopy(item, seed);
+  }
+
+  return item.expected === "exists" ? "true" : item.expected;
+}
+
+function actualFor(
+  item: SeedCheck,
+  seed: PracticeSeed,
+  state: CheckResult["state"],
+): string | null {
+  const expected = expectedFor(item, seed);
+
+  if (state === "pass") {
+    return expected;
+  }
+
+  if (state === "unknown") {
+    return null;
+  }
+
+  switch (item.type) {
+    case "file-exists":
+      return "false";
+    case "file-matches":
+      return item.path === ".husky/pre-commit" ? "npx lint-staged\nnpm test\n" : null;
+    case "dependency":
+      return "0.1.4";
+    case "setting":
+      return expected === "true" ? "false" : expected === "false" ? "true" : "disabled";
+    default:
+      return null;
+  }
+}
+
 function evaluate(repo: RepoSummary, seed: PracticeSeed): Evaluated {
   const node = repo.language === "TypeScript" || repo.language === "JavaScript";
 
@@ -434,22 +482,8 @@ function evaluate(repo: RepoSummary, seed: PracticeSeed): Evaluated {
     return {
       ...item,
       state,
-      actual:
-        state === "pass"
-          ? item.expected
-          : state === "unknown"
-            ? null
-            : item.type === "file-exists" || item.type === "file-matches"
-              ? "missing"
-              : item.type === "dependency"
-                ? "0.1.4"
-                : item.type === "setting"
-                  ? item.expected === "true"
-                    ? "false"
-                    : item.expected === "false"
-                      ? "true"
-                      : "disabled"
-                  : "absent",
+      expected: expectedFor(item, seed),
+      actual: actualFor(item, seed, state),
       detail:
         failsHere && item.type === "workflow"
           ? "2 actions use tags instead of commit SHAs: actions/checkout@v4, pnpm/setup@v3."

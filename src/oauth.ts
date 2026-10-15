@@ -68,6 +68,8 @@ export interface OAuthEnv {
   GITHUB_APP_CLIENT_ID: string;
   GITHUB_APP_CLIENT_SECRET: string;
   OWNER_GITHUB_ID: string;
+  /** Static dashboard bundle (public/app); absent in unit tests. */
+  ASSETS?: Pick<Fetcher, "fetch">;
   COOKIE_ENCRYPTION_KEY?: string;
   GITHUB_API_VERSION?: string;
   PUBLIC_ORIGIN?: string;
@@ -461,7 +463,7 @@ export function renderConsentDialog(
   <body>
     <main class="consent-shell">
       <section class="consent-card">
-      <div class="brand-row"><a class="wordmark" href="/">Shipshape <span>/ MCP</span></a><span class="eyebrow">Read only</span></div>
+      <div class="brand-row"><a class="wordmark" href="/">Shipshape</a><span class="eyebrow">MCP authorization</span></div>
       <h1>Authorize ${escapeHtml(metadata.clientName)}</h1>
       ${clientUri}
       <p>This application is requesting read-only access through Shipshape MCP.</p>

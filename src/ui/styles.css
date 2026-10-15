@@ -779,6 +779,46 @@ tbody:first-of-type .owner-row th {
   color: var(--hazard);
 }
 
+.compare {
+  margin-top: 0.35rem;
+}
+
+.compare summary {
+  color: var(--sounding);
+  cursor: pointer;
+}
+
+.compare-panes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.compare figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.compare figcaption {
+  color: var(--sounding);
+  font-size: 0.75rem;
+}
+
+.compare pre {
+  max-height: 14rem;
+  margin: 0.2rem 0 0;
+  padding: 0.5rem 0.6rem;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: #f5f8fa;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
 .entry .button {
   margin-left: 1.55rem;
 }

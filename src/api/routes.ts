@@ -97,14 +97,6 @@ async function readJson(request: Request): Promise<JsonObject> {
   }
 }
 
-function storedCatalogOrThrow(catalog: Catalog | null): Catalog {
-  if (!catalog) {
-    throw new Error("Practice catalog is unavailable");
-  }
-
-  return catalog;
-}
-
 class ResponseError extends Error {
   constructor(
     message: string,
@@ -154,9 +146,9 @@ async function handleSave(env: AppEnv, request: Request, practiceId: string): Pr
 }
 
 async function handleDelete(env: AppEnv, practiceId: string): Promise<Response> {
-  const catalog = storedCatalogOrThrow(await readStoredCatalog(env.DB));
+  const catalog = await readStoredCatalog(env.DB);
 
-  if (!isKnownPractice(catalog, practiceId)) {
+  if (!catalog || !isKnownPractice(catalog, practiceId)) {
     throw new ResponseError("Practice not found", 404);
   }
 

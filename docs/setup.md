@@ -163,7 +163,21 @@ Copy the example file and fill it with development-only values:
 
 ```sh
 cp .dev.vars.example .dev.vars
+pnpm ui:build
 pnpm dev
+```
+
+The local D1 database starts empty. Apply the migrations to it once per
+local state directory, using the local explorer the dev server prints at
+startup (`/cdn-cgi/local/explorer/api`):
+
+```sh
+DB_ID=$(curl -s "$PUBLIC_ORIGIN/cdn-cgi/local/explorer/api/d1/database" | jq -r '.result[0].uuid')
+for file in migrations/*.sql; do
+  jq -n --rawfile sql "$file" '{sql: $sql}' |
+    curl -s -X POST -H 'Content-Type: application/json' --data @- \
+      "$PUBLIC_ORIGIN/cdn-cgi/local/explorer/api/d1/database/$DB_ID/raw"
+done
 ```
 
 `.dev.vars` uses dotenv syntax and is loaded by local Cloudflare development

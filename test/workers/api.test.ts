@@ -331,6 +331,32 @@ describe("dashboard API", () => {
     expect(body.results["aranlucas/zeta"]?.broken).toMatchObject({ state: "unknown", unknown: 1 });
   });
 
+  it("returns an empty overview on a fresh install, before any catalog or inventory loads", async () => {
+    await appEnv.DB.batch([
+      appEnv.DB.prepare("DELETE FROM results"),
+      appEnv.DB.prepare("DELETE FROM repositories"),
+      appEnv.DB.prepare("DELETE FROM catalog"),
+    ]);
+
+    const response = await request("/app/api/overview");
+    expect(response.status).toBe(200);
+    const body = OverviewResponseSchema.parse(await parseJson(response));
+    expect(body.catalog).toEqual({ repo: "aranlucas/practices", sha: null, loadedAt: null });
+    expect(body.practices).toEqual([]);
+    expect(body.repos).toEqual([]);
+    expect(body.results).toEqual({});
+  });
+
+  it("returns repository detail with no practices before the catalog loads", async () => {
+    await appEnv.DB.prepare("DELETE FROM catalog").run();
+
+    const detail = await request("/app/api/repos/aranlucas/alpha");
+    expect(detail.status).toBe(200);
+    const body = RepoDetailResponseSchema.parse(await parseJson(detail));
+    expect(body.repo.fullName).toBe("aranlucas/alpha");
+    expect(body.practices).toEqual([]);
+  });
+
   it("returns repository detail and a contract 404 for an unknown repository", async () => {
     const detail = await request("/app/api/repos/aranlucas/alpha");
     expect(detail.status).toBe(200);

@@ -15,35 +15,16 @@ const LANDING_PAGE = `<!doctype html>
   <body>
     <main class="site-shell">
       <header class="masthead">
-        <a class="wordmark" href="/">Shipshape <span>/ MCP</span></a>
-        <nav aria-label="Service links"><ul class="nav-list"><li><a href="/app">Dashboard</a></li><li><a href="/privacy">Privacy</a></li><li><a href="/health">Health</a></li></ul></nav>
+        <a class="wordmark" href="/">Shipshape</a>
+        <nav aria-label="Service links"><ul class="nav-list"><li><a href="/app">Dashboard</a></li><li><a href="/privacy">Privacy</a></li></ul></nav>
       </header>
       <section class="hero">
-        <p class="eyebrow">Personal engineering practices</p>
         <h1>Keep every repository in practice.</h1>
         <p class="lead">Shipshape checks Lucas's engineering practices across his repositories.</p>
-        <div class="endpoint"><span class="status-dot" aria-hidden="true"></span><code>shipshape-mcp.aranlucas.workers.dev/mcp</code></div>
-        <p class="lead">Ready to see the results? <a href="/app">Sign in with GitHub</a>.</p>
+        <p class="lead"><a href="/app">Sign in with GitHub</a> to see which repositories are behind.</p>
+        <p class="endpoint">MCP endpoint: <code>shipshape-mcp.aranlucas.workers.dev/mcp</code></p>
       </section>
-      <section class="signal-grid" aria-label="Design principles">
-        <article class="signal"><span class="signal-number">01 / COVERAGE</span><h2>Every repository</h2><p>One GitHub App keeps the repository inventory current across personal and organization installations.</p></article>
-        <article class="signal"><span class="signal-number">02 / PRACTICES</span><h2>Rules you can inspect</h2><p>Practice definitions live in a catalog repository as readable YAML and canonical files.</p></article>
-        <article class="signal"><span class="signal-number">03 / EVIDENCE</span><h2>Unknown stays unknown</h2><p>Results retain the evidence state when a repository feature cannot be read.</p></article>
-      </section>
-      <section class="tools">
-        <p class="section-label">Practice checks</p>
-        <div class="tool-grid">
-          <article class="tool"><h3>Files</h3><p>Compare repository files with canonical practice content.</p></article>
-          <article class="tool"><h3>Workflows</h3><p>Inspect workflow permissions, pinned actions, and dependency review.</p></article>
-          <article class="tool"><h3>Dependencies</h3><p>Check exact dependency declarations in package manifests.</p></article>
-          <article class="tool"><h3>Repository settings</h3><p>Read merge, security, and feature settings from GitHub.</p></article>
-          <article class="tool"><h3>Branch protection</h3><p>Read required branch safeguards from the default branch.</p></article>
-          <article class="tool"><h3>Applicability</h3><p>Target practices by owner, language, files, and repository name.</p></article>
-          <article class="tool"><h3>Catalog</h3><p>Load practice definitions from a versioned Git repository.</p></article>
-          <article class="tool"><h3>Results</h3><p>Keep pass, fail, unknown, and not-applicable states visible.</p></article>
-        </div>
-      </section>
-      <footer class="site-footer"><span>Built on Cloudflare Workers.</span><span>Engineering practices in. Clear results out.</span></footer>
+      <footer class="site-footer">Practices live in a catalog repository and are checked on every push.</footer>
     </main>
   </body>
 </html>`;
@@ -53,7 +34,7 @@ const PRIVACY_PAGE = `<!doctype html>
   <head>${HEAD}<title>Privacy — Shipshape MCP</title></head>
   <body>
     <main class="consent-shell"><article class="legal-page">
-      <a class="wordmark" href="/">Shipshape <span>/ MCP</span></a>
+      <a class="wordmark" href="/">Shipshape</a>
       <h1>Privacy, in plain language.</h1>
       <p>Shipshape uses the GitHub App OAuth flow to identify Lucas and protect the dashboard and MCP. GitHub App installation tokens read every repository the App can access, including private and organization repositories.</p>
       <p>The user token used to identify the account is not stored. The dashboard session stores only the GitHub login and numeric user id in an encrypted, HttpOnly cookie-backed session.</p>
@@ -67,7 +48,7 @@ const PRIVACY_PAGE = `<!doctype html>
 const NOT_FOUND_PAGE = `<!doctype html>
 <html lang="en">
   <head>${HEAD}<title>Not found — Shipshape MCP</title></head>
-  <body><main class="consent-shell"><article class="legal-page"><a class="wordmark" href="/">Shipshape <span>/ MCP</span></a><h1>Off the chart.</h1><p>The requested page does not exist.</p><p><a href="/">Return to safe harbor</a></p></article></main></body>
+  <body><main class="consent-shell"><article class="legal-page"><a class="wordmark" href="/">Shipshape</a><h1>Off the chart.</h1><p>The requested page does not exist.</p><p><a href="/">Return to safe harbor</a></p></article></main></body>
 </html>`;
 
 export function landingHandler(request: Request): Response {

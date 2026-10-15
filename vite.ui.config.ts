@@ -67,7 +67,8 @@ export default defineConfig({
   base: "/app/",
   plugins: [preact(), fixtureApi()],
   build: {
-    outDir: "../../dist/ui",
+    // Copied into the Worker's static assets by the main Vite build (publicDir).
+    outDir: "../../public/app",
     emptyOutDir: true,
   },
   server: { port: 5200, strictPort: true },

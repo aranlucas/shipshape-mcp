@@ -12,3 +12,6 @@ coverage/
 
 # Local task briefs, reports, and review scratch files.
 .superpowers/
+
+# Dashboard bundle built by `pnpm ui:build`, served as static assets
+public/app/

@@ -17,7 +17,7 @@ export function renderSignInPage(message?: string): string {
   <body>
     <main class="consent-shell">
       <section class="consent-card">
-        <div class="brand-row"><a class="wordmark" href="/">Shipshape <span>/ Practices</span></a><span class="eyebrow">GitHub App identity</span></div>
+        <div class="brand-row"><a class="wordmark" href="/">Shipshape</a></div>
         <h1>Keep every repository in practice.</h1>
         <p>Shipshape checks Lucas's engineering practices across his repositories.</p>
         ${notice}
@@ -30,7 +30,8 @@ export function renderSignInPage(message?: string): string {
 </html>`;
 }
 
-export function renderPlaceholderPage(login: string): string {
+/** Shown only when the Worker runs without the built dashboard bundle. */
+export function renderMissingBundlePage(login: string): string {
   const user = escapeHtml(login);
 
   return `<!doctype html>
@@ -39,16 +40,15 @@ export function renderPlaceholderPage(login: string): string {
   <body>
     <main class="site-shell app-shell" data-login="${user}">
       <header class="masthead">
-        <a class="wordmark" href="/">Shipshape <span>/ Practices</span></a>
+        <a class="wordmark" href="/">Shipshape</a>
         <div class="account">
           <span class="muted">Signed in as <strong>@${user}</strong></span>
           <form method="post" action="/app/logout"><button class="button-secondary button-small" type="submit">Sign out</button></form>
         </div>
       </header>
       <section class="app-intro">
-        <p class="eyebrow">Personal practices</p>
-        <h1 class="app-title">Your dashboard is on its way.</h1>
-        <p class="lead">The new dashboard is being built. Practice results are available at /app/api/overview.</p>
+        <h1 class="app-title">The dashboard bundle is missing.</h1>
+        <p class="lead">Run <code>pnpm ui:build</code>, then reload. Practice results are still available at /app/api/overview.</p>
       </section>
     </main>
   </body>

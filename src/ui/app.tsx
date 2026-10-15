@@ -61,7 +61,11 @@ function Masthead({ login, overview, onRefresh, section }: MastheadProps) {
               Checking {plural(pending, "repository", "repositories")}…
             </span>
           ) : (
-            <span>Checked {timeAgo(overview.sweep.lastCompletedAt)}</span>
+            <span>
+              {overview.sweep.lastCompletedAt
+                ? `Checked ${timeAgo(overview.sweep.lastCompletedAt)}`
+                : "Not checked yet"}
+            </span>
           ))}
         <button
           type="button"

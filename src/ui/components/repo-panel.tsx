@@ -15,6 +15,10 @@ interface RepoPanelProps {
 
 type Entry = RepoDetailResponse["practices"][number];
 
+interface CheckProps {
+  check: CheckResult;
+}
+
 interface PracticeEntryProps {
   entry: Entry;
   open: boolean;
@@ -61,6 +65,9 @@ function sectionsFor(detail: RepoDetailResponse | null): Section[] {
   return sections.filter((section) => section.entries.length > 0);
 }
 
+const NOT_SET = new Set([null, "false"]);
+
+/** One plain sentence per failing or unknown check, phrased for its type. */
 function outcome(check: CheckResult): string | null {
   if (check.state === "unknown") {
     return check.detail ?? "Shipshape couldn't read what this check needs.";
@@ -70,15 +77,59 @@ function outcome(check: CheckResult): string | null {
     return null;
   }
 
-  if (check.actual === "missing") {
-    return check.path ? `${check.path} is missing.` : "Missing.";
+  const where = check.path ?? "The file";
+
+  switch (check.type) {
+    case "file-exists":
+      return check.expected === "false" ? `${where} should not exist.` : `${where} is missing.`;
+    case "file-matches":
+      return check.actual === null
+        ? `${where} is missing.`
+        : `${where} differs from the catalog copy.`;
+    case "file-contains":
+      return check.actual === null
+        ? `${where} is missing.`
+        : `${where} doesn't contain the expected text.`;
+    case "json-path":
+    case "yaml-path":
+      if (check.actual === null) {
+        return (
+          check.detail ?? (NOT_SET.has(check.expected) ? "Present but shouldn't be." : "Not set.")
+        );
+      }
+
+      break;
+    default:
+      break;
   }
 
-  if (check.expected && check.actual) {
+  if (check.expected !== null && check.actual !== null) {
     return `Expected ${check.expected}, found ${check.actual}.`;
   }
 
   return check.detail ?? "This check didn't pass.";
+}
+
+function FileComparison({ check }: CheckProps) {
+  if (check.type !== "file-matches" || check.state !== "fail" || check.actual === null) {
+    return null;
+  }
+
+  return (
+    <details class="compare">
+      <summary>Compare with the catalog copy</summary>
+      <div class="compare-panes">
+        <figure>
+          <figcaption>Catalog</figcaption>
+          <pre>{check.expected}</pre>
+        </figure>
+        <figure>
+          <figcaption>This repository</figcaption>
+          <pre>{check.actual}</pre>
+        </figure>
+      </div>
+    </details>
+  );
 }
 
 function PracticeEntry({ entry, open }: PracticeEntryProps) {
@@ -100,6 +151,7 @@ function PracticeEntry({ entry, open }: PracticeEntryProps) {
             <li key={check.label} class={`check check-${check.state}`}>
               <span class="check-label">{check.label}</span>
               <span class="check-outcome">{outcome(check)}</span>
+              <FileComparison check={check} />
             </li>
           ))}
         </ul>
