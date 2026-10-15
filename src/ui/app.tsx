@@ -76,7 +76,7 @@ function Masthead({ login, overview, onRefresh, section }: MastheadProps) {
             startTask(onRefresh().finally(() => setBusy(false)));
           }}
         >
-          Check all again
+          {overview?.repos.length === 0 ? "Find my repositories" : "Check all again"}
         </button>
       </div>
       <div class="account">

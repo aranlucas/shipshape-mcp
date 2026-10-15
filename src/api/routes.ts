@@ -9,6 +9,7 @@ import type {
   RepoDetailResponse,
 } from "./contract";
 import type { AppEnv } from "../env";
+import { syncInventory } from "../inventory/sync";
 import { callbackUrl } from "../oauth";
 import { CatalogWriteRefusedError, commitCatalogChange } from "../github/catalog-write";
 import { RepositoryCoordinatesSchema } from "../github/schemas";
@@ -160,12 +161,23 @@ async function handleDelete(env: AppEnv, practiceId: string): Promise<Response> 
 
 async function handleRefresh(env: AppEnv, request: Request): Promise<Response> {
   const body = RefreshSchema.parse(await readJson(request));
-  const repos =
+  let repos =
     body.repo !== undefined
       ? [await getRepository(env.DB, body.repo)].filter(
           (repo): repo is StoredRepository => repo !== null,
         )
       : await listRepositories(env.DB);
+
+  if (body.repo === undefined && repos.length === 0) {
+    repos = await syncInventory(env);
+    if (repos.length === 0) {
+      throw new ResponseError(
+        "No repositories are accessible through the GitHub App. Check its installations.",
+        409,
+      );
+    }
+    await loadCatalog(env);
+  }
 
   if (body.repo && repos.length === 0) {
     throw new ResponseError("Repository not found", 404);
