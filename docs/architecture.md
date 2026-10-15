@@ -76,3 +76,8 @@ response bodies are never logged.
 The standards collector reads bounded Git trees and blobs at an immutable commit,
 then evaluates shared policy and package configuration without executing code.
 See [Shared standards](standards.md) for limits and evidence semantics.
+
+The `/app/review` companion composes existing standards evidence with bounded
+PR-head checks and repository metadata. Its GET-only review APIs validate public
+repository scope before deeper reads, keep unknown/partial evidence explicit, and
+return proposals without mutation endpoints. See [Repository review](repository-review.md).

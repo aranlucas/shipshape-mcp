@@ -42,6 +42,17 @@ const selected = (path: string) =>
   /(^|\/)(package.json|go.mod|pyproject.toml|tsconfig.json)$/.test(path) ||
   /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
 
+// Extra review reads stay within the existing aggregate request/byte budgets.
+// Keep generated or vendored configs out of the additional review surface.
+const selectedReviewConfig = (path: string) =>
+  !/(^|\/)(node_modules|vendor|vendored|third_party|third-party|dist|build|coverage|generated|__generated__|\.next|\.nuxt|\.output|\.git)(\/|$)/i.test(
+    path,
+  ) &&
+  (/(^|\/)(vitest|vite|playwright)\.config\.[cm]?[jt]s$/.test(path) ||
+    /^(\.github\/dependabot\.ya?ml|renovate\.json5?|\.renovaterc(?:\.json)?|\.github\/renovate\.json5?)$/.test(
+      path,
+    ));
+
 export function decode(content: string) {
   return new TextDecoder("utf-8", { fatal: true }).decode(
     Uint8Array.from(atob(content.replaceAll(/\s/g, "")), (char) => char.codePointAt(0) ?? 0),
@@ -49,13 +60,25 @@ export function decode(content: string) {
 }
 
 export async function collectStandards(client: GitHubOctokit, input: RepositoryCoordinates) {
+  return evaluateStandards(await collectStandardsSource(client, input, false));
+}
+
+/** Collect only immutable, bounded static inputs; no repository commands run. */
+export async function collectStandardsSource(
+  client: GitHubOctokit,
+  input: RepositoryCoordinates,
+  includeReviewConfigs = true,
+): Promise<StandardsSource> {
   const coordinates = RepositoryCoordinatesSchema.parse(input);
 
   const repo = (
     await octokitGet(client, "GET /repos/{owner}/{repo}", coordinates, GitHubRepositorySchema)
   ).data;
 
-  if (repo.private) {
+  if (
+    repo.private ||
+    (repo.visibility !== null && repo.visibility !== undefined && repo.visibility !== "public")
+  ) {
     throw new PrivateRepositoryError(coordinates);
   }
 
@@ -106,7 +129,7 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
       source.files[entry.path] = null;
     }
   } catch {
-    return evaluateStandards(source);
+    return source;
   }
 
   const config = entries.find((entry) => entry.path === ".shipshape.yml");
@@ -147,13 +170,21 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
     }
   }
 
-  const candidates = entries
-    .filter(
-      (entry) =>
-        selected(entry.path) ||
-        (source.policy.convergence !== undefined && lintConfigPath(entry.path)),
-    )
+  const baselineCandidate = (path: string) =>
+    selected(path) || (source.policy.convergence !== undefined && lintConfigPath(path));
+
+  const baselineCandidates = entries
+    .filter((entry) => baselineCandidate(entry.path))
     .toSorted((a, b) => a.path.localeCompare(b.path));
+
+  const reviewCandidates = includeReviewConfigs
+    ? entries
+        .filter((entry) => !baselineCandidate(entry.path) && selectedReviewConfig(entry.path))
+        .toSorted((a, b) => a.path.localeCompare(b.path))
+    : [];
+
+  // Review reads cannot displace the existing baseline collector's candidates.
+  const candidates = [...baselineCandidates, ...reviewCandidates];
 
   // Bound decoded input to 2 MB and 80 requests, with at most four in flight.
   let bytes = 0;
@@ -192,7 +223,7 @@ export async function collectStandards(client: GitHubOctokit, input: RepositoryC
     ),
   );
 
-  return evaluateStandards(source);
+  return source;
 }
 
 async function applySharedPolicy(client: GitHubOctokit, local: Policy, source: StandardsSource) {
@@ -212,7 +243,12 @@ async function applySharedPolicy(client: GitHubOctokit, local: Policy, source: S
       )
     ).data;
 
-    if (sharedRepo.private) {
+    if (
+      sharedRepo.private ||
+      (sharedRepo.visibility !== null &&
+        sharedRepo.visibility !== undefined &&
+        sharedRepo.visibility !== "public")
+    ) {
       throw new PrivateRepositoryError(shared);
     }
 

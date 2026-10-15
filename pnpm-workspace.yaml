@@ -49,7 +49,7 @@ minimumReleaseAgeExclude:
   - "@oxlint/plugins@1.87.0 || 1.88.0"
   - oxfmt@0.72.0 || 0.73.0
   - oxlint@1.87.0 || 1.88.0
-  - "@cloudflare/vitest-plugin@1.4.0 || 1.4.1"
+  - "@cloudflare/vitest-plugin@1.4.0 || 1.4.1 || 1.4.3"
   - miniflare@5.20261006.1-alpha || 5.20261006.2-beta
   - wrangler@4.149.0 || 4.150.0
   - "@aranlucas/*"
@@ -58,6 +58,9 @@ minimumReleaseAgeExclude:
   - "@cloudflare/runtime-types@0.1.10"
   - agents@0.28.1
   - zod@4.6.7
+  - "@vitest/mocker@5.0.5"
+  - "@vitest/spy@5.0.5"
+  - vitest@5.0.5
 overrides:
   "fast-uri@3": 3.1.8
   "hono@4": 4.13.8
