@@ -133,3 +133,41 @@ export async function getRepository(
 
   return row ? fromRow(row) : null;
 }
+
+export interface StoredCatalogRow {
+  repo: string;
+  sha: string | null;
+  loaded_at: string | null;
+  practices_json: string;
+}
+
+interface CatalogWrite {
+  repo: string;
+  sha: string;
+  practices: unknown[];
+}
+
+export async function writeCatalog(
+  db: D1Database,
+  catalog: CatalogWrite,
+  loadedAt: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO catalog (id, repo, sha, loaded_at, practices_json)
+       VALUES (1, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         repo = excluded.repo,
+         sha = excluded.sha,
+         loaded_at = excluded.loaded_at,
+         practices_json = excluded.practices_json`,
+    )
+    .bind(catalog.repo, catalog.sha, loadedAt, JSON.stringify(catalog.practices))
+    .run();
+}
+
+export function readCatalogRow(db: D1Database): Promise<StoredCatalogRow | null> {
+  return db
+    .prepare("SELECT repo, sha, loaded_at, practices_json FROM catalog WHERE id = 1")
+    .first<StoredCatalogRow>();
+}
