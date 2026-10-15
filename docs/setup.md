@@ -136,6 +136,21 @@ repository.
 `PUBLIC_ORIGIN` is the deployed Worker origin and is used to build the OAuth
 callback and webhook URLs.
 
+Secrets must be configured on the production Worker as well as on any Preview.
+A successful Preview deployment does not configure production credentials.
+To upload the App secrets together with a production deployment, put them in a
+protected JSON file outside the repository and use:
+
+```sh
+pnpm build
+pnpm exec cf deploy --prebuilt --secrets-file /secure/path/app-secrets.json
+```
+
+After deployment, sign in and choose **Find my repositories**. On an empty
+database this imports the App's installed repositories, loads the catalog,
+and queues their first checks. The production queue consumer must be deployed
+for those checks to complete; a Preview alone cannot process them.
+
 ## 5. Create and seed the private catalog repository
 
 Create the private repository and push the contents of `catalog-seed/` under a
