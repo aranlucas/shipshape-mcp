@@ -10,6 +10,8 @@ import {
 } from "../oauth-security";
 import { renderSignInPage } from "./page";
 import { renderPlaceholderPage } from "./placeholder";
+import { apiHandler } from "../api/routes";
+import type { AppEnv } from "../env";
 import {
   LOGIN_COOKIE_NAME,
   LOGIN_STATE_TTL_SECONDS,
@@ -60,6 +62,16 @@ function redirect(location: string, status: 302 | 303 = 302): Response {
   headers.set("Cache-Control", "no-store");
 
   return new Response(null, { status, headers });
+}
+
+function isDashboardApiPath(pathname: string): boolean {
+  const parts = pathname.split("/").filter(Boolean).slice(2);
+
+  return (
+    (parts.length === 1 && (parts[0] === "overview" || parts[0] === "refresh")) ||
+    (parts.length === 3 && parts[0] === "repos") ||
+    (parts.length === 2 && parts[0] === "practices")
+  );
 }
 
 function publicOrigin(request: Request, env: OAuthEnv): string {
@@ -137,7 +149,11 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
   return response;
 }
 
-export async function webHandler(request: Request, env: OAuthEnv): Promise<Response> {
+export async function webHandler(
+  request: Request,
+  env: OAuthEnv,
+  ctx?: ExecutionContext,
+): Promise<Response> {
   const { pathname } = new URL(request.url);
 
   if (pathname === "/app/login") {
@@ -150,6 +166,31 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
 
   const storedSession = await readSession(env.OAUTH_KV, request);
   const session = storedSession !== null && isOwner(env, storedSession) ? storedSession : null;
+
+  if (pathname.startsWith(`${APP_PATH}/api/`)) {
+    if (!isDashboardApiPath(pathname)) {
+      return notFoundResponse();
+    }
+
+    if (session === null) {
+      return new Response(JSON.stringify({ error: "Authentication required" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+
+    // SAFETY: this fallback implements the sole ExecutionContext method used by the API handler.
+    const executionContext =
+      ctx ??
+      ({
+        waitUntil(promise: Promise<unknown>) {
+          void promise.catch(() => null);
+        },
+      } as ExecutionContext);
+
+    // SAFETY: OAuthEnv is the AppEnv subset carried by web requests; API handlers only use these bindings.
+    return apiHandler(request, env as AppEnv, session, executionContext);
+  }
 
   if (pathname === APP_PATH || pathname === "/app/review") {
     if (request.method !== "GET") {
