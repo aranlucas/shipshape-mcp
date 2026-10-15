@@ -264,4 +264,42 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px
   .field-narrow { flex-basis: auto; }
   .site-footer { align-items: flex-start; flex-direction: column; }
 }
+
+.review-nav { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 1.5rem 0; }
+.review-nav [aria-current="page"] { color: var(--ink); text-decoration-thickness: 3px; }
+.review-owner { display: flex; gap: 1rem; align-items: end; }
+.review-owner .field { margin: 0; max-width: 26rem; }
+.review-layout { display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: 1.2rem; margin-top: 1rem; align-items: start; }
+.review-repo { display: flex; flex-wrap: wrap; gap: 0.6rem; padding: 1rem 0; border-bottom: 1px solid var(--line); }
+.review-repo > a { width: 100%; overflow-wrap: anywhere; font-weight: 650; }
+.review-repo .muted { font-size: 0.78rem; }
+.review-repo small { width: 100%; }
+#review-pages { flex-wrap: wrap; margin-top: 1rem; }
+.review-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.review-workspace { min-width: 0; }
+.review-group + .review-group { margin-top: 2rem; }
+.review-group-title { margin-bottom: 0.3rem; overflow-wrap: anywhere; }
+.review-coverage { margin-bottom: 1rem; }
+.review-coverage summary { color: var(--signal); cursor: pointer; }
+.review-coverage ul { margin-top: 0.6rem; }
+.review-card { padding: 1.1rem; border: 1px solid var(--line); border-radius: 0.9rem; margin: 0.8rem 0; background: #0a1f26; overflow-wrap: anywhere; }
+.review-needs_review { border-left: 3px solid #ff9b85; }
+.review-unknown { border-left: 3px solid var(--signal); }
+.review-card h3 { font-size: 1.05rem; margin: 0.9rem 0 0.3rem; }
+.review-card-meta { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; font-size: 0.75rem; }
+.review-repo-label, .review-stamp { color: var(--muted); font-size: 0.76rem; margin: 0.4rem 0; }
+.review-detail dt { color: var(--foam); font-size: 0.76rem; font-weight: 700; margin-top: 0.8rem; }
+.review-detail dd { margin: 0.2rem 0 0; font-size: 0.87rem; line-height: 1.5; }
+.review-evidence { padding-left: 1.1rem; font-size: 0.8rem; line-height: 1.5; }
+button:disabled { cursor: wait; opacity: 0.55; }
+@media (max-width: 62rem) {
+  .review-layout { grid-template-columns: 1fr; }
+  #review-repositories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1rem; }
+}
+@media (max-width: 46rem) {
+  .review-filters, #review-repositories { grid-template-columns: 1fr; }
+  .review-owner { align-items: stretch; flex-direction: column; }
+  .review-owner .field { max-width: none; }
+  .review-repo button { width: auto; }
+}
 `;

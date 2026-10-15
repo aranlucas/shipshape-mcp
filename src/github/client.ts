@@ -39,7 +39,15 @@ const GITHUB_USER_AGENT = "shipshape-mcp-readiness-engine";
 
 const GITHUB_REQUEST_TIMEOUT_MS = 8_000;
 
-export function createGitHubOctokit(auth: string, fetch?: typeof globalThis.fetch): GitHubOctokit {
+interface GitHubClientOptions {
+  retry?: boolean;
+}
+
+export function createGitHubOctokit(
+  auth: string,
+  fetch?: typeof globalThis.fetch,
+  clientOptions: GitHubClientOptions = {},
+): GitHubOctokit {
   const request: NonNullable<ConstructorParameters<typeof Octokit>[0]>["request"] = {
     timeout: GITHUB_REQUEST_TIMEOUT_MS,
   };
@@ -48,11 +56,18 @@ export function createGitHubOctokit(auth: string, fetch?: typeof globalThis.fetc
     request.fetch = fetch;
   }
 
-  const octokit = new Octokit({
+  const configuration: NonNullable<ConstructorParameters<typeof Octokit>[0]> = {
     auth,
     userAgent: GITHUB_USER_AGENT,
     request,
-  });
+  };
+
+  if (clientOptions.retry === false) {
+    configuration.retry = { enabled: false };
+    configuration.throttle = { enabled: false };
+  }
+
+  const octokit = new Octokit(configuration);
 
   octokit.hook.before("request", (options) => {
     options.headers = {
