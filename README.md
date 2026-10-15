@@ -151,3 +151,11 @@ selected/omitted eligible repositories. `availableRepositories` remains the
 number fetched in the listing, not an owner-wide total when that listing is
 truncated. Each ranked result includes its delivery coverage. Explicit collector
 selections identify themselves as `explicit` and do not imply a full owner scan.
+
+## Repository review desk
+
+Open `/app/review` to inspect public repositories and review evidence-backed next
+steps across standards, pull requests, dependencies, cleanup and repository
+purpose. Filter by repository, category and state; unknown and uninspected work
+stay visible. Shipshape never applies these proposals or broadens repository
+permissions. See [the review guide](docs/repository-review.md).

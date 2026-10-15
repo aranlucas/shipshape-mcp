@@ -279,4 +279,134 @@ describe("website companion", () => {
     expect(script).toContain("textContent");
     expect(script).not.toContain("innerHTML");
   });
+
+  it("serves the authenticated review page and a text-only CSP-safe script", async () => {
+    const { env } = environment();
+    const { session } = await signIn(env);
+
+    const page = await webHandler(
+      new Request(`${ORIGIN}/app/review`, { headers: { Cookie: session } }),
+      env,
+    );
+
+    const html = await page.text();
+    expect(html).toContain("Your repository review desk.");
+    expect(html).toContain('src="/app/review.js"');
+    expect(html).toContain('id="review-category"');
+    expect(html).toContain('id="review-state"');
+    expect(page.headers.get("Cache-Control")).toBe("no-store");
+    const response = await webHandler(new Request(`${ORIGIN}/app/review.js`), env);
+    const script = await response.text();
+    expect(() => new Script(script)).not.toThrow();
+    expect(script).toContain("textContent");
+    expect(script).not.toContain("innerHTML");
+    expect(script).toContain('parsed.protocol !== "https:"');
+  });
+
+  it("requires authentication and validated coordinates for read-only review APIs", async () => {
+    const { env } = environment();
+    const anonymous = await webHandler(api("/app/api/review/repos?owner=octo", "GET", null), env);
+    expect(anonymous.status).toBe(401);
+    const { session } = await signIn(env);
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const invalidPaths = [
+      "/app/api/review/repos?owner=https://evil.test",
+      "/app/api/review/repos?owner=octo&page=0",
+      "/app/api/review/repository?owner=octo&repo=../private",
+    ];
+
+    const responses = await Promise.all(
+      invalidPaths.map((path) => webHandler(api(path, "GET", session), env)),
+    );
+
+    for (const response of responses) {
+      expect(response.status).toBe(400);
+    }
+
+    const mutation = await webHandler(
+      api("/app/api/review/repository?owner=octo&repo=demo", "POST", session, "{}"),
+      env,
+    );
+
+    expect(mutation.status).toBe(405);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("lists public repositories as uninspected with pagination and no deeper reads", async () => {
+    const { env } = environment();
+    const { session } = await signIn(env);
+
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      expect(url.hostname).toBe("api.github.com");
+      expect(url.pathname).toBe("/users/octo/repos");
+      expect(url.searchParams.get("page")).toBe("2");
+      expect(url.searchParams.get("per_page")).toBe("20");
+      expect(init?.method ?? "GET").toBe("GET");
+
+      return Promise.resolve(
+        jsonResponse(
+          [
+            repository,
+            { ...repository, name: "secret", private: true },
+            { ...repository, name: "internal", visibility: "internal" },
+          ],
+          200,
+          "https://api.github.com/users/octo/repos?page=3",
+        ),
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await webHandler(
+      api("/app/api/review/repos?owner=octo&page=2", "GET", session),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      page: 2,
+      hasNextPage: true,
+      repositories: [{ repository: "octo/demo", state: "not_checked" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("exempts forks and refuses private repository inspection before reading source", async () => {
+    const { env } = environment();
+    const { session } = await signIn(env);
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...repository, fork: true }))
+      .mockResolvedValueOnce(jsonResponse({ ...repository, private: true }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const fork = await webHandler(
+      api("/app/api/review/repository?owner=octo&repo=demo", "GET", session),
+      env,
+    );
+
+    expect(fork.status).toBe(200);
+    expect(await fork.json()).toMatchObject({
+      commit: null,
+      findings: [{ state: "not_applicable", approvalRequired: false }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const privateRepo = await webHandler(
+      api("/app/api/review/repository?owner=octo&repo=demo", "GET", session),
+      env,
+    );
+
+    expect(privateRepo.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
 });

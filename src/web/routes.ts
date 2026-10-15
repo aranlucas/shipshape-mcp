@@ -1,10 +1,13 @@
 import { z } from "zod";
+import { collectRepositoryReview, listReviewRepositories } from "../review/collect";
+import { renderReviewPage } from "./review-page";
+import { REVIEW_SCRIPT } from "./review-script";
+import { RepositoryCoordinatesSchema, GitHubOwnerInputSchema } from "../github/schemas";
 import { GITHUB_SCOPE } from "../config";
 import { collectSettingsDrift } from "../drift/collect";
 import { SETTINGS_DRIFT_PAGE_SIZE } from "../drift/limits";
 import { parseDriftPolicy } from "../drift/policy";
 import { GitHubInputError, PrivateRepositoryError, createGitHubOctokit } from "../github/client";
-import { GitHubOwnerInputSchema } from "../github/schemas";
 import { ConfigValueSchema, type ConfigValue } from "../standards/config-value";
 import { methodNotAllowed, notFoundResponse } from "../landing";
 import {
@@ -335,14 +338,17 @@ async function rulesApi(request: Request, env: OAuthEnv, session: WebSession): P
 export async function webHandler(request: Request, env: OAuthEnv): Promise<Response> {
   const { pathname } = new URL(request.url);
 
-  if (pathname === APP_SCRIPT_PATH) {
+  if (pathname === APP_SCRIPT_PATH || pathname === "/app/review.js") {
     if (request.method !== "GET") {
       return methodNotAllowed();
     }
 
     const headers = appHeaders("text/javascript; charset=utf-8");
 
-    return new Response(APP_SCRIPT, { status: 200, headers });
+    return new Response(pathname === APP_SCRIPT_PATH ? APP_SCRIPT : REVIEW_SCRIPT, {
+      status: 200,
+      headers,
+    });
   }
 
   if (pathname === "/app/login") {
@@ -363,12 +369,18 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
 
   const session = await readSession(env.OAUTH_KV, request);
 
-  if (pathname === APP_PATH) {
+  if (pathname === APP_PATH || pathname === "/app/review") {
     if (request.method !== "GET") {
       return methodNotAllowed();
     }
 
-    return html(session ? renderAppPage(session.login) : renderSignInPage());
+    return html(
+      session
+        ? pathname === "/app/review"
+          ? renderReviewPage(session.login)
+          : renderAppPage(session.login)
+        : renderSignInPage(),
+    );
   }
 
   if (pathname === "/app/logout") {
@@ -388,13 +400,21 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
   }
 
   const api =
-    pathname === "/app/api/drift" ? "drift" : pathname === "/app/api/rules" ? "rules" : null;
+    pathname === "/app/api/drift"
+      ? "drift"
+      : pathname === "/app/api/rules"
+        ? "rules"
+        : pathname === "/app/api/review/repos"
+          ? "review-list"
+          : pathname === "/app/api/review/repository"
+            ? "review-repository"
+            : null;
 
   if (!api) {
     return notFoundResponse();
   }
 
-  const allowed = api === "drift" ? ["POST"] : ["GET", "PUT"];
+  const allowed = api === "drift" ? ["POST"] : api === "rules" ? ["GET", "PUT"] : ["GET"];
 
   if (!allowed.includes(request.method)) {
     return methodNotAllowed(allowed.join(", "));
@@ -409,6 +429,33 @@ export async function webHandler(request: Request, env: OAuthEnv): Promise<Respo
   }
 
   try {
+    if (api === "review-list" || api === "review-repository") {
+      const params = new URL(request.url).searchParams;
+      const client = createGitHubOctokit(session.accessToken, undefined, { retry: false });
+
+      const report =
+        api === "review-list"
+          ? await listReviewRepositories(
+              client,
+              GitHubOwnerInputSchema.parse(params.get("owner")),
+              z.coerce
+                .number()
+                .int()
+                .min(1)
+                .max(10_000)
+                .parse(params.get("page") ?? "1"),
+            )
+          : await collectRepositoryReview(
+              client,
+              RepositoryCoordinatesSchema.parse({
+                owner: params.get("owner"),
+                repo: params.get("repo"),
+              }),
+            );
+
+      return json(ConfigValueSchema.parse(JSON.parse(JSON.stringify(report))));
+    }
+
     return api === "drift"
       ? await driftApi(request, session)
       : await rulesApi(request, env, session);

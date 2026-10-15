@@ -45,6 +45,7 @@ export function renderAppPage(login: string): string {
           <form method="post" action="/app/logout"><button class="button-secondary button-small" type="submit">Sign out</button></form>
         </div>
       </header>
+      <nav class="review-nav" aria-label="Dashboard"><a href="/app/review">Repository review</a><a href="/app" aria-current="page">Settings drift</a></nav>
       <section class="app-intro">
         <p class="eyebrow">Settings drift</p>
         <h1 class="app-title">Rules in, fixes out.</h1>
