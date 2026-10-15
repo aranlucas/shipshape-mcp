@@ -111,10 +111,10 @@ const PRACTICES: PracticeSeed[] = [
   practice(
     "oxforge-lint-format",
     "Oxforge lint and format",
-    "Lint and format with the shared Oxforge presets at the pinned version.",
+    "Lint and format with the shared Oxforge presets.",
     "files",
     [
-      check("dependency", "@aranlucas/oxforge declared at 0.2.2", "package.json", "0.2.2"),
+      check("dependency", "@aranlucas/oxforge declared", "package.json", null),
       check(
         "file-contains",
         ".oxlintrc.json extends the Oxforge recommended preset",
@@ -126,13 +126,12 @@ const PRACTICES: PracticeSeed[] = [
     `version: 1
 id: oxforge-lint-format
 title: Oxforge lint and format
-summary: Lint and format with the shared Oxforge presets at the pinned version.
+summary: Lint and format with the shared Oxforge presets.
 kind: files
 ${NODE_APPLIES}
 checks:
   - type: dependency
     name: "@aranlucas/oxforge"
-    version: "0.2.2"
   - type: file-contains
     path: .oxlintrc.json
     text: "@aranlucas/oxforge/configs/recommended.json"
@@ -142,7 +141,7 @@ checks:
 `,
     {
       instructions:
-        "Install the pinned Oxforge version with the repository's package manager. Keep any repository-specific ignorePatterns in .oxlintrc.json.\n",
+        "Declare Oxforge with the repository's package manager; version ranges are accepted. Keep any repository-specific ignorePatterns in .oxlintrc.json.\n",
       files: [
         {
           path: "oxfmt.config.ts",
@@ -227,8 +226,8 @@ checks:
   ),
   practice(
     "dependabot-automerge",
-    "Dependabot auto-merge",
-    "Merge passing Dependabot PRs automatically after CI.",
+    "Dependabot auto-merge workflow file",
+    "Provide a Dependabot auto-merge workflow file; merge behavior requires separate review.",
     "files",
     [
       check(
@@ -240,8 +239,8 @@ checks:
     ],
     `version: 1
 id: dependabot-automerge
-title: Dependabot auto-merge
-summary: Merge passing Dependabot PRs automatically after CI.
+title: Dependabot auto-merge workflow file
+summary: Provide a Dependabot auto-merge workflow file; merge behavior requires separate review.
 kind: files
 ${NODE_APPLIES}
 checks:
@@ -251,8 +250,8 @@ checks:
   ),
   practice(
     "single-ci-workflow",
-    "One CI workflow",
-    "All checks run from ci.yml with pnpm/setup and read-only permissions.",
+    "CI workflow configuration",
+    "Provide ci.yml with read-only contents permission and pnpm setup.",
     "files",
     [
       check("file-exists", ".github/workflows/ci.yml exists", ".github/workflows/ci.yml", null),
@@ -266,8 +265,8 @@ checks:
     ],
     `version: 1
 id: single-ci-workflow
-title: One CI workflow
-summary: All checks run from ci.yml with pnpm/setup and read-only permissions.
+title: CI workflow configuration
+summary: Provide ci.yml with read-only contents permission and pnpm setup.
 kind: files
 ${NODE_APPLIES}
 checks:

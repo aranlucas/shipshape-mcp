@@ -150,7 +150,7 @@ export async function evaluateRepository(
   let client: GitHubOctokit;
 
   try {
-    client = await installationClient(env, repo.installationId, { retry: false });
+    client = await installationClient(env, repo.installationId, { retry: "bounded" });
   } catch {
     // Any installation token failure means this repository is unavailable for this run.
     await markUnknown(env.DB, fullName, catalog, "GitHub App installation unavailable");

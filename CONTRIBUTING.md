@@ -7,10 +7,12 @@ bounded, and testable without executing repository code.
 2. Add or update a stable rule ID and its focused tests.
 3. Preserve `pass`, `fail`, `unknown`, and `not_applicable` as distinct states.
    Permission failures must not silently become passes or score penalties.
-4. Keep GitHub access read-only and public-repository-only.
+4. Keep repository evaluation read-only and limited to allowed GitHub App
+   installations, including their accessible private repositories. Catalog
+   edits use the separate owner-gated catalog write path.
 5. Run `pnpm check` and `git diff --check` before opening a pull request.
 
-Pull requests should explain the evidence a rule consumes, its score impact,
+Pull requests should explain the evidence a rule consumes, its result states,
 and how a maintainer can remediate a failure. Avoid generic GitHub CRUD tools;
 Shipshape's purpose is prioritization and policy evaluation.
 

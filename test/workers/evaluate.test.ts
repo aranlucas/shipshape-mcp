@@ -148,6 +148,7 @@ interface GitHubMockOptions {
   settings?: Record<string, unknown>;
   head?: string;
   fileContent?: string;
+  transientContentFailure?: boolean;
 }
 
 function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
@@ -215,6 +216,13 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
       }
 
       if (url.pathname.startsWith("/repos/octo/demo/contents/")) {
+        if (
+          options.transientContentFailure &&
+          calls.filter((call) => call.path === url.pathname).length === 1
+        ) {
+          return Promise.resolve(jsonResponse({ message: "temporary failure" }, 500));
+        }
+
         const content = options.fileContent ?? "content";
 
         return Promise.resolve(
@@ -249,6 +257,31 @@ afterEach(() => {
 });
 
 describe("evaluateRepository", () => {
+  it("retries a transient content read and persists a passing presence-only dependency result", async () => {
+    const practice = validPractice("oxforge", "files", [
+      { type: "dependency", file: "package.json", name: "@aranlucas/oxforge" },
+    ]);
+    await seed(catalog([practice]));
+    const calls = mockGitHub({
+      treePaths: ["package.json"],
+      fileContent: JSON.stringify({ devDependencies: { "@aranlucas/oxforge": "^0.2.2" } }),
+      transientContentFailure: true,
+    });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    const [stored] = await readResults(appEnv.DB, repoName);
+    expect(stored?.cell).toMatchObject({ state: "pass", unknown: 0 });
+    expect(stored?.checks[0]).toMatchObject({
+      label: "@aranlucas/oxforge declared",
+      actual: "^0.2.2",
+      detail: null,
+    });
+    expect(
+      calls.filter((call) => call.path === "/repos/octo/demo/contents/package.json"),
+    ).toHaveLength(2);
+  });
+
   it("persists pass and fail results for a 512 KiB file when the match is at the end", async () => {
     const needle = "needle-at-end";
     const fileContent = `${"x".repeat(512 * 1024 - needle.length)}${needle}`;

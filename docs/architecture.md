@@ -38,6 +38,43 @@ GitHub App OAuth (identity only)
 - API errors, missing permissions, unavailable features, truncated trees, and
   oversized blobs produce `unknown`, never an inferred pass.
 
+## Check semantics and diagnostics
+
+Dependency checks require a non-empty declaration in dependencies,
+devDependencies, optionalDependencies, or peerDependencies. Omit `version` to
+check presence only: `^0.2.2`, `catalog:`, and workspace references all pass.
+An explicit `version` retains exact declaration comparison and reports ranges
+as unknown rather than inferring a resolved version. Existing presence-only
+Oxforge definitions accept a range without catalog changes.
+
+Workflow pinning inspects job-level reusable workflow calls and step-level
+Actions, including nested parallel steps. Remote references must use full
+commit SHAs; local and Docker references retain their existing exemptions.
+Failures include the offending references and their YAML property locations
+in the existing bounded `actual` and `detail` fields. Action inputs named
+`uses` are not Action references. Dependency review requires one matching
+pull-request workflow; token-permission and pinning checks apply to every
+workflow.
+
+Evaluations retry transient GitHub server/transport failures at most twice,
+with 250 ms and 1 s backoffs and the existing 8 s per-request timeout.
+HTTP 4xx responses, including permission and feature errors, are not retried.
+Exhausted reads remain unknown. These retries do not change catalog-write
+behavior or trigger additional sweeps.
+
+The starter CI rule checks ci.yml, pnpm setup, and read-only contents permission.
+It does not verify workflow uniqueness or branch protection. The starter
+auto-merge rule checks file existence; its pass does not establish safe or
+successful merge behavior. Exact file comparisons intentionally report
+template differences, including repository-specific additions.
+
+### Refreshing stored results
+
+Deploying an evaluator change does not replace stored results. Use the owner
+dashboard's Refresh action to enqueue fresh evaluations, then confirm that
+`repo_practices` reports a declared Oxforge range as pass for the existing
+presence-only dependency check. The read-only MCP tools do not trigger refreshes.
+
 ## Runtime flow
 
 GitHub push and installation events, dashboard refreshes, and the daily sweep
