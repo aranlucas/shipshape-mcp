@@ -1,9 +1,9 @@
 # Setup
 
 This guide configures the private, single-owner Shipshape deployment. The
-commands that create Cloudflare resources, GitHub resources, or secrets are
-examples to run during your own setup; they have not been run for this
-repository.
+commands below are a reference for setting up another instance. This instance
+uses the `shipshape-for-aranlucas` GitHub App (ID `5337206`), installed on
+`aranlucas` and `sidequest-labs`, and the private `aranlucas/practices` catalog.
 
 ## 1. Create the GitHub App
 
@@ -193,7 +193,41 @@ if no `.dev.vars` file is present, set
 local development variables. Choose `.dev.vars` or process-environment loading
 for a session; do not rely on both sources silently overriding each other.
 
+For a direct localhost server, set both `PUBLIC_ORIGIN` and `PORTLESS_URL` to
+the server origin before starting Vite. `PUBLIC_ORIGIN` controls OAuth and
+same-origin write checks; `PORTLESS_URL` controls local MCP metadata defaults.
+
 Before opening the dashboard, verify that the App callback and webhook URLs
 use the same `PUBLIC_ORIGIN` shown by the local server. Local D1 and Queue
 simulations are safe for development; use the configured Cloudflare resources
 only when you intentionally test the deployed integration.
+
+## 7. Branch previews
+
+`pnpm preview` builds and deploys the current branch without queue consumers
+or cron triggers, which Cloudflare Previews do not support. The dashboard
+login and MCP discovery use the incoming Preview origin. Add its exact
+`https://<preview-host>/callback` URL to the GitHub App's callback URLs before
+testing sign-in.
+
+Preview secrets are separate from production secrets. Upload a protected JSON
+file containing `GITHUB_APP_PRIVATE_KEY` (PKCS#8),
+`GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, and
+`COOKIE_ENCRYPTION_KEY` using Wrangler's Preview secret command. The installed
+`cf` version does not expose this command; Wrangler `4.151.0` is also present
+as a transitive dependency, or can be invoked explicitly:
+
+```sh
+npx wrangler@4.151.0 preview secret bulk /secure/path/preview-secrets.json \
+  --worker-name shipshape-mcp --name '<branch-name>'
+```
+
+This updates only the named Preview deployment. Do not use a production
+`workers secrets` command when the intended target is a Preview.
+
+The current bindings point to the named `shipshape` D1 database,
+`shipshape-evaluations` queue, and OAuth KV namespace. These resources are
+shared with production. A Preview can enqueue checks, but cannot consume them;
+without a deployed consumer, checks remain pending. Use local D1 and Queue
+simulation to verify the full evaluation flow before production is enabled.
+Keep Preview catalog writes within the intended private catalog repository.

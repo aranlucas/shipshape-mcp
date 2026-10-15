@@ -35,13 +35,17 @@ export default defineConfig(({ mode }) => ({
     env: {
       GITHUB_API_VERSION: bindings.text("2026-03-10"),
       PUBLIC_ORIGIN: bindings.text(
-        mode === "development" && process.env.PORTLESS_URL
-          ? process.env.PORTLESS_URL
-          : "https://shipshape-mcp.aranlucas.workers.dev",
+        mode === "preview"
+          ? ""
+          : (process.env.PUBLIC_ORIGIN ??
+              (mode === "development" ? process.env.PORTLESS_URL : undefined) ??
+              "https://shipshape-mcp.aranlucas.workers.dev"),
       ),
-      GITHUB_APP_ID: bindings.text(process.env.GITHUB_APP_ID ?? "0"),
-      GITHUB_APP_CLIENT_ID: bindings.text(process.env.GITHUB_APP_CLIENT_ID ?? "unset"),
-      OWNER_GITHUB_ID: bindings.text(process.env.OWNER_GITHUB_ID ?? "0"),
+      GITHUB_APP_ID: bindings.text(process.env.GITHUB_APP_ID ?? "5337206"),
+      GITHUB_APP_CLIENT_ID: bindings.text(
+        process.env.GITHUB_APP_CLIENT_ID ?? "Iv23liNbinuVCJJAhFVB",
+      ),
+      OWNER_GITHUB_ID: bindings.text(process.env.OWNER_GITHUB_ID ?? "6351530"),
       CATALOG_REPO: bindings.text(process.env.CATALOG_REPO ?? "aranlucas/practices"),
       // The App is public so it can be installed on an organization; only these
       // accounts' installations are read.

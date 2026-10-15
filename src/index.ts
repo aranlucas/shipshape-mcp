@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { verifyWebhookSignature } from "./github/webhook";
 
-import { MCP_RESOURCE, MCP_SCOPE, PUBLIC_ORIGIN } from "./config";
+import { MCP_SCOPE } from "./config";
 import { isAllowedAccount, isOwner } from "./auth/owner";
 import type { AppEnv } from "./env";
 import { GitHubOwnerInputSchema } from "./github/schemas";
@@ -15,7 +15,7 @@ import { listRepositories, type StoredRepository } from "./practices/store";
 import { enqueueRepositories, handleQueue } from "./queue";
 import { handleScheduled, inventoryForTrigger } from "./scheduled";
 import { createPracticesServer } from "./mcp";
-import type { OAuthEnv } from "./oauth";
+import { callbackUrl, type OAuthEnv } from "./oauth";
 import { defaultHandler } from "./oauth-runtime";
 
 const mcpOptions = { route: "/mcp", legacy: "stateless" } as const;
@@ -44,25 +44,27 @@ const protectedHandler = {
   },
 } satisfies ProtectedHandler;
 
-const provider = new OAuthProvider<OAuthEnv>({
-  apiRoute: "/mcp",
-  apiHandler: protectedHandler,
-  defaultHandler,
-  authorizeEndpoint: "/authorize",
-  tokenEndpoint: "/oauth/token",
-  clientRegistrationEndpoint: "/oauth/register",
-  // Preserve native MCP clients such as Claude alongside HTTPS and loopback callbacks.
-  allowPrivateUseRedirectUris: true,
-  scopesSupported: [MCP_SCOPE],
-  requiredScopes: [MCP_SCOPE],
-  resourceMetadata: {
-    resource: MCP_RESOURCE,
-    authorization_servers: [PUBLIC_ORIGIN],
-    bearer_methods_supported: ["header"],
-    resource_name: "Shipshape MCP",
-  },
-  clientIdMetadataDocumentEnabled: true,
-});
+function createProvider(origin: string) {
+  return new OAuthProvider<OAuthEnv>({
+    apiRoute: "/mcp",
+    apiHandler: protectedHandler,
+    defaultHandler,
+    authorizeEndpoint: "/authorize",
+    tokenEndpoint: "/oauth/token",
+    clientRegistrationEndpoint: "/oauth/register",
+    // Preserve native MCP clients such as Claude alongside HTTPS and loopback callbacks.
+    allowPrivateUseRedirectUris: true,
+    scopesSupported: [MCP_SCOPE],
+    requiredScopes: [MCP_SCOPE],
+    resourceMetadata: {
+      resource: `${origin}/mcp`,
+      authorization_servers: [origin],
+      bearer_methods_supported: ["header"],
+      resource_name: "Shipshape MCP",
+    },
+    clientIdMetadataDocumentEnabled: true,
+  });
+}
 
 const MAX_WEBHOOK_BYTES = 5 * 1024 * 1024;
 
@@ -287,7 +289,7 @@ const worker = {
       return handleWebhook(request, env, ctx);
     }
 
-    return provider.fetch(request, env, ctx);
+    return createProvider(callbackUrl(request, env, "/").origin).fetch(request, env, ctx);
   },
   queue: handleQueue,
   scheduled(_controller: ScheduledController, env: AppEnv, ctx: ExecutionContext): void {

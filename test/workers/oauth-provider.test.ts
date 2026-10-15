@@ -1,11 +1,12 @@
 /* oxlint-disable anti-slop/require-readable-spacing */
 
 import { exports } from "cloudflare:workers";
-import { env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { assert, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { MCP_RESOURCE, MCP_SCOPE } from "@/config";
 import type { AppEnv } from "@/env";
+import worker from "@/index";
 
 const outbound: string[] = [];
 // SAFETY: the Workers test bindings include the application-specific OAuth provider binding.
@@ -76,6 +77,30 @@ function register(redirectUris: string[]) {
 }
 
 describe("OAuth provider redirect policy", () => {
+  it("advertises the preview origin for MCP discovery and website login", async () => {
+    const origin = "https://branch-shipshape.example";
+    const context = createExecutionContext();
+    const previewEnv = { ...appEnv, PUBLIC_ORIGIN: "" };
+    const metadata = await worker.fetch(
+      new Request(`${origin}/.well-known/oauth-protected-resource/mcp`),
+      previewEnv,
+      context,
+    );
+
+    expect(metadata.status).toBe(200);
+    expect(await metadata.json()).toMatchObject({
+      resource: `${origin}/mcp`,
+      authorization_servers: [origin],
+    });
+
+    const login = await worker.fetch(new Request(`${origin}/app/login`), previewEnv, context);
+    expect(login.status).toBe(302);
+    expect(new URL(login.headers.get("Location") ?? "").searchParams.get("redirect_uri")).toBe(
+      `${origin}/callback`,
+    );
+    await waitOnExecutionContext(context);
+  });
+
   it("signs the website in through the registered MCP callback", async () => {
     const login = await dispatch(new URL("/app/login", MCP_RESOURCE));
     expect(login.status).toBe(302);
