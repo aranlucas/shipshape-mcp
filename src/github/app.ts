@@ -25,6 +25,10 @@ export class InstallationUnavailableError extends Error {
   }
 }
 
+interface InstallationClientOptions {
+  retry?: boolean;
+}
+
 export async function createAppJwt(
   appId: string,
   pkcs8Pem: string,
@@ -100,8 +104,9 @@ export async function installationToken(env: AppEnv, installationId: number): Pr
 export async function installationClient(
   env: AppEnv,
   installationId: number,
+  options: InstallationClientOptions = {},
 ): Promise<GitHubOctokit> {
-  return createGitHubOctokit(await installationToken(env, installationId));
+  return createGitHubOctokit(await installationToken(env, installationId), undefined, options);
 }
 
 export async function appClient(env: AppEnv): Promise<GitHubOctokit> {

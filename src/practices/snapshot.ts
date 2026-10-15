@@ -35,6 +35,11 @@ export interface RepoSnapshot {
   protection: Map<string, BranchProtectionFact>;
 }
 
+export interface PreloadedHead {
+  sha: string | null;
+  error?: string | null;
+}
+
 function checkFilePath(check: Check): string | null {
   switch (check.type) {
     case "file-matches":
@@ -176,6 +181,7 @@ export async function takeSnapshot(
   client: GitHubOctokit,
   repo: StoredRepository,
   practices: Practice[],
+  preloadedHead?: PreloadedHead,
 ): Promise<RepoSnapshot> {
   const needed = filesNeeded(practices);
   const needsSettings = practices.some((practice) =>
@@ -189,20 +195,22 @@ export async function takeSnapshot(
     ),
   );
 
-  let headSha: string | null = null;
-  let headError: string | null = null;
+  let headSha: string | null = preloadedHead?.sha ?? null;
+  let headError: string | null = preloadedHead?.error ?? null;
 
-  try {
-    const headResponse = await octokitGet(
-      client,
-      "GET /repos/{owner}/{repo}/commits/{ref}",
-      { owner: repo.owner, repo: repo.name, ref: repo.defaultBranch },
-      z.object({ sha: SHA }),
-    );
-    headSha = headResponse.data.sha;
-  } catch (error) {
-    const status = errorStatus(error);
-    headError = status === 409 ? "Repository has no commits" : readError(error);
+  if (preloadedHead === undefined) {
+    try {
+      const headResponse = await octokitGet(
+        client,
+        "GET /repos/{owner}/{repo}/commits/{ref}",
+        { owner: repo.owner, repo: repo.name, ref: repo.defaultBranch },
+        z.object({ sha: SHA }),
+      );
+      headSha = headResponse.data.sha;
+    } catch (error) {
+      const status = errorStatus(error);
+      headError = status === 409 ? "Repository has no commits" : readError(error);
+    }
   }
 
   let tree: RepoSnapshot["tree"] = null;

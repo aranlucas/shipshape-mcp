@@ -1,4 +1,5 @@
-import type { RepoSummary } from "../api/contract";
+import type { CellResult, CheckResult, RepoSummary } from "../api/contract";
+import type { Catalog } from "./catalog";
 
 export interface StoredRepository extends RepoSummary {
   installationId: number;
@@ -170,4 +171,184 @@ export function readCatalogRow(db: D1Database): Promise<StoredCatalogRow | null>
   return db
     .prepare("SELECT repo, sha, loaded_at, practices_json FROM catalog WHERE id = 1")
     .first<StoredCatalogRow>();
+}
+
+export interface StoredResult {
+  repo: string;
+  practiceId: string;
+  cell: CellResult;
+  checks: CheckResult[];
+  headSha: string | null;
+  catalogSha: string | null;
+}
+
+interface ResultRow {
+  repo_full_name: string;
+  practice_id: string;
+  state: CellResult["state"];
+  failing: number;
+  unknown: number;
+  checks_json: string;
+  head_sha: string | null;
+  catalog_sha: string | null;
+  checked_at: string | null;
+}
+
+function resultFromRow(row: ResultRow): StoredResult {
+  return {
+    repo: row.repo_full_name,
+    practiceId: row.practice_id,
+    cell: {
+      state: row.state,
+      checkedAt: row.checked_at,
+      failing: row.failing,
+      unknown: row.unknown,
+    },
+    // SAFETY: checks_json is written only by writeResults and markUnknown as a CheckResult array.
+    checks: JSON.parse(row.checks_json) as CheckResult[],
+    headSha: row.head_sha,
+    catalogSha: row.catalog_sha,
+  };
+}
+
+export async function writeResults(db: D1Database, rows: StoredResult[]): Promise<void> {
+  if (rows.length === 0) {
+    return;
+  }
+
+  await db.batch(
+    rows.map((row) =>
+      db
+        .prepare(
+          `INSERT INTO results
+             (repo_full_name, practice_id, state, failing, unknown, checks_json,
+              head_sha, catalog_sha, checked_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(repo_full_name, practice_id) DO UPDATE SET
+             state = excluded.state,
+             failing = excluded.failing,
+             unknown = excluded.unknown,
+             checks_json = excluded.checks_json,
+             head_sha = excluded.head_sha,
+             catalog_sha = excluded.catalog_sha,
+             checked_at = excluded.checked_at`,
+        )
+        .bind(
+          row.repo,
+          row.practiceId,
+          row.cell.state,
+          row.cell.failing,
+          row.cell.unknown,
+          JSON.stringify(row.checks),
+          row.headSha,
+          row.catalogSha,
+          row.cell.checkedAt,
+        ),
+    ),
+  );
+}
+
+export async function readResults(db: D1Database, repo?: string): Promise<StoredResult[]> {
+  const result = repo
+    ? await db
+        .prepare(
+          `SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
+                  head_sha, catalog_sha, checked_at
+           FROM results WHERE repo_full_name = ? ORDER BY practice_id`,
+        )
+        .bind(repo)
+        .all<ResultRow>()
+    : await db
+        .prepare(
+          `SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
+                  head_sha, catalog_sha, checked_at
+           FROM results ORDER BY repo_full_name, practice_id`,
+        )
+        .all<ResultRow>();
+
+  return result.results.map(resultFromRow);
+}
+
+interface LastEvaluation {
+  headSha: string | null;
+  catalogSha: string | null;
+}
+
+export async function lastEvaluation(db: D1Database, repo: string): Promise<LastEvaluation | null> {
+  const row = await db
+    .prepare(
+      `SELECT head_sha, catalog_sha
+       FROM results WHERE repo_full_name = ?
+       ORDER BY checked_at DESC LIMIT 1`,
+    )
+    .bind(repo)
+    .first<Pick<ResultRow, "head_sha" | "catalog_sha">>();
+
+  return row ? { headSha: row.head_sha, catalogSha: row.catalog_sha } : null;
+}
+
+const unknownCheck = (detail: string): CheckResult => ({
+  type: "evaluation",
+  label: "Evaluation availability",
+  state: "unknown",
+  path: null,
+  expected: null,
+  actual: null,
+  detail,
+});
+
+export async function markUnknown(
+  db: D1Database,
+  repo: string,
+  catalog: Catalog,
+  detail: string,
+): Promise<void> {
+  if (catalog.practices.length === 0) {
+    return;
+  }
+
+  const checkedAt = null;
+  const checks = JSON.stringify([unknownCheck(detail)]);
+
+  await db.batch(
+    catalog.practices.map((practice) =>
+      db
+        .prepare(
+          `INSERT INTO results
+             (repo_full_name, practice_id, state, failing, unknown, checks_json,
+              head_sha, catalog_sha, checked_at)
+           VALUES (?, ?, 'unknown', 0, 1, ?, NULL, ?, ?)
+           ON CONFLICT(repo_full_name, practice_id) DO UPDATE SET
+             state = 'unknown',
+             failing = 0,
+             unknown = 1,
+             checks_json = excluded.checks_json,
+             head_sha = NULL,
+             catalog_sha = excluded.catalog_sha,
+             checked_at = results.checked_at`,
+        )
+        .bind(repo, practice.id, checks, catalog.sha, checkedAt),
+    ),
+  );
+}
+
+export async function deleteResultsNotIn(
+  db: D1Database,
+  repo: string,
+  practiceIds: string[],
+): Promise<void> {
+  if (practiceIds.length === 0) {
+    await db.prepare("DELETE FROM results WHERE repo_full_name = ?").bind(repo).run();
+
+    return;
+  }
+
+  const placeholders = practiceIds.map(() => "?").join(", ");
+  await db
+    .prepare(
+      `DELETE FROM results
+       WHERE repo_full_name = ? AND practice_id NOT IN (${placeholders})`,
+    )
+    .bind(repo, ...practiceIds)
+    .run();
 }
