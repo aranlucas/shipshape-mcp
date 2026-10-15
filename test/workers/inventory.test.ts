@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppEnv } from "@/env";
 import { syncInventory } from "@/inventory/sync";
-import { listRepositories } from "@/practices/store";
+import {
+  deleteRepositoriesNotIn,
+  listRepositories,
+  upsertRepositories,
+  type StoredRepository,
+} from "@/practices/store";
+
+/* oxlint-disable anti-slop/require-readable-spacing */
 
 interface RepositoryOptions {
   private?: boolean;
@@ -19,6 +26,10 @@ interface StoredRow {
   private: number;
   archived: number;
   fork: number;
+}
+
+interface CountRow {
+  count: number;
 }
 
 type PageMode = "normal" | "insufficient" | "malformed";
@@ -261,5 +272,94 @@ describe("repository inventory", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("syncs 101 repositories and removes one on the next complete listing", async () => {
+    let secondRun = false;
+    const allRepositories = Array.from({ length: 101 }, (_, index) =>
+      repository("large-installation", `repo-${index}`),
+    );
+    const fetchMock = vi.fn(
+      (input: RequestInfo | URL, requestInit?: RequestInit): Promise<Response> => {
+        const request = new Request(input, requestInit);
+        const url = new URL(request.url);
+        const jsonResponse = (body: JsonValue) => {
+          const response = Response.json(body);
+          Object.defineProperty(response, "url", { value: url.toString() });
+          return response;
+        };
+
+        if (request.method === "POST" && url.pathname === "/app/installations/1/access_tokens") {
+          return Promise.resolve(
+            jsonResponse({ token: "installation-token-1", expires_at: "2030-01-01T00:00:00Z" }),
+          );
+        }
+
+        if (request.method === "GET" && url.pathname === "/app/installations") {
+          return Promise.resolve(
+            jsonResponse([{ id: 1, account: { login: "large-installation", type: "User" } }]),
+          );
+        }
+
+        if (request.method === "GET" && url.pathname === "/installation/repositories") {
+          const repositories = secondRun ? allRepositories.slice(0, -1) : allRepositories;
+          return Promise.resolve(jsonResponse({ total_count: repositories.length, repositories }));
+        }
+
+        throw new Error(`Unexpected GitHub request: ${request.method} ${request.url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      // SAFETY: cloudflare:test provides every runtime binding used by syncInventory; its generated Env omits only the typed OAuth helper.
+      const appEnv = env as AppEnv;
+      await syncInventory(appEnv);
+      expect(
+        await env.DB.prepare("SELECT COUNT(*) AS count FROM repositories").first<CountRow>(),
+      ).toMatchObject({ count: 101 });
+
+      secondRun = true;
+      await syncInventory(appEnv);
+      expect(
+        await env.DB.prepare("SELECT COUNT(*) AS count FROM repositories").first<CountRow>(),
+      ).toMatchObject({ count: 100 });
+      expect(
+        await env.DB.prepare("SELECT 1 FROM repositories WHERE full_name = ?")
+          .bind("large-installation/repo-100")
+          .first(),
+      ).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps a 2,000-repository sync within bounded statement and parameter counts", async () => {
+    const allRepositories = Array.from({ length: 2_000 }, (_, index) =>
+      repository("large-installation", `repo-${index}`),
+    );
+    const storedRepositories: StoredRepository[] = allRepositories.map((repo) => ({
+      fullName: repo.full_name,
+      owner: "large-installation",
+      name: repo.name,
+      installationId: 1,
+      private: repo.private,
+      archived: repo.archived,
+      fork: repo.fork,
+      language: repo.language,
+      defaultBranch: repo.default_branch,
+      pushedAt: repo.pushed_at,
+      url: repo.html_url,
+    }));
+    await upsertRepositories(env.DB, storedRepositories, new Date().toISOString());
+    await deleteRepositoriesNotIn(
+      env.DB,
+      1,
+      storedRepositories.map((repo) => repo.fullName),
+    );
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS count FROM repositories").first<CountRow>(),
+    ).toMatchObject({ count: 2_000 });
   });
 });

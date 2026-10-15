@@ -123,6 +123,26 @@ describe("file-matches checks", () => {
     ).toMatchObject({ state: "fail" });
   });
 
+  it("compares complete content even when diagnostics share a long preview", () => {
+    const prefix = "x".repeat(4096);
+
+    const check = { type: "file-matches", path: "README.md", source: "files/README.md" };
+
+    const output = result(check, makeSnapshot({ files: { "README.md": `${prefix}actual` } }), {
+      "files/README.md": `${prefix}expected`,
+    });
+
+    expect(output.state).toBe("fail");
+    expect(output.expected).toContain("truncated");
+    expect(output.actual).toContain("truncated");
+    expect(
+      new TextEncoder().encode(JSON.stringify(output.expected)).byteLength,
+    ).toBeLessThanOrEqual(2048);
+    expect(new TextEncoder().encode(JSON.stringify(output.actual)).byteLength).toBeLessThanOrEqual(
+      2048,
+    );
+  });
+
   it("is unknown for unreadable files and missing practice sources", () => {
     expect(
       result(
@@ -136,18 +156,19 @@ describe("file-matches checks", () => {
         { type: "file-matches", path: "README.md", source: "files/README.md" },
         makeSnapshot({ files: { "README.md": "expected" } }),
       ),
-    ).toMatchObject({ state: "unknown" });
+    ).toMatchObject({ state: "unknown", actual: null });
   });
 });
 
 describe("file-contains checks", () => {
   it("passes when the substring is present", () => {
-    expect(
-      result(
-        { type: "file-contains", path: "README.md", text: "Shipshape" },
-        makeSnapshot({ files: { "README.md": "Shipshape practices" } }),
-      ),
-    ).toMatchObject({ state: "pass" });
+    const output = result(
+      { type: "file-contains", path: "README.md", text: "Shipshape" },
+      makeSnapshot({ files: { "README.md": "Shipshape practices" } }),
+    );
+
+    expect(output).toMatchObject({ state: "pass", expected: "Shipshape" });
+    expect(output.detail).toBeNull();
   });
 
   it("fails when the substring or file is absent", () => {
@@ -408,15 +429,16 @@ describe("workflow checks", () => {
           ? workflow.replace("actions/checkout", "actions/dependency-review-action")
           : files[".github/workflows/ci.yml"];
 
-      expect(
-        result(
-          { type: "workflow", check },
-          makeSnapshot({
-            paths: Object.keys(files),
-            files: { ".github/workflows/ci.yml": contents },
-          }),
-        ),
-      ).toMatchObject({ state: "pass" });
+      const output = result(
+        { type: "workflow", check },
+        makeSnapshot({
+          paths: Object.keys(files),
+          files: { ".github/workflows/ci.yml": contents },
+        }),
+      );
+
+      expect(output).toMatchObject({ state: "pass", expected: null, actual: null });
+      expect(output.detail).toBeNull();
     },
   );
 

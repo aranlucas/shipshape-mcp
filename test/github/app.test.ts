@@ -13,7 +13,7 @@ interface PutOptions {
   expirationTtl?: number;
 }
 
-function createTestEnv(kv: TestKv): AppEnv {
+function createTestEnv(kv: TestKv, apiVersion?: string): AppEnv {
   // SAFETY: this fixture only exercises App JWT and KV behavior; unrelated bindings are inert.
   return {
     OAUTH_KV: kv as AppEnv["OAUTH_KV"],
@@ -27,6 +27,7 @@ function createTestEnv(kv: TestKv): AppEnv {
     GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
     OWNER_GITHUB_ID: "1001",
     CATALOG_REPO: "owner/repository",
+    GITHUB_API_VERSION: apiVersion,
   };
 }
 
@@ -120,11 +121,12 @@ describe("installationToken", () => {
         ),
       );
 
-    const env = createTestEnv(kv);
+    const env = createTestEnv(kv, "2025-01-01");
     const first = await installationToken(env, 42);
     const second = await installationToken(env, 42);
     const [input, init] = fetchMock.mock.calls[0] ?? [];
-    const authorization = new Headers(init?.headers).get("Authorization");
+    const headers = new Headers(init?.headers);
+    const authorization = headers.get("Authorization");
 
     expect(first).toBe("installation-token");
     expect(second).toBe("installation-token");
@@ -132,6 +134,8 @@ describe("installationToken", () => {
     expect(input).toBe("https://api.github.com/app/installations/42/access_tokens");
     expect(init?.method).toBe("POST");
     expect(authorization).toMatch(/^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u);
+    expect(headers.get("User-Agent")).toBe("shipshape-mcp");
+    expect(headers.get("X-GitHub-Api-Version")).toBe("2025-01-01");
     expect(values.get("app:installation-token:42")).toBe("installation-token");
     expect(put).toHaveBeenCalledWith("app:installation-token:42", "installation-token", {
       expirationTtl: 3_300,

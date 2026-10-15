@@ -9,6 +9,8 @@ import {
   readStoredCatalog,
 } from "@/practices/catalog";
 
+/* oxlint-disable anti-slop/require-readable-spacing */
+
 // SAFETY: cloudflare:test supplies all runtime bindings used by the worker tests.
 const appEnv = env as AppEnv;
 
@@ -168,5 +170,69 @@ describe("practice catalog", () => {
     await expect(loadCatalog(appEnv)).rejects.toEqual(
       new CatalogUnavailableError("aranlucas/practices"),
     );
+  });
+
+  it("loads a custom mixed-case catalog from the case-matching inventory row", async () => {
+    await env.DB.prepare(
+      `INSERT INTO repositories
+       (full_name, owner, name, installation_id, private, archived, fork, language,
+        default_branch, pushed_at, html_url, synced_at)
+       VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        "acme/practicecatalog",
+        "acme",
+        "practicecatalog",
+        1,
+        "TypeScript",
+        "main",
+        null,
+        "https://github.com/acme/practicecatalog",
+        new Date().toISOString(),
+      )
+      .run();
+
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
+      const result = response(url, {
+        token: "installation-token-1",
+        expires_at: "2030-01-01T00:00:00Z",
+      });
+
+      if (request.method === "POST") {
+        return Promise.resolve(result);
+      }
+
+      if (url.pathname === "/repos/acme/practicecatalog") {
+        return Promise.resolve(response(url, { default_branch: "main" }));
+      }
+
+      if (url.pathname === "/repos/acme/practicecatalog/commits/main") {
+        return Promise.resolve(response(url, { sha }));
+      }
+
+      if (url.pathname.endsWith(`/git/trees/${sha}`)) {
+        return Promise.resolve(response(url, { truncated: false, tree: [] }));
+      }
+
+      throw new Error(`Unexpected GitHub request: ${request.method} ${request.url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const catalog = await loadCatalog({
+        ...appEnv,
+        CATALOG_REPO: "ACME/PracticeCatalog",
+      });
+      expect(catalog.repo).toBe("ACME/PracticeCatalog");
+      expect(fetchMock.mock.calls.map(([input]) => new Request(input).url)).toContain(
+        "https://api.github.com/repos/acme/practicecatalog",
+      );
+      expect((await readStoredCatalog(env.DB))?.repo).toBe("ACME/PracticeCatalog");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

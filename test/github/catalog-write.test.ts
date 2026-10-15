@@ -202,6 +202,12 @@ describe("catalog write allowlist and Git Data commits", () => {
     },
   );
 
+  it("allows a custom configured catalog repository case-insensitively", () => {
+    expect(() =>
+      assertCatalogWrite({ CATALOG_REPO: "ACME/PracticeCatalog" }, "acme", "practicecatalog"),
+    ).not.toThrow();
+  });
+
   it.each([
     ["aranlucas/shipshape-mcp", "aranlucas", "shipshape-mcp"],
     ["sidequest-labs/practices", "sidequest-labs", "practices"],

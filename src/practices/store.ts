@@ -1,5 +1,46 @@
+/* oxlint-disable eslint/no-await-in-loop */
+
 import type { CellResult, CheckResult, RepoSummary } from "../api/contract";
 import type { Catalog } from "./catalog";
+
+const REPOSITORY_UPSERT_CHUNK_SIZE = 500;
+
+const RESULT_WRITE_CHUNK_SIZE = 100;
+
+const MAX_JSON_BINDING_BYTES = 512 * 1024;
+
+function jsonChunks<T>(items: T[], maxItems: number): string[] {
+  const chunks: string[] = [];
+  let current: T[] = [];
+  let currentBytes = 2;
+
+  for (const item of items) {
+    const itemJson = JSON.stringify(item);
+    const itemBytes = new TextEncoder().encode(itemJson).byteLength;
+
+    if (itemBytes + 2 > MAX_JSON_BINDING_BYTES) {
+      throw new Error("D1 JSON binding item exceeds the maximum supported size");
+    }
+
+    if (
+      current.length > 0 &&
+      (current.length >= maxItems || currentBytes + itemBytes + 1 > MAX_JSON_BINDING_BYTES)
+    ) {
+      chunks.push(JSON.stringify(current));
+      current = [];
+      currentBytes = 2;
+    }
+
+    current.push(item);
+    currentBytes += itemBytes + (current.length === 1 ? 0 : 1);
+  }
+
+  if (current.length > 0) {
+    chunks.push(JSON.stringify(current));
+  }
+
+  return chunks;
+}
 
 export interface StoredRepository extends RepoSummary {
   installationId: number;
@@ -45,14 +86,33 @@ export async function upsertRepositories(
     return;
   }
 
-  await db.batch(
-    repos.map((repo) =>
+  for (const chunk of jsonChunks(repos, REPOSITORY_UPSERT_CHUNK_SIZE)) {
+    await db.batch([
       db
         .prepare(
-          `INSERT INTO repositories
-            (full_name, owner, name, installation_id, private, archived, fork, language,
-             default_branch, pushed_at, html_url, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `WITH input AS (
+             SELECT
+               json_extract(value, '$.fullName') AS full_name,
+               json_extract(value, '$.owner') AS owner,
+               json_extract(value, '$.name') AS name,
+               json_extract(value, '$.installationId') AS installation_id,
+               json_extract(value, '$.private') AS private,
+               json_extract(value, '$.archived') AS archived,
+               json_extract(value, '$.fork') AS fork,
+               json_extract(value, '$.language') AS language,
+               json_extract(value, '$.defaultBranch') AS default_branch,
+               json_extract(value, '$.pushedAt') AS pushed_at,
+               json_extract(value, '$.url') AS html_url,
+               ? AS synced_at
+             FROM json_each(?)
+           )
+           INSERT INTO repositories
+             (full_name, owner, name, installation_id, private, archived, fork, language,
+              default_branch, pushed_at, html_url, synced_at)
+           SELECT full_name, owner, name, installation_id, private, archived, fork, language,
+                  default_branch, pushed_at, html_url, synced_at
+           FROM input
+           WHERE true
            ON CONFLICT(full_name) DO UPDATE SET
              owner = excluded.owner,
              name = excluded.name,
@@ -66,22 +126,9 @@ export async function upsertRepositories(
              html_url = excluded.html_url,
              synced_at = excluded.synced_at`,
         )
-        .bind(
-          repo.fullName,
-          repo.owner,
-          repo.name,
-          repo.installationId,
-          repo.private ? 1 : 0,
-          repo.archived ? 1 : 0,
-          repo.fork ? 1 : 0,
-          repo.language,
-          repo.defaultBranch,
-          repo.pushedAt,
-          repo.url,
-          syncedAt,
-        ),
-    ),
-  );
+        .bind(syncedAt, chunk),
+    ]);
+  }
 }
 
 export async function deleteRepositoriesNotIn(
@@ -89,9 +136,8 @@ export async function deleteRepositoriesNotIn(
   installationId: number,
   keep: string[],
 ): Promise<void> {
-  const placeholders = keep.map(() => "?").join(", ");
-  const keepClause = placeholders ? ` AND full_name NOT IN (${placeholders})` : "";
-  const bindings: (string | number)[] = [installationId, ...keep];
+  const keepClause = " AND full_name NOT IN (SELECT value FROM json_each(?))";
+  const keepJson = JSON.stringify(keep);
 
   await db.batch([
     db
@@ -102,8 +148,10 @@ export async function deleteRepositoriesNotIn(
            WHERE installation_id = ?${keepClause}
          )`,
       )
-      .bind(...bindings),
-    db.prepare(`DELETE FROM repositories WHERE installation_id = ?${keepClause}`).bind(...bindings),
+      .bind(installationId, keepJson),
+    db
+      .prepare(`DELETE FROM repositories WHERE installation_id = ?${keepClause}`)
+      .bind(installationId, keepJson),
   ]);
 }
 
@@ -127,7 +175,7 @@ export async function getRepository(
     .prepare(
       `SELECT full_name, owner, name, installation_id, private, archived, fork, language,
               default_branch, pushed_at, html_url, synced_at
-       FROM repositories WHERE full_name = ?`,
+       FROM repositories WHERE full_name = ? COLLATE NOCASE`,
     )
     .bind(fullName)
     .first<RepositoryRow>();
@@ -182,6 +230,68 @@ export interface StoredResult {
   catalogSha: string | null;
 }
 
+interface ResultInput {
+  repo: string;
+  practiceId: string;
+  state: CellResult["state"];
+  failing: number;
+  unknown: number;
+  checks: string;
+  headSha: string | null;
+  catalogSha: string | null;
+  checkedAt: string | null;
+}
+
+async function writeResultInputs(
+  db: D1Database,
+  inputs: ResultInput[],
+  preserveCheckedAt: boolean,
+): Promise<void> {
+  const checkedAtUpdate = preserveCheckedAt ? "results.checked_at" : "excluded.checked_at";
+  const statements: D1PreparedStatement[] = [];
+
+  for (const chunk of jsonChunks(inputs, RESULT_WRITE_CHUNK_SIZE)) {
+    statements.push(
+      db
+        .prepare(
+          `WITH input AS (
+             SELECT
+               json_extract(value, '$.repo') AS repo_full_name,
+               json_extract(value, '$.practiceId') AS practice_id,
+               json_extract(value, '$.state') AS state,
+               json_extract(value, '$.failing') AS failing,
+               json_extract(value, '$.unknown') AS unknown,
+               json_extract(value, '$.checks') AS checks_json,
+               json_extract(value, '$.headSha') AS head_sha,
+               json_extract(value, '$.catalogSha') AS catalog_sha,
+               json_extract(value, '$.checkedAt') AS checked_at
+             FROM json_each(?)
+           )
+           INSERT INTO results
+             (repo_full_name, practice_id, state, failing, unknown, checks_json,
+              head_sha, catalog_sha, checked_at)
+           SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
+                  head_sha, catalog_sha, checked_at
+           FROM input
+           WHERE true
+           ON CONFLICT(repo_full_name, practice_id) DO UPDATE SET
+             state = excluded.state,
+             failing = excluded.failing,
+             unknown = excluded.unknown,
+             checks_json = excluded.checks_json,
+             head_sha = excluded.head_sha,
+             catalog_sha = excluded.catalog_sha,
+             checked_at = ${checkedAtUpdate}`,
+        )
+        .bind(chunk),
+    );
+  }
+
+  if (statements.length > 0) {
+    await db.batch(statements);
+  }
+}
+
 interface ResultRow {
   repo_full_name: string;
   practice_id: string;
@@ -216,35 +326,20 @@ export async function writeResults(db: D1Database, rows: StoredResult[]): Promis
     return;
   }
 
-  await db.batch(
-    rows.map((row) =>
-      db
-        .prepare(
-          `INSERT INTO results
-             (repo_full_name, practice_id, state, failing, unknown, checks_json,
-              head_sha, catalog_sha, checked_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(repo_full_name, practice_id) DO UPDATE SET
-             state = excluded.state,
-             failing = excluded.failing,
-             unknown = excluded.unknown,
-             checks_json = excluded.checks_json,
-             head_sha = excluded.head_sha,
-             catalog_sha = excluded.catalog_sha,
-             checked_at = excluded.checked_at`,
-        )
-        .bind(
-          row.repo,
-          row.practiceId,
-          row.cell.state,
-          row.cell.failing,
-          row.cell.unknown,
-          JSON.stringify(row.checks),
-          row.headSha,
-          row.catalogSha,
-          row.cell.checkedAt,
-        ),
-    ),
+  await writeResultInputs(
+    db,
+    rows.map((row) => ({
+      repo: row.repo,
+      practiceId: row.practiceId,
+      state: row.cell.state,
+      failing: row.cell.failing,
+      unknown: row.cell.unknown,
+      checks: JSON.stringify(row.checks),
+      headSha: row.headSha,
+      catalogSha: row.catalogSha,
+      checkedAt: row.cell.checkedAt,
+    })),
+    false,
   );
 }
 
@@ -307,28 +402,22 @@ export async function markUnknown(
     return;
   }
 
-  const checkedAt = null;
   const checks = JSON.stringify([unknownCheck(detail)]);
 
-  await db.batch(
-    catalog.practices.map((practice) =>
-      db
-        .prepare(
-          `INSERT INTO results
-             (repo_full_name, practice_id, state, failing, unknown, checks_json,
-              head_sha, catalog_sha, checked_at)
-           VALUES (?, ?, 'unknown', 0, 1, ?, NULL, ?, ?)
-           ON CONFLICT(repo_full_name, practice_id) DO UPDATE SET
-             state = 'unknown',
-             failing = 0,
-             unknown = 1,
-             checks_json = excluded.checks_json,
-             head_sha = NULL,
-             catalog_sha = excluded.catalog_sha,
-             checked_at = results.checked_at`,
-        )
-        .bind(repo, practice.id, checks, catalog.sha, checkedAt),
-    ),
+  await writeResultInputs(
+    db,
+    catalog.practices.map((practice) => ({
+      repo,
+      practiceId: practice.id,
+      state: "unknown",
+      failing: 0,
+      unknown: 1,
+      checks,
+      headSha: null,
+      catalogSha: catalog.sha,
+      checkedAt: null,
+    })),
+    true,
   );
 }
 
@@ -343,13 +432,13 @@ export async function deleteResultsNotIn(
     return;
   }
 
-  const placeholders = practiceIds.map(() => "?").join(", ");
   await db
     .prepare(
       `DELETE FROM results
-       WHERE repo_full_name = ? AND practice_id NOT IN (${placeholders})`,
+       WHERE repo_full_name = ?
+         AND practice_id NOT IN (SELECT value FROM json_each(?))`,
     )
-    .bind(repo, ...practiceIds)
+    .bind(repo, JSON.stringify(practiceIds))
     .run();
 }
 

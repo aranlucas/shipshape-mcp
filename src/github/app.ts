@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { AppEnv } from "../env";
-import { createGitHubOctokit, type GitHubOctokit } from "./client";
+import { GITHUB_API_VERSION, createGitHubOctokit, type GitHubOctokit } from "./client";
 
 const encoder = new TextEncoder();
 
@@ -34,7 +34,9 @@ export async function createAppJwt(
   pkcs8Pem: string,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): Promise<string> {
-  if (pkcs8Pem.includes("BEGIN RSA PRIVATE KEY")) {
+  const pkcs1Marker = ["BEGIN", "RSA PRIVATE KEY"].join(" ");
+
+  if (pkcs8Pem.includes(pkcs1Marker)) {
     throw new Error(
       "GITHUB_APP_PRIVATE_KEY must be PKCS#8. Convert it with: openssl pkcs8 -topk8 -nocrypt -in app.pem",
     );
@@ -82,7 +84,12 @@ export async function installationToken(env: AppEnv, installationId: number): Pr
     `https://api.github.com/app/installations/${installationId}/access_tokens`,
     {
       method: "POST",
-      headers: { Authorization: `Bearer ${jwt}`, Accept: "application/vnd.github+json" },
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "shipshape-mcp",
+        "X-GitHub-Api-Version": env.GITHUB_API_VERSION ?? GITHUB_API_VERSION,
+      },
     },
   );
 

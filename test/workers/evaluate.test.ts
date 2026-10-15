@@ -10,6 +10,7 @@ import { type Catalog, type CatalogPractice, readStoredCatalog } from "@/practic
 import {
   type StoredRepository,
   type StoredResult,
+  deleteResultsNotIn,
   readResults,
   upsertRepositories,
   writeCatalog,
@@ -146,6 +147,7 @@ interface GitHubMockOptions {
   treePaths?: string[];
   settings?: Record<string, unknown>;
   head?: string;
+  fileContent?: string;
 }
 
 function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
@@ -213,8 +215,15 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
       }
 
       if (url.pathname.startsWith("/repos/octo/demo/contents/")) {
+        const content = options.fileContent ?? "content";
+
         return Promise.resolve(
-          jsonResponse({ type: "file", encoding: "base64", content: btoa("content"), size: 7 }),
+          jsonResponse({
+            type: "file",
+            encoding: "base64",
+            content: btoa(content),
+            size: content.length,
+          }),
         );
       }
 
@@ -240,6 +249,55 @@ afterEach(() => {
 });
 
 describe("evaluateRepository", () => {
+  it("persists pass and fail results for a 512 KiB file when the match is at the end", async () => {
+    const needle = "needle-at-end";
+    const fileContent = `${"x".repeat(512 * 1024 - needle.length)}${needle}`;
+    const practices = [
+      validPractice("present", "files", [
+        { type: "file-contains", path: "README.md", text: needle },
+      ]),
+      validPractice("absent", "files", [
+        { type: "file-contains", path: "README.md", text: "different-needle" },
+      ]),
+    ];
+    await seed(catalog(practices));
+    mockGitHub({ fileContent });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    const rows = await readResults(appEnv.DB, repoName);
+    expect(new Map(rows.map((row) => [row.practiceId, row])).get("present")?.cell.state).toBe(
+      "pass",
+    );
+    expect(new Map(rows.map((row) => [row.practiceId, row])).get("absent")?.cell.state).toBe(
+      "fail",
+    );
+  });
+
+  it("persists 40 control-heavy diagnostics within the serialized D1 item bound", async () => {
+    const fileContent = `${"\u0001".repeat(512 * 1024 - 4)}END!`;
+    const checks: Practice["checks"] = [
+      ...Array.from({ length: 39 }, () => ({
+        type: "file-matches" as const,
+        path: "README.md",
+        source: "files/check.txt",
+      })),
+      { type: "file-contains", path: "README.md", text: "missing" },
+    ];
+    const practice = validPractice("control-heavy", "files", checks);
+
+    practice.files = { "files/check.txt": fileContent };
+    await seed(catalog([practice]));
+    mockGitHub({ fileContent });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    const [stored] = await readResults(appEnv.DB, repoName);
+    expect(stored?.cell.state).toBe("fail");
+    expect(stored?.checks).toHaveLength(40);
+    expect(stored?.checks.at(-1)?.state).toBe("fail");
+  });
+
   it("evaluates passing, failing, and language-inapplicable practices into D1", async () => {
     const practices = [
       validPractice("readme", "files", [{ type: "file-exists", path: "README.md", absent: false }]),
@@ -419,6 +477,31 @@ describe("evaluateRepository", () => {
     });
   });
 
+  it("keeps a multi-chunk result write atomic when a later chunk fails", async () => {
+    await seed(catalog([]), [storedRow("practice-0")]);
+    await appEnv.DB.prepare(
+      `CREATE TRIGGER reject_result_chunk
+       BEFORE INSERT ON results
+       WHEN NEW.practice_id = 'practice-100'
+       BEGIN
+         SELECT RAISE(ABORT, 'synthetic chunk failure');
+       END`,
+    ).run();
+
+    const rows = Array.from({ length: 101 }, (_, index) => storedRow(`practice-${index}`, "fail"));
+
+    try {
+      await expect(writeResults(appEnv.DB, rows)).rejects.toThrow("synthetic chunk failure");
+    } finally {
+      await appEnv.DB.prepare("DROP TRIGGER reject_result_chunk").run();
+    }
+
+    const persisted = await readResults(appEnv.DB, repoName);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toMatchObject({ practiceId: "practice-0", headSha });
+    expect(persisted[0]?.cell.checkedAt).toBe(oldCheckedAt);
+  });
+
   it("deletes stored result rows for practices removed from the catalog", async () => {
     const keep = validPractice("keep", "files", [
       { type: "file-exists", path: "README.md", absent: false },
@@ -433,5 +516,21 @@ describe("evaluateRepository", () => {
     await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
 
     expect((await readResults(appEnv.DB, repoName)).map((row) => row.practiceId)).toEqual(["keep"]);
+  });
+
+  it("deletes obsolete results when a catalog has more than 100 practices", async () => {
+    const rows = Array.from({ length: 101 }, (_, index) => storedRow(`practice-${index}`));
+    await seed(catalog([]), rows);
+
+    await deleteResultsNotIn(
+      appEnv.DB,
+      repoName,
+      rows.slice(0, -1).map((row) => row.practiceId),
+    );
+
+    expect(await readResults(appEnv.DB, repoName)).toHaveLength(100);
+    expect(
+      (await readResults(appEnv.DB, repoName)).some((row) => row.practiceId === "practice-100"),
+    ).toBe(false);
   });
 });

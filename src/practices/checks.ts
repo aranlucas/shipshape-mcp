@@ -12,6 +12,10 @@ type ReadableFile = string | { error: string };
 type ParseFailure = { ok: false; detail: string; missing: boolean };
 type ParseResult = { ok: true; value: unknown } | ParseFailure;
 
+const MAX_DIAGNOSTIC_BYTES = 2 * 1024;
+const DIAGNOSTIC_TRUNCATION_SUFFIX = "… [truncated for storage]";
+const diagnosticEncoder = new TextEncoder();
+
 function stringified(value: unknown): string | null {
   if (typeof value === "string") {
     return value;
@@ -20,6 +24,37 @@ function stringified(value: unknown): string | null {
   const serialized = JSON.stringify(value);
 
   return serialized === undefined ? null : serialized;
+}
+
+interface DiagnosticPreview {
+  text: string | null;
+  truncated: boolean;
+}
+
+function encodedDiagnosticBytes(text: string): number {
+  return diagnosticEncoder.encode(JSON.stringify(text)).byteLength;
+}
+
+function diagnosticPreview(value: unknown): DiagnosticPreview {
+  const text = stringified(value);
+
+  if (text === null || encodedDiagnosticBytes(text) <= MAX_DIAGNOSTIC_BYTES) {
+    return { text, truncated: false };
+  }
+
+  let prefix = "";
+
+  for (const character of text) {
+    const candidate = `${prefix}${character}${DIAGNOSTIC_TRUNCATION_SUFFIX}`;
+
+    if (encodedDiagnosticBytes(candidate) > MAX_DIAGNOSTIC_BYTES) {
+      break;
+    }
+
+    prefix += character;
+  }
+
+  return { text: `${prefix}${DIAGNOSTIC_TRUNCATION_SUFFIX}`, truncated: true };
 }
 
 function result(
@@ -32,14 +67,32 @@ function result(
     detail?: string | null;
   } = {},
 ): CheckResult {
+  const absentDiagnostic: DiagnosticPreview = { text: null, truncated: false };
+  const expected =
+    options.expected === undefined ? absentDiagnostic : diagnosticPreview(options.expected);
+  const actual =
+    options.actual === undefined ? absentDiagnostic : diagnosticPreview(options.actual);
+  const detail =
+    options.detail === undefined || options.detail === null
+      ? absentDiagnostic
+      : diagnosticPreview(options.detail);
+  const detailText =
+    expected.truncated || actual.truncated
+      ? diagnosticPreview(
+          detail.text
+            ? `${detail.text} Diagnostic values were truncated for storage.`
+            : "Diagnostic values were truncated for storage.",
+        ).text
+      : detail.text;
+
   return {
     type: check.type,
     label: checkLabel(check),
     state,
     path: options.path ?? null,
-    expected: options.expected === undefined ? null : stringified(options.expected),
-    actual: options.actual === undefined ? null : stringified(options.actual),
-    detail: options.detail ?? null,
+    expected: expected.text,
+    actual: actual.text,
+    detail: detailText,
   };
 }
 

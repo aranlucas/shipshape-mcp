@@ -127,8 +127,12 @@ cf workers secrets update GITHUB_WEBHOOK_SECRET --worker shipshape-mcp --text "$
 cf workers secrets update COOKIE_ENCRYPTION_KEY --worker shipshape-mcp --text "$COOKIE_ENCRYPTION_KEY"
 ```
 
-`CATALOG_REPO` is configured as the text binding `aranlucas/practices`; keep
-the catalog write allowlist and this binding aligned if the catalog is moved.
+`CATALOG_REPO` is configured as a text binding and defaults to
+`aranlucas/practices`. Set `CATALOG_REPO=owner/name` in the deployment
+environment before building or deploying when the catalog repository moves.
+The catalog lookup and write allowlist compare repository names
+case-insensitively; keep the configured value aligned with an installed
+repository.
 `PUBLIC_ORIGIN` is the deployed Worker origin and is used to build the OAuth
 callback and webhook URLs.
 
