@@ -352,3 +352,40 @@ export async function deleteResultsNotIn(
     .bind(repo, ...practiceIds)
     .run();
 }
+
+export async function incrementPending(db: D1Database, count: number): Promise<void> {
+  if (count <= 0) {
+    return;
+  }
+
+  await db.prepare("UPDATE sweep SET pending = pending + ? WHERE id = 1").bind(count).run();
+}
+
+export async function decrementPending(db: D1Database, count: number): Promise<void> {
+  if (count <= 0) {
+    return;
+  }
+
+  await db.prepare("UPDATE sweep SET pending = MAX(0, pending - ?) WHERE id = 1").bind(count).run();
+}
+
+export async function completePendingMessage(db: D1Database): Promise<void> {
+  const completedAt = new Date().toISOString();
+
+  await db
+    .prepare(
+      `UPDATE sweep
+       SET pending = CASE WHEN pending > 0 THEN pending - 1 ELSE 0 END,
+           last_completed_at = CASE
+             WHEN pending > 0 AND pending - 1 = 0 THEN ?
+             ELSE last_completed_at
+           END
+       WHERE id = 1`,
+    )
+    .bind(completedAt)
+    .run();
+}
+
+export const incrementSweepPending = incrementPending;
+
+export const completeSweepMessage = completePendingMessage;
