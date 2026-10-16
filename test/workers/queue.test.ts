@@ -215,30 +215,108 @@ describe("evaluation queue Worker seam", () => {
     await writeCatalog(appEnv.DB, catalog(), new Date().toISOString());
     await appEnv.DB.prepare("UPDATE sweep SET pending = 1 WHERE id = 1").run();
     const message: EvaluationMessage = { repo: repo.fullName, installationId: 1, reason: "push" };
+    const spies = queueSpies();
     mockGitHub(500);
 
     const first = await runQueue([message]);
 
-    expect(first.result.explicitAcks).toEqual([]);
-    expect(first.result.retryMessages).toEqual([{ msgId: "message-1" }]);
-    expect(first.retries[0]).toHaveBeenCalledWith({ delaySeconds: 60 });
+    expect(first.result.explicitAcks).toEqual(["message-1"]);
+    expect(first.result.retryMessages).toEqual([]);
+    expect(spies.messages()).toEqual([{ ...message, practiceId: "readme" }]);
+    expect(Array.from(spies.sendBatch.mock.calls[0]?.[0] ?? [])[0]).toMatchObject({
+      delaySeconds: 60,
+    });
     expect((await store.readResults(appEnv.DB, repo.fullName))[0]?.cell.state).toBe("unknown");
     expect(
       await appEnv.DB.prepare("SELECT pending, last_completed_at FROM sweep WHERE id = 1").first(),
     ).toEqual({ pending: 1, last_completed_at: null });
 
     mockGitHub();
-    const recovered = await runQueue([message], 2);
+    const recovered = await runQueue(spies.messages());
 
     expect(recovered.result.explicitAcks).toEqual(["message-1"]);
     expect(recovered.result.retryMessages).toEqual([]);
     expect((await store.readResults(appEnv.DB, repo.fullName))[0]?.cell.state).toBe("pass");
+    expect((await store.readResults(appEnv.DB, repo.fullName))[0]?.cell.retrying).toBeUndefined();
     const sweep = await appEnv.DB.prepare(
       "SELECT pending, last_completed_at FROM sweep WHERE id = 1",
     ).first<{ pending: number; last_completed_at: string | null }>();
 
     expect(sweep?.pending).toBe(0);
     expect(sweep?.last_completed_at).toEqual(expect.any(String));
+  });
+
+  it("retries unavailable practices independently and clears loading as each finishes", async () => {
+    const repo = repository("octo/demo", 1);
+    const practices = [practice("healthy"), practice("first"), practice("second")];
+    await upsertRepositories(appEnv.DB, [repo], new Date().toISOString());
+    await writeCatalog(appEnv.DB, { ...catalog(), practices }, new Date().toISOString());
+    await store.writeResults(
+      appEnv.DB,
+      practices.map((item) => ({
+        repo: repo.fullName,
+        practiceId: item.id,
+        cell: {
+          state: item.id === "healthy" ? "pass" : "unknown",
+          checkedAt: "2026-10-15T12:00:00Z",
+          failing: 0,
+          unknown: item.id === "healthy" ? 0 : 1,
+        },
+        checks: [],
+        headSha,
+        catalogSha,
+      })),
+    );
+    const healthy = (await store.readResults(appEnv.DB, repo.fullName)).find(
+      (row) => row.practiceId === "healthy",
+    );
+    await appEnv.DB.prepare("UPDATE sweep SET pending = 1 WHERE id = 1").run();
+    const evaluation = vi.spyOn(evaluate, "evaluateRepository").mockResolvedValue("retry");
+    const spies = queueSpies();
+    await runQueue([{ repo: repo.fullName, installationId: 1, reason: "push" }]);
+    const retries = spies.messages();
+    expect(retries.map((message) => message.practiceId)).toEqual(["first", "second"]);
+    expect(
+      (await store.readResults(appEnv.DB, repo.fullName)).filter((row) => row.cell.retrying),
+    ).toHaveLength(2);
+
+    evaluation.mockImplementation(async (_env, _repo, options) => {
+      if (options?.practiceId === "first") {
+        const row = (await store.readResults(appEnv.DB, repo.fullName)).find(
+          (item) => item.practiceId === "first",
+        );
+        if (!row) {
+          throw new Error("Missing first practice");
+        }
+        await store.writeResults(appEnv.DB, [
+          { ...row, cell: { ...row.cell, state: "pass", unknown: 0 } },
+        ]);
+        return "evaluated";
+      }
+      return "retry";
+    });
+    const partial = await runQueue(retries);
+    expect(partial.result.explicitAcks).toEqual(["message-1"]);
+    expect(partial.result.retryMessages).toEqual([{ msgId: "message-2" }]);
+    let rows = await store.readResults(appEnv.DB, repo.fullName);
+    expect(rows.find((row) => row.practiceId === "first")?.cell).toMatchObject({ state: "pass" });
+    expect(rows.filter((row) => row.cell.retrying).map((row) => row.practiceId)).toEqual([
+      "second",
+    ]);
+    expect(rows.find((row) => row.practiceId === "healthy")).toEqual(healthy);
+    expect(await appEnv.DB.prepare("SELECT pending FROM sweep WHERE id = 1").first()).toEqual({
+      pending: 1,
+    });
+
+    await runQueue([retries[1]], 2);
+    rows = await store.readResults(appEnv.DB, repo.fullName);
+    expect(rows.find((row) => row.practiceId === "second")?.cell).toMatchObject({
+      state: "unknown",
+    });
+    expect(rows.some((row) => row.cell.retrying)).toBe(false);
+    expect(await appEnv.DB.prepare("SELECT pending FROM sweep WHERE id = 1").first()).toEqual({
+      pending: 0,
+    });
   });
 
   it.each([1, 2, 3])("bounds transient evaluation retries at delivery %s", async (attempts) => {

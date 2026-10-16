@@ -281,6 +281,7 @@ async function writeResultInputs(
              checks_json = excluded.checks_json,
              head_sha = excluded.head_sha,
              catalog_sha = excluded.catalog_sha,
+             retrying = 0,
              checked_at = ${checkedAtUpdate}`,
         )
         .bind(chunk),
@@ -302,18 +303,25 @@ interface ResultRow {
   head_sha: string | null;
   catalog_sha: string | null;
   checked_at: string | null;
+  retrying: number;
 }
 
 function resultFromRow(row: ResultRow): StoredResult {
+  const cell: CellResult = {
+    state: row.state,
+    checkedAt: row.checked_at,
+    failing: row.failing,
+    unknown: row.unknown,
+  };
+
+  if (row.retrying) {
+    cell.retrying = true;
+  }
+
   return {
     repo: row.repo_full_name,
     practiceId: row.practice_id,
-    cell: {
-      state: row.state,
-      checkedAt: row.checked_at,
-      failing: row.failing,
-      unknown: row.unknown,
-    },
+    cell,
     // SAFETY: checks_json is written only by writeResults and markUnknown as a CheckResult array.
     checks: JSON.parse(row.checks_json) as CheckResult[],
     headSha: row.head_sha,
@@ -348,7 +356,7 @@ export async function readResults(db: D1Database, repo?: string): Promise<Stored
     ? await db
         .prepare(
           `SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
-                  head_sha, catalog_sha, checked_at
+                  head_sha, catalog_sha, checked_at, retrying
            FROM results WHERE repo_full_name = ? ORDER BY practice_id`,
         )
         .bind(repo)
@@ -356,7 +364,7 @@ export async function readResults(db: D1Database, repo?: string): Promise<Stored
     : await db
         .prepare(
           `SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
-                  head_sha, catalog_sha, checked_at
+                  head_sha, catalog_sha, checked_at, retrying
            FROM results ORDER BY repo_full_name, practice_id`,
         )
         .all<ResultRow>();
@@ -439,6 +447,21 @@ export async function deleteResultsNotIn(
          AND practice_id NOT IN (SELECT value FROM json_each(?))`,
     )
     .bind(repo, JSON.stringify(practiceIds))
+    .run();
+}
+
+export async function setResultsRetrying(
+  db: D1Database,
+  repo: string,
+  practiceIds: string[],
+  retrying: boolean,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE results SET retrying = ?
+       WHERE repo_full_name = ? AND practice_id IN (SELECT value FROM json_each(?))`,
+    )
+    .bind(retrying ? 1 : 0, repo, JSON.stringify(practiceIds))
     .run();
 }
 

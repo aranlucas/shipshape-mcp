@@ -5,6 +5,8 @@ export interface EvaluationMessage {
   repo: string;
   installationId: number;
   reason: "push" | "catalog" | "sweep" | "manual" | "installation";
+  /** Retries target one practice without repeating completed evaluations. */
+  practiceId?: string;
 }
 
 export interface AppEnv {

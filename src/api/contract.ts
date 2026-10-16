@@ -32,6 +32,7 @@ export interface CellResult {
   checkedAt: string | null; // ISO; null = never evaluated
   failing: number; // count of failing checks
   unknown: number;
+  retrying?: boolean; // a temporary evaluation failure is queued for another attempt
 }
 
 export interface CheckResult {

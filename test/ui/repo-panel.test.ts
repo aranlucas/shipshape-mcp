@@ -317,20 +317,96 @@ describe("repository panel during overview polling", () => {
     expect(section.open).toBe(true);
 
     repoRequest.mockResolvedValue(detail(vienna, "Recovered check"));
-    await act(() => {
-      const retry = container.querySelector<HTMLButtonElement>(".panel [role='alert'] button");
-
-      if (!retry) {
-        throw new Error("Missing detail retry button");
-      }
-
-      retry.click();
-    });
+    expect(container.textContent).toContain("Retrying automatically…");
+    await poll();
     await flushQueries();
     expect(container.textContent).toContain("Recovered check");
     expect(container.textContent).not.toContain("Couldn't update checks");
     expect(container.querySelector(".panel-section details")).toBe(section);
     expect(section.open).toBe(true);
+  });
+
+  it("retries overview failures without restarting the panel request", async () => {
+    const pending = deferred<RepoDetailResponse>();
+
+    const overviewRequest = vi
+      .spyOn(api, "overview")
+      .mockResolvedValueOnce(overview())
+      .mockRejectedValueOnce(new ApiError("Overview temporarily unavailable", 503))
+      .mockResolvedValue(overview(0));
+
+    const repoRequest = vi.spyOn(api, "repo").mockReturnValue(pending.promise);
+    await mount();
+    await poll();
+    await flushQueries();
+    expect(container.textContent).toContain("Retrying automatically…");
+    expect(container.textContent).toContain("Loading checks…");
+    await poll();
+    await flushQueries();
+    expect(overviewRequest).toHaveBeenCalledTimes(3);
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+    expect(container.textContent).not.toContain("Retrying automatically…");
+    await act(async () => {
+      pending.resolve(detail());
+      await pending.promise;
+    });
+    await flushQueries();
+    expect(container.textContent).toContain("Original check");
+    expect(container.textContent).not.toContain("Loading checks…");
+  });
+
+  it("recovers the first load automatically after repeated failures", async () => {
+    vi.spyOn(api, "overview")
+      .mockRejectedValueOnce(new ApiError("Temporary failure", 503))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue(overview(0));
+    vi.spyOn(api, "repo").mockResolvedValue(detail());
+    await mount();
+    expect(container.textContent).toContain("Retrying automatically…");
+    await poll();
+    await poll();
+    await poll();
+    await flushQueries();
+    expect(container.textContent).toContain("Original check");
+    expect(container.textContent).not.toContain("Retrying automatically…");
+  });
+
+  it("does not retry permanent detail failures", async () => {
+    vi.spyOn(api, "overview").mockResolvedValue(overview(0));
+
+    const repoRequest = vi
+      .spyOn(api, "repo")
+      .mockRejectedValue(new ApiError("Repository missing", 404));
+
+    await mount();
+    await poll();
+    await poll();
+    expect(container.textContent).toContain("Repository missing");
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".panel [role='status']")).toBeNull();
+  });
+
+  it("shows individual retries and clears them even when checkedAt is unchanged", async () => {
+    const retrying = overview(0);
+    retrying.results[vienna.fullName].lint = {
+      ...cell,
+      state: "unknown",
+      unknown: 1,
+      retrying: true,
+    };
+    const pendingDetail = detail();
+    pendingDetail.practices[0].result = { ...retrying.results[vienna.fullName].lint };
+    vi.spyOn(api, "overview").mockResolvedValueOnce(retrying).mockResolvedValue(overview(0));
+    vi.spyOn(api, "repo").mockResolvedValueOnce(pendingDetail).mockResolvedValue(detail());
+    await mount();
+    expect(container.querySelectorAll(".mark-loading")).toHaveLength(2);
+    expect(container.textContent).toContain("Retrying unavailable checks…");
+    await poll();
+    await poll();
+    await flushQueries();
+    expect(container.querySelector(".mark-loading")).toBeNull();
+    expect(container.textContent).not.toContain("Retrying unavailable checks…");
+    expect(container.textContent).toContain("Original check");
   });
 
   it("catches up after a slow background request and stops polling once results match", async () => {

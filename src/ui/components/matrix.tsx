@@ -143,6 +143,7 @@ export function Matrix({ overview, groups, selected }: MatrixProps) {
                       >
                         <StateMark
                           state={state}
+                          loading={overview.results[repo.fullName]?.[practice.id]?.retrying}
                           label={`${practice.title}: ${STATE_WORDS[state]}`}
                         />
                       </td>

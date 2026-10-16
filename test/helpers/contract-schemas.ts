@@ -36,6 +36,7 @@ const cellResult = z
     checkedAt: z.string().nullable(),
     failing: z.number(),
     unknown: z.number(),
+    retrying: z.boolean().optional(),
   })
   .strict();
 

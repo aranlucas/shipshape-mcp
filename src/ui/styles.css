@@ -432,6 +432,29 @@ textarea::placeholder {
 
 /* Matrix: the one dense, bold element. */
 
+.mark-loading {
+  animation: check-spin 1.2s linear infinite;
+}
+
+.mark-loading circle {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-dasharray: 22 10;
+}
+
+@keyframes check-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark-loading {
+    animation: none;
+  }
+}
+
 .matrix-scroll {
   overflow-x: auto;
   margin-inline: calc(var(--gutter) * -1);
