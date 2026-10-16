@@ -21,6 +21,10 @@ function practice(overrides: PracticeOverrides = {}): Practice {
     selection.owners = appliesTo.owners;
   }
 
+  if (appliesTo?.visibility) {
+    selection.visibility = appliesTo.visibility;
+  }
+
   if (appliesTo?.languages) {
     selection.languages = appliesTo.languages;
   }
@@ -42,6 +46,19 @@ function practice(overrides: PracticeOverrides = {}): Practice {
 }
 
 describe("practice applicability", () => {
+  it("keeps both visibilities eligible unless the practice selects one", () => {
+    const privateRepo = { ...snapshotRepository, private: true };
+    const publicOnly = practice({ appliesTo: { visibility: "public" } });
+    const privateOnly = practice({ appliesTo: { visibility: "private" } });
+
+    expect(applies(practice(), privateRepo, makeSnapshot())).toBe(true);
+    expect(applies(practice(), snapshotRepository, makeSnapshot())).toBe(true);
+    expect(applies(publicOnly, privateRepo, makeSnapshot())).toBe(false);
+    expect(applies(publicOnly, snapshotRepository, makeSnapshot())).toBe(true);
+    expect(applies(privateOnly, privateRepo, makeSnapshot())).toBe(true);
+    expect(applies(privateOnly, snapshotRepository, makeSnapshot())).toBe(false);
+  });
+
   it("matches repository globs case-insensitively in linear time", () => {
     expect(globMatches("svc-*", "svc-api")).toBe(true);
     expect(globMatches("svc-*", "SVC-api")).toBe(true);

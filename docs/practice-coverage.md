@@ -12,6 +12,14 @@ The live catalog is a separate private repository. Editing `catalog-seed` does n
 
 Oxforge checks deliberately do not claim the active lint command ran, the lockfile resolved a range, every local override is justified, or arbitrary scripts are unused. In particular, passing shared inheritance must not be read as proof that all shared rules remain enabled. The formatter check establishes shared inheritance and Tailwind opt-in; it does not verify stylesheet contents or run the formatter.
 
+## Repository settings practices
+
+`appliesTo.visibility` optionally selects `public` or `private` repositories using inventory visibility. Omitting it preserves eligibility for both. Deploy this applicability support before adopting definitions that use it.
+
+- `always-suggest-updating-pull-request-branches`: requires the repository API's `allow_update_branch` setting to be `true`. Disabled suggestions fail; undisclosed settings and failed reads remain unknown. It applies to non-archived, non-fork repositories regardless of language or visibility. Remediation is to enable **Always suggest updating pull request branches** under **Settings → General → Pull Requests**. See [GitHub's documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-suggestions-to-update-pull-request-branches). The existing setting evaluator already supports this seed; adopt it in the live catalog through its normal editing workflow.
+
+- `allow-auto-merge`: requires `allow_auto_merge: true` for public, non-archived, non-fork repositories. Private repositories are `not_applicable`, regardless of account plan or setting, and receive no failure or score penalty. Disabled auto-merge fails for public repositories; undisclosed settings and failed reads remain unknown. Enable **Allow auto-merge** under **Settings → General → Pull Requests**. This repository setting is separate from the `dependabot-automerge` workflow practice. See [GitHub’s documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-auto-merge-for-pull-requests-in-your-repository).
+
 ## Evidence behind the defaults
 
 - [Oxforge base policy](https://github.com/aranlucas/oxforge/blob/main/configs/base.json) keeps consistent-return and readonly-parameter rules off and centralizes anti-slop policy.
@@ -24,7 +32,7 @@ These were inspected on 2026-10-15. They are examples of specific decisions, not
 
 ## Remaining checks requiring review or a future evaluator
 
-The nine seed practices do not cover every engineering preference. The CI seed still establishes only file presence, a pnpm/setup reference and root contents-read permissions; it does not prove one CI workflow, appropriate Ubuntu/public versus private self-hosted runners, locked setup, or absence of duplicate install/cache/provider-build work. The auto-merge seed checks file presence, not workflow safety or required-check enforcement.
+The eleven seed practices do not cover every engineering preference. The CI seed still establishes only file presence, a pnpm/setup reference and root contents-read permissions; it does not prove one CI workflow, appropriate Ubuntu/public versus private self-hosted runners, locked setup, or absence of duplicate install/cache/provider-build work. The Dependabot auto-merge seed checks file presence, not workflow safety or required-check enforcement.
 
 The Vitest script check establishes the declared test command; it does not inspect test imports or prove tests pass. Root/package test placement, source aliases without `src` in imports, and standalone Playwright e2e paths/configuration still need dedicated semantic evaluators. Framework, native, generated, vendor and Storybook exceptions must be considered for those future checks. Preserve meaningful security, domain and clinical contracts; static text matching cannot establish behavior-focused test quality. Remove only independently proven unused scripts, never diagnostic tools just because CI does not invoke them.
 

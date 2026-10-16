@@ -47,6 +47,10 @@ export function applies(
 ): boolean | "unknown" {
   const selection = practice.appliesTo;
 
+  if (selection.visibility && repo.private !== (selection.visibility === "private")) {
+    return false;
+  }
+
   if (
     selection.owners &&
     !selection.owners.some((owner) => owner.toLowerCase() === repo.owner.toLowerCase())

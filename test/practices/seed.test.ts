@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { aggregate, runCheck } from "@/practices/checks";
 import { parsePractice, type Practice } from "@/practices/schema";
 import type { RepoSnapshot } from "@/practices/snapshot";
+import { makeSnapshot, type SnapshotOptions } from "@test/helpers/snapshot";
 
 const repositoryRoot = resolve(import.meta.dirname, "../..");
 
@@ -18,6 +19,8 @@ const expectedPracticeIds = [
   "single-ci-workflow",
   "pinned-actions",
   "squash-only-merges",
+  "always-suggest-updating-pull-request-branches",
+  "allow-auto-merge",
   "secret-scanning",
 ] as const;
 
@@ -36,6 +39,8 @@ interface SeedPractice {
   parsed: Practice;
   files: Record<string, string>;
 }
+
+type SettingCase = [label: string, settings: SnapshotOptions["settings"], state: string];
 
 function filesOnDisk(directory: string): Map<string, string> {
   const files = new Map<string, string>();
@@ -123,6 +128,48 @@ function repositorySnapshot(): RepoSnapshot {
 }
 
 describe("seed practice catalog", () => {
+  it.each<SettingCase>([
+    ["enabled", { allow_update_branch: true }, "pass"],
+    ["disabled", { allow_update_branch: false }, "fail"],
+    ["undisclosed", {}, "unknown"],
+    ["uncollected", null, "unknown"],
+    ["unreadable", { error: "GET /repos/octo/demo returned 403" }, "unknown"],
+  ])("evaluates branch update suggestions when settings are %s", (_label, settings, state) => {
+    const seed = seedPractices().find(
+      (practice) => practice.parsed.id === "always-suggest-updating-pull-request-branches",
+    );
+
+    if (!seed) {
+      throw new Error("Branch update suggestions practice is missing");
+    }
+
+    const snapshot = makeSnapshot({ settings });
+    const checks = seed.parsed.checks.map((check) => runCheck(check, snapshot, seed.files));
+
+    expect(aggregate(checks).state).toBe(state);
+  });
+
+  it.each<SettingCase>([
+    ["enabled", { allow_auto_merge: true }, "pass"],
+    ["disabled", { allow_auto_merge: false }, "fail"],
+    ["undisclosed", {}, "unknown"],
+    ["uncollected", null, "unknown"],
+    ["unreadable", { error: "GET /repos/octo/demo returned 403" }, "unknown"],
+  ])("evaluates auto-merge when public repository settings are %s", (_label, settings, state) => {
+    const seed = seedPractices().find((practice) => practice.parsed.id === "allow-auto-merge");
+
+    if (!seed) {
+      throw new Error("Allow auto-merge practice is missing");
+    }
+
+    expect(seed.parsed.appliesTo.visibility).toBe("public");
+
+    const snapshot = makeSnapshot({ settings });
+    const checks = seed.parsed.checks.map((check) => runCheck(check, snapshot, seed.files));
+
+    expect(aggregate(checks).state).toBe(state);
+  });
+
   it("contains folder-matching, parseable practice definitions and their file sources", () => {
     const seeds = seedPractices();
 

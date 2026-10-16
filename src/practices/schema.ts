@@ -209,6 +209,7 @@ export type Check = z.infer<typeof CheckSchema>;
 const AppliesToSchema = z
   .object({
     owners: z.array(z.string()).optional(),
+    visibility: z.enum(["public", "private"]).optional(),
     languages: z.array(z.string()).optional(),
     hasFiles: z.array(RepoPath).optional(),
     include: z.array(z.string()).default(["*"]),
