@@ -19,6 +19,11 @@ interface RepoPanelProps {
   onRefresh: (repo?: string) => Promise<void>;
 }
 
+interface LoadedRepoDetail {
+  fullName: string;
+  detail: RepoDetailResponse;
+}
+
 type Entry = RepoDetailResponse["practices"][number];
 
 interface CheckProps {
@@ -198,7 +203,11 @@ function PracticeEntry({ entry, repo }: PracticeEntryProps) {
 
 export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) {
   const fullName = `${owner}/${name}`;
-  const [detail, setDetail] = useState<RepoDetailResponse | null>(null);
+  const summary = overview.repos.find((item) => item.fullName === fullName);
+  // Overview polling returns new objects even when this repository hasn't changed.
+  const revision = JSON.stringify([overview.catalog.sha, summary, overview.results[fullName]]);
+  const [loaded, setLoaded] = useState<LoadedRepoDetail | null>(null);
+  const detail = loaded?.fullName === fullName ? loaded.detail : null;
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -206,11 +215,10 @@ export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) 
   useEffect(() => {
     let current = true;
 
-    setDetail(null);
     setError(null);
     api
       .repo(owner, name)
-      .then((value) => current && setDetail(value))
+      .then((value) => current && setLoaded({ fullName, detail: value }))
       .catch(
         (cause: unknown) =>
           current &&
@@ -222,7 +230,7 @@ export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) 
     return () => {
       current = false;
     };
-  }, [owner, name, overview]);
+  }, [owner, name, revision]);
 
   useEffect(() => {
     heading.current?.focus();
@@ -242,7 +250,7 @@ export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) 
 
   const neverChecked = detail?.practices.every((entry) => entry.result.checkedAt === null) ?? false;
 
-  const repo = detail?.repo ?? overview.repos.find((item) => item.fullName === fullName);
+  const repo = detail?.repo ?? summary;
 
   const checkedAt =
     detail?.practices.find((entry) => entry.result.checkedAt)?.result.checkedAt ?? null;

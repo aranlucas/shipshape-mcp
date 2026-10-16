@@ -45,6 +45,7 @@
     "@preact/preset-vite": "^2.10.6",
     "@types/node": "^26.6.5",
     "cf": "1.0.0-beta.17",
+    "happy-dom": "^21.0.1",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "oxfmt": "^0.73.0",
