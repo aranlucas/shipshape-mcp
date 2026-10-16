@@ -6,6 +6,7 @@ import { z } from "zod";
 import { GitHubBranchProtectionSchema, GitHubBranchSchema } from "../github/schemas";
 import { MAX_ALLOWED_CONCURRENCY, octokitGet, type GitHubOctokit } from "../github/client";
 import { protectionState, type BranchProtectionFact } from "./protection";
+import { LINT_STAGED_CONFIG_NAMES } from "./lint-staged";
 import type { Check, Practice } from "./schema";
 import type { StoredRepository } from "./store";
 
@@ -85,6 +86,9 @@ export function filesNeeded(practices: Practice[]): string[] {
       if (check.type === "husky-lint-staged") {
         paths.add("package.json");
         paths.add(".husky/pre-commit");
+        for (const name of LINT_STAGED_CONFIG_NAMES) {
+          paths.add(name);
+        }
       }
       if (check.type === "oxforge") {
         paths.add(joinPath(check.directory, "package.json"));

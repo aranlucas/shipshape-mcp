@@ -1,11 +1,18 @@
-Install Husky using the target repository's package manager and keep the
-pre-commit hook executable. Adapt the lint-staged patterns and commands to the
-repository's language and formatter configuration, while retaining a
-package.json prepare script that initializes Husky.
+Declare Husky and lint-staged locally and initialize Husky through prepare or
+postinstall, using the repository's package manager. Preserve existing build
+steps and production/CI install guards; `husky || true` is supported for
+installation, but lint-staged failures must still block commits.
 
-Declare Husky and lint-staged locally and configure non-empty lint-staged tasks
-in package.json. The pre-commit hook must invoke lint-staged directly using the
-repository's package manager. Preserve additional validation and build steps.
-Both `husky || true` in prepare and runner options such as `--no-stash` are
-supported. Unsupported shell control flow or an explicitly selected external
-configuration stays unknown and requires review; Shipshape does not execute hooks.
+Run lint-staged from the pre-commit hook, directly or through package scripts.
+Adapt patterns and commands to the repository's languages and formatter.
+Nonempty tasks may live in package.json or a separate JSON/YAML configuration;
+do not move configuration or replace the hook merely to match the pnpm example.
+Husky 9 runs user hooks through sh, so the user hook's executable bit is not
+required. Verify the hook locally without committing.
+
+Custom installers and hook directories, shell preambles, CLI config/cwd/diff
+selectors, ambiguous configuration and JS/TS task files remain unknown for
+review. Alias resolution is bounded and does not execute scripts. Preserve
+working setup rather than rewriting it just to turn unknown green. The check
+establishes static setup evidence; task execution and machine-local Git hook
+activation still need verification.
