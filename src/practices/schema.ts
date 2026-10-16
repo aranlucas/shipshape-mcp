@@ -60,6 +60,7 @@ const YamlPathCheck = z
   });
 
 export const CheckSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("vitest-test-script") }).strict(),
   z.object({ type: z.literal("husky-lint-staged") }).strict(),
   z
     .object({
@@ -259,6 +260,8 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
 
 export function checkLabel(check: Check): string {
   switch (check.type) {
+    case "vitest-test-script":
+      return "Every package.json has a test script that runs Vitest";
     case "oxforge-format":
       return `Shared Oxforge formatting with Tailwind sorting when declared in ${check.directory}`;
     case "husky-lint-staged":

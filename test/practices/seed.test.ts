@@ -10,6 +10,7 @@ const repositoryRoot = resolve(import.meta.dirname, "../..");
 const seedRoot = join(repositoryRoot, "catalog-seed", "practices");
 
 const expectedPracticeIds = [
+  "vitest-test-script",
   "oxforge-lint-format",
   "husky-lint-staged",
   "dependabot-weekly-grouped",
@@ -21,6 +22,7 @@ const expectedPracticeIds = [
 ] as const;
 
 const fileWorkflowPracticeIds = new Set<string>([
+  "vitest-test-script",
   "oxforge-lint-format",
   "husky-lint-staged",
   "dependabot-weekly-grouped",
@@ -121,7 +123,7 @@ function repositorySnapshot(): RepoSnapshot {
 }
 
 describe("seed practice catalog", () => {
-  it("contains eight folder-matching, parseable practice definitions and their file sources", () => {
+  it("contains folder-matching, parseable practice definitions and their file sources", () => {
     const seeds = seedPractices();
 
     expect(seeds.map((seed) => seed.folder).toSorted()).toEqual(
@@ -157,7 +159,7 @@ describe("seed practice catalog", () => {
     const snapshot = repositorySnapshot();
     const seeds = seedPractices();
 
-    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(6);
+    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(7);
 
     for (const seed of seeds) {
       if (!fileWorkflowPracticeIds.has(seed.parsed.id)) {

@@ -162,6 +162,53 @@ describe("filesNeeded", () => {
 });
 
 describe("takeSnapshot API reads", () => {
+  it("reads root and nested manifests at the evaluated commit", async () => {
+    const fixture = snapshotClient({
+      treePaths: ["package.json", "apps/web/package.json", "fixtures/package.json", "other.json"],
+      contents: {
+        "package.json": { content: '{"scripts":{"test":"vitest run"}}' },
+        "apps/web/package.json": { content: '{"scripts":{"test":"vitest"}}' },
+        "fixtures/package.json": { content: "{}" },
+      },
+    });
+
+    const selected = check({ type: "vitest-test-script" });
+    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
+    expect([...snapshot.files.keys()].toSorted()).toEqual([
+      "apps/web/package.json",
+      "fixtures/package.json",
+      "package.json",
+    ]);
+    expect(runCheck(selected, snapshot, {})).toMatchObject({
+      state: "fail",
+      path: "fixtures/package.json",
+    });
+    expect(
+      fixture.calls
+        .filter((url) => url.pathname.includes("/contents/"))
+        .every((url) => url.searchParams.get("ref") === headSha),
+    ).toBe(true);
+  });
+
+  it("keeps excess manifests unknown within the shared read budget", async () => {
+    const paths = Array.from({ length: 65 }, (_, index) => `packages/p${index}/package.json`);
+
+    const fixture = snapshotClient({
+      treePaths: paths,
+      contents: Object.fromEntries(
+        paths.map((path) => [path, { content: '{"scripts":{"test":"vitest run"}}' }]),
+      ),
+    });
+
+    const selected = check({ type: "vitest-test-script" });
+    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
+    expect(fixture.calls.filter((url) => url.pathname.includes("/contents/"))).toHaveLength(64);
+    expect(runCheck(selected, snapshot, {})).toMatchObject({
+      state: "unknown",
+      detail: "Read budget exceeded",
+    });
+  });
+
   it("reads commit and tree, but conditionally skips settings and protection endpoints", async () => {
     const fixture = snapshotClient({ treePaths: ["README.md"] });
 

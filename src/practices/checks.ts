@@ -3,6 +3,7 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { inspectLintStaged } from "./lint-staged";
+import { inspectVitestTestScripts } from "./vitest-test-script";
 import type { CheckResult, PracticeState } from "../api/contract";
 import type { BranchProtectionFact, ProtectionState } from "./protection";
 import { checkLabel, type Check } from "./schema";
@@ -301,6 +302,11 @@ export function runCheck(
   snapshot: RepoSnapshot,
   practiceFiles: Record<string, string>,
 ): CheckResult {
+  if (check.type === "vitest-test-script") {
+    const inspection = inspectVitestTestScripts(snapshot);
+    return result(check, inspection.state, inspection);
+  }
+
   if (check.type === "oxforge-format") {
     const inspection = inspectOxforgeFormat(check, snapshot);
     return result(check, inspection.state, inspection);
