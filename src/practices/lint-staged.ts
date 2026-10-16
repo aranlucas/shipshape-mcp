@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { RepoSnapshot } from "./snapshot";
 import { inspectCommand } from "./hook-command";
 import { parseYaml } from "./yaml";
+import { readTextFile } from "./repository-files";
 
 const Commands = z.union([z.string().trim().min(1), z.array(z.string().trim().min(1)).min(1)]);
 
@@ -33,30 +34,16 @@ interface Inspection {
 type FileRead = { text: string } | { inspection: Inspection };
 
 function readFile(snapshot: RepoSnapshot, path: string): FileRead {
-  const value = snapshot.files.get(path);
-  const content = z.string().safeParse(value);
+  const file = readTextFile(snapshot, path);
 
-  if (content.success) {
-    return { text: content.data };
+  switch (file.status) {
+    case "available":
+      return { text: file.value };
+    case "missing":
+      return { inspection: { state: "fail", path, detail: `${path} is missing.` } };
+    case "unavailable":
+      return { inspection: { state: "unknown", path, detail: file.detail } };
   }
-
-  const error = z.object({ error: z.string() }).safeParse(value);
-
-  if (error.success) {
-    return { inspection: { state: "unknown", path, detail: error.data.error } };
-  }
-
-  const unavailable = !snapshot.tree || snapshot.tree.truncated || snapshot.tree.paths.has(path);
-
-  return {
-    inspection: {
-      state: unavailable ? "unknown" : "fail",
-      path,
-      detail: unavailable
-        ? `${path} could not be read at the evaluated commit.`
-        : `${path} is missing.`,
-    },
-  };
 }
 
 function inspectHook(hook: string, scripts: Readonly<Record<string, string>>): Inspection {

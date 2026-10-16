@@ -1,10 +1,7 @@
 import { parseDocument } from "yaml";
 import { z } from "zod";
 
-type BranchProtectionKey = [string, ...string[]];
-
-/** Branch-protection identifiers accepted by practice checks. */
-export const BRANCH_PROTECTION_KEYS = [
+const BOOLEAN_PROTECTION_KEYS = [
   "enforceAdmins",
   "requiredConversationResolution",
   "requiredLinearHistory",
@@ -14,6 +11,11 @@ export const BRANCH_PROTECTION_KEYS = [
   "requireCodeOwnerReviews",
   "requireLastPushApproval",
   "dismissStaleReviews",
+] as const;
+
+/** Branch-protection identifiers accepted by practice checks. */
+export const BRANCH_PROTECTION_KEYS = [
+  ...BOOLEAN_PROTECTION_KEYS,
   "requiredApprovingReviews",
   "requiredStatusChecks",
 ] as const;
@@ -28,6 +30,21 @@ export const RepoPath = z
   );
 
 const Scalar = z.union([z.string(), z.number(), z.boolean()]);
+
+type ScalarValue = z.infer<typeof Scalar>;
+
+export type PathPredicate =
+  | { kind: "equals"; value: ScalarValue }
+  | { kind: "exists"; value: boolean };
+
+function pathPredicate(
+  equals: ScalarValue | undefined,
+  exists: boolean | undefined,
+): PathPredicate {
+  return equals === undefined
+    ? { kind: "exists", value: exists === true }
+    : { kind: "equals", value: equals };
+}
 
 const JsonPathCheck = z
   .object({
@@ -59,7 +76,35 @@ const YamlPathCheck = z
     }
   });
 
-export const CheckSchema = z.discriminatedUnion("type", [
+const BranchProtectionCheck = z.discriminatedUnion("key", [
+  z
+    .object({
+      type: z.literal("branch-protection"),
+      key: z.enum([...BOOLEAN_PROTECTION_KEYS, "required_linear_history"]),
+      equals: z.boolean(),
+      branch: z.string().max(255).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("branch-protection"),
+      key: z.literal("requiredApprovingReviews"),
+      equals: z.number().int().min(0),
+      branch: z.string().max(255).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("branch-protection"),
+      key: z.literal("requiredStatusChecks"),
+      // Equality compares context names as a set; GitHub's order is immaterial.
+      equals: z.array(z.string().min(1).max(255)).max(100),
+      branch: z.string().max(255).optional(),
+    })
+    .strict(),
+]);
+
+const CheckDefinitionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("vitest-test-script") }).strict(),
   z.object({ type: z.literal("husky-lint-staged") }).strict(),
   z
@@ -117,15 +162,7 @@ export const CheckSchema = z.discriminatedUnion("type", [
       equals: Scalar,
     })
     .strict(),
-  z
-    .object({
-      type: z.literal("branch-protection"),
-      // SAFETY: the source list is non-empty and the compatibility alias is appended.
-      key: z.enum([...BRANCH_PROTECTION_KEYS, "required_linear_history"] as BranchProtectionKey),
-      equals: z.boolean(),
-      branch: z.string().max(255).optional(),
-    })
-    .strict(),
+  BranchProtectionCheck,
   z
     .object({
       type: z.literal("workflow"),
@@ -133,6 +170,39 @@ export const CheckSchema = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
+
+export const CheckSchema = CheckDefinitionSchema.transform((check) => {
+  switch (check.type) {
+    case "json-path":
+    case "yaml-path": {
+      const { equals, exists, ...definition } = check;
+
+      return { ...definition, predicate: pathPredicate(equals, exists) };
+    }
+
+    case "branch-protection":
+      if (check.key === "requiredApprovingReviews" || check.key === "requiredStatusChecks") {
+        return check;
+      }
+
+      return {
+        ...check,
+        key: check.key === "required_linear_history" ? "requiredLinearHistory" : check.key,
+      };
+    case "vitest-test-script":
+    case "dependabot-grouped":
+    case "dependency":
+    case "file-contains":
+    case "file-exists":
+    case "file-matches":
+    case "husky-lint-staged":
+    case "oxforge":
+    case "oxforge-format":
+    case "setting":
+    case "workflow":
+      return check;
+  }
+});
 
 export type Check = z.infer<typeof CheckSchema>;
 
@@ -247,14 +317,7 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
 
   return {
     ok: true,
-    practice: {
-      ...result.data,
-      checks: result.data.checks.map((check) =>
-        check.type === "branch-protection" && check.key === "required_linear_history"
-          ? { ...check, key: "requiredLinearHistory" }
-          : check,
-      ),
-    },
+    practice: result.data,
   };
 }
 
@@ -278,7 +341,7 @@ export function checkLabel(check: Check): string {
       return `${check.path} contains ${JSON.stringify(check.text)}`;
     case "json-path":
     case "yaml-path":
-      return `${check.file} ${check.path} = ${String(check.equals ?? check.exists)}`;
+      return `${check.file} ${check.path} = ${String(check.predicate.value)}`;
     case "dependency":
       return check.version === undefined
         ? `${check.name} declared`

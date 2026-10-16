@@ -40,6 +40,24 @@ GitHub App OAuth (identity only)
 
 ## Check semantics and diagnostics
 
+`src/practices/checks.ts` dispatches the parsed `Check` union through an
+exhaustive typed switch. Evaluators in `src/practices/checks/` return structured
+evidence; `checks/result.ts` adds labels and serializes bounded diagnostics for
+storage. Callers use the same `runCheck` interface for every check type.
+
+`repository-files.ts` distinguishes available, missing, and unavailable files.
+Only a complete tree without the path proves a file is missing. A known path
+without collected content remains unknown. JSON and YAML parsing share this
+reader and validate configuration values before evaluators inspect them.
+
+Practice YAML still uses `equals` or `exists` for JSON/YAML paths. Parsing
+normalizes these mutually exclusive fields into a typed predicate and converts
+the `required_linear_history` compatibility alias to `requiredLinearHistory`.
+Branch-protection expectations depend on the key: booleans for flags,
+nonnegative integers for `requiredApprovingReviews`, and lists of context names
+for `requiredStatusChecks`. Status-check equality compares exact sets, ignoring
+order and duplicate names. Incompatible expectation types are validation errors.
+
 Dependency checks require a non-empty declaration in dependencies,
 devDependencies, optionalDependencies, or peerDependencies. Omit `version` to
 check presence only: `^0.2.2`, `catalog:`, and workspace references all pass.
