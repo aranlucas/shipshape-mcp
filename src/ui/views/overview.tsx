@@ -10,10 +10,11 @@ interface OverviewProps {
   overview: OverviewResponse;
   login: string;
   repo: { owner: string; name: string } | null;
-  onRefresh: (repo?: string) => Promise<void>;
+  onRefresh: (repo?: string) => void;
+  refreshing: boolean;
 }
 
-export function Overview({ overview, login, repo, onRefresh }: OverviewProps) {
+export function Overview({ overview, login, repo, onRefresh, refreshing }: OverviewProps) {
   const [owner, setOwner] = useState("");
   const [query, setQuery] = useState("");
   const [behindOnly, setBehindOnly] = useState(false);
@@ -188,7 +189,13 @@ export function Overview({ overview, login, repo, onRefresh }: OverviewProps) {
       )}
 
       {repo && (
-        <RepoPanel owner={repo.owner} name={repo.name} overview={overview} onRefresh={onRefresh} />
+        <RepoPanel
+          owner={repo.owner}
+          name={repo.name}
+          overview={overview}
+          onRefresh={onRefresh}
+          refreshing={refreshing}
+        />
       )}
     </>
   );

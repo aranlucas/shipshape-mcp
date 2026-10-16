@@ -54,14 +54,19 @@ function overview(pending = 1, checkedAt = cell.checkedAt): OverviewResponse {
   };
 }
 
-function detail(repo = vienna, label = "Original check"): RepoDetailResponse {
+function detail(
+  repo = vienna,
+  label = "Original check",
+  checkedAt = cell.checkedAt,
+): RepoDetailResponse {
   return {
+    catalog: { sha: "catalog-v1", loadedAt: "2026-10-15T11:00:00Z" },
     repo,
     headSha: "a".repeat(40),
     practices: [
       {
         practice,
-        result: cell,
+        result: { ...cell, checkedAt },
         headSha: "a".repeat(40),
         catalogSha: "catalog-v1",
         checks: [
@@ -137,6 +142,41 @@ async function poll() {
 }
 
 describe("repository panel during overview polling", () => {
+  it("does not keep polling details that are newer than the overview", async () => {
+    const current = detail(vienna, "Latest check", "2026-10-15T13:00:00Z");
+    vi.spyOn(api, "overview").mockResolvedValue(overview(0));
+    const repoRequest = vi.spyOn(api, "repo").mockResolvedValue(current);
+    await mount();
+    await poll();
+    await poll();
+    expect(container.textContent).toContain("Latest check");
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not keep polling a catalog that is newer than the overview", async () => {
+    const previous = overview(0);
+    previous.catalog.loadedAt = "2026-10-15T11:00:00Z";
+    const current = detail();
+    current.catalog = { sha: "catalog-v2", loadedAt: "2026-10-15T13:00:00Z" };
+    vi.spyOn(api, "overview").mockResolvedValue(previous);
+    const repoRequest = vi.spyOn(api, "repo").mockResolvedValue(current);
+    await mount();
+    await poll();
+    await poll();
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses fresh checks when reopening the same repository", async () => {
+    vi.spyOn(api, "overview").mockResolvedValue(overview(0));
+    const repoRequest = vi.spyOn(api, "repo").mockResolvedValue(detail());
+    await mount();
+    await act(() => navigate("/app"));
+    await act(() => navigate("/app/repos/aranlucas/vienna-travel"));
+    await flushQueries();
+    expect(container.textContent).toContain("Original check");
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("starts polling after a refresh mutation and stops when the sweep completes", async () => {
     const refresh = vi.spyOn(api, "refresh").mockResolvedValue({ queued: 1 });
 
@@ -217,6 +257,137 @@ describe("repository panel during overview polling", () => {
     expect(container.textContent).toContain("Original check");
   });
 
+  it("lets a slow detail request finish while this repository's results keep changing", async () => {
+    const request = deferred<RepoDetailResponse>();
+    let revision = 0;
+    vi.spyOn(api, "overview").mockImplementation(() =>
+      Promise.resolve(overview(1, `2026-10-15T13:00:0${Math.min(revision++, 2)}Z`)),
+    );
+
+    const repoRequest = vi
+      .spyOn(api, "repo")
+      .mockReturnValueOnce(request.promise)
+      .mockResolvedValue(detail(vienna, "Latest check", "2026-10-15T13:00:02Z"));
+
+    await mount();
+    const signal = repoRequest.mock.calls[0]?.[2];
+    await poll();
+    await poll();
+    expect(signal?.aborted).toBe(false);
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      request.resolve(detail());
+      await request.promise;
+    });
+    await flushQueries();
+    expect(container.textContent).toContain("Original check");
+    await poll();
+    expect(container.textContent).toContain("Latest check");
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+    expect(client.getQueryCache().findAll({ queryKey: ["repos"] })).toHaveLength(1);
+    await poll();
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps existing checks and expanded sections after a changed-result request fails", async () => {
+    vi.spyOn(api, "overview")
+      .mockResolvedValueOnce(overview())
+      .mockResolvedValue(overview(0, "2026-10-15T13:00:00Z"));
+
+    const repoRequest = vi
+      .spyOn(api, "repo")
+      .mockResolvedValueOnce(detail())
+      .mockRejectedValue(new ApiError("Couldn't update checks", 503));
+
+    await mount();
+    const section = container.querySelector(".panel-section details");
+
+    if (!(section instanceof HTMLDetailsElement)) {
+      throw new Error("Missing practice section");
+    }
+
+    section.open = true;
+    await poll();
+    await poll();
+    await flushQueries();
+    expect(container.textContent).toContain("Couldn't update checks");
+    expect(container.textContent).toContain("Original check");
+    expect(container.querySelector(".panel-section details")).toBe(section);
+    expect(section.open).toBe(true);
+
+    repoRequest.mockResolvedValue(detail(vienna, "Recovered check"));
+    await act(() => {
+      const retry = container.querySelector<HTMLButtonElement>(".panel [role='alert'] button");
+
+      if (!retry) {
+        throw new Error("Missing detail retry button");
+      }
+
+      retry.click();
+    });
+    await flushQueries();
+    expect(container.textContent).toContain("Recovered check");
+    expect(container.textContent).not.toContain("Couldn't update checks");
+    expect(container.querySelector(".panel-section details")).toBe(section);
+    expect(section.open).toBe(true);
+  });
+
+  it("catches up after a slow background request and stops polling once results match", async () => {
+    const pending = deferred<RepoDetailResponse>();
+    let revision = 0;
+    vi.spyOn(api, "overview").mockImplementation(() =>
+      Promise.resolve(overview(1, `2026-10-15T13:00:0${Math.min(revision++, 2)}Z`)),
+    );
+
+    const repoRequest = vi
+      .spyOn(api, "repo")
+      .mockResolvedValueOnce(detail())
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(detail(vienna, "Latest check", "2026-10-15T13:00:02Z"));
+
+    await mount();
+    await poll();
+    const signal = repoRequest.mock.calls[1]?.[2];
+    await poll();
+    await poll();
+    expect(signal?.aborted).toBe(false);
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Original check");
+
+    await act(async () => {
+      pending.resolve(detail(vienna, "Intermediate check"));
+      await pending.promise;
+    });
+    await flushQueries();
+    await poll();
+    expect(repoRequest).toHaveBeenCalledTimes(3);
+    expect(container.textContent).toContain("Latest check");
+    expect(client.getQueryCache().findAll({ queryKey: ["repos"] })).toHaveLength(1);
+    await poll();
+    expect(repoRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops detail polling when the panel closes", async () => {
+    const pending = deferred<RepoDetailResponse>();
+    vi.spyOn(api, "overview")
+      .mockResolvedValueOnce(overview())
+      .mockResolvedValue(overview(0, "2026-10-15T13:00:00Z"));
+    const repoRequest = vi.spyOn(api, "repo").mockReturnValue(pending.promise);
+    await mount();
+    await poll();
+    await act(() => navigate("/app"));
+
+    await act(async () => {
+      pending.resolve(detail());
+      await pending.promise;
+    });
+    await flushQueries();
+    await poll();
+    expect(container.querySelector(".panel")).toBeNull();
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps checks and expanded sections visible while fetching changed results", async () => {
     const updated = deferred<RepoDetailResponse>();
     vi.spyOn(api, "overview")
@@ -233,6 +404,7 @@ describe("repository panel during overview polling", () => {
 
     section.open = true;
 
+    await poll();
     await poll();
     expect(container.textContent).toContain("Original check");
     expect(container.textContent).not.toContain("Loading checks…");
@@ -256,6 +428,35 @@ describe("repository panel during overview polling", () => {
     const repoRequest = vi.spyOn(api, "repo").mockResolvedValue(detail());
     await mount();
     await poll();
+    await poll();
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops polling a new catalog once unevaluated details catch up", async () => {
+    const initial = overview();
+    initial.results = {};
+
+    const next = {
+      ...initial,
+      catalog: { ...initial.catalog, sha: "catalog-v2" },
+      sweep: { pending: 0, lastCompletedAt: null },
+    };
+
+    const before = detail();
+    before.practices[0].result.checkedAt = null;
+    const after = { ...before, catalog: { ...before.catalog, sha: "catalog-v2" } };
+    vi.spyOn(api, "overview").mockResolvedValueOnce(initial).mockResolvedValue(next);
+
+    const repoRequest = vi
+      .spyOn(api, "repo")
+      .mockResolvedValueOnce(before)
+      .mockResolvedValue(after);
+
+    await mount();
+    await poll();
+    await poll();
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+    await poll();
     expect(repoRequest).toHaveBeenCalledTimes(2);
   });
 
@@ -270,6 +471,7 @@ describe("repository panel during overview polling", () => {
       .mockReturnValueOnce(pendingVienna.promise)
       .mockReturnValueOnce(pendingOther.promise);
     await mount();
+    await poll();
     await poll();
     await act(() => navigate("/app/repos/aranlucas/other"));
     expect(container.textContent).not.toContain("Original check");

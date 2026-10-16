@@ -82,11 +82,12 @@ export async function buildRepoDetail(
   env: AppEnv,
   repo: StoredRepository,
 ): Promise<RepoDetailResponse> {
-  const catalog = await readStoredCatalog(env.DB);
+  const [catalog, row] = await Promise.all([readStoredCatalog(env.DB), readCatalogRow(env.DB)]);
   const results = await readResults(env.DB, repo.fullName);
   const latestHeadSha = results.find((result) => result.headSha !== null)?.headSha ?? null;
 
   return {
+    catalog: { sha: catalog?.sha ?? null, loadedAt: catalog ? (row?.loaded_at ?? null) : null },
     repo: repoSummary(repo),
     headSha: latestHeadSha,
     practices: (catalog?.practices ?? [])

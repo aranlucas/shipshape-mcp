@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import type {
   CheckResult,
   OverviewResponse,
@@ -10,7 +10,7 @@ import { ApiError } from "../api";
 import { evidenceLink } from "../evidence";
 import { STATE_WORDS, timeAgo } from "../format";
 import { linkHandler, navigate, paths } from "../router";
-import { repoQuery } from "../queries";
+import { POLL_MS, repoNeedsUpdate, repoQuery } from "../queries";
 import { startTask } from "../tasks";
 import { StateMark } from "./state-mark";
 
@@ -18,7 +18,8 @@ interface RepoPanelProps {
   owner: string;
   name: string;
   overview: OverviewResponse;
-  onRefresh: (repo?: string) => Promise<void>;
+  onRefresh: (repo?: string) => void;
+  refreshing: boolean;
 }
 
 type Entry = RepoDetailResponse["practices"][number];
@@ -198,10 +199,18 @@ function PracticeEntry({ entry, repo }: PracticeEntryProps) {
   );
 }
 
-export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) {
+export function RepoPanel({ owner, name, overview, onRefresh, refreshing }: RepoPanelProps) {
   const fullName = `${owner}/${name}`;
   const summary = overview.repos.find((item) => item.fullName === fullName);
-  const query = useQuery(repoQuery(owner, name, overview));
+
+  const query = useQuery({
+    ...repoQuery(owner, name),
+    refetchInterval: ({ state }) =>
+      state.status !== "error" && (!state.data || repoNeedsUpdate(state.data, overview))
+        ? POLL_MS
+        : false,
+  });
+
   const detail = query.data ?? null;
 
   const error = query.error
@@ -210,7 +219,6 @@ export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) 
       : "The repository couldn't be loaded."
     : null;
 
-  const [refreshing, setRefreshing] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -283,16 +291,20 @@ export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) 
             type="button"
             class="button button-quiet"
             disabled={refreshing}
-            onClick={() => {
-              setRefreshing(true);
-              startTask(onRefresh(fullName).finally(() => setRefreshing(false)));
-            }}
+            onClick={() => onRefresh(fullName)}
           >
             {refreshing ? "Checking…" : "Check again"}
           </button>
         </div>
 
-        {error && <p class="notice notice-error">{error}</p>}
+        {error && (
+          <p class="notice notice-error" role="alert">
+            {error}{" "}
+            <button type="button" class="link-button" onClick={() => startTask(query.refetch())}>
+              Try again
+            </button>
+          </p>
+        )}
         {!detail && !error && <p class="loading">Loading checks…</p>}
         {neverChecked && (
           <p class="notice">

@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect } from "preact/hooks";
 import type { OverviewResponse } from "../api/contract";
-import { api, ApiError } from "./api";
+import { ApiError } from "./api";
 import { plural, timeAgo } from "./format";
+import { refreshMutationOptions } from "./mutations";
 import { overviewQuery } from "./queries";
 import { linkHandler, paths, useRoute, type Route } from "./router";
 import { startTask } from "./tasks";
@@ -21,7 +22,8 @@ const TITLES = {
 interface MastheadProps {
   login: string;
   overview: OverviewResponse | null;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => void;
+  refreshing: boolean;
   section: "repositories" | "practices";
 }
 
@@ -29,8 +31,7 @@ interface AppProps {
   login: string;
 }
 
-function Masthead({ login, overview, onRefresh, section }: MastheadProps) {
-  const [busy, setBusy] = useState(false);
+function Masthead({ login, overview, onRefresh, refreshing, section }: MastheadProps) {
   const pending = overview?.sweep.pending ?? 0;
 
   return (
@@ -70,11 +71,8 @@ function Masthead({ login, overview, onRefresh, section }: MastheadProps) {
         <button
           type="button"
           class="button button-quiet button-small"
-          disabled={busy || pending > 0 || !overview}
-          onClick={() => {
-            setBusy(true);
-            startTask(onRefresh().finally(() => setBusy(false)));
-          }}
+          disabled={refreshing || pending > 0 || !overview}
+          onClick={onRefresh}
         >
           {overview?.repos.length === 0 ? "Find my repositories" : "Check all again"}
         </button>
@@ -97,10 +95,7 @@ export function App({ login }: AppProps) {
   const query = useQuery(overviewQuery);
   const overview = query.data ?? null;
 
-  const refreshMutation = useMutation({
-    mutationFn: (repo?: string) => api.refresh(repo),
-    onSuccess: () => client.invalidateQueries({ queryKey: overviewQuery.queryKey }),
-  });
+  const refreshMutation = useMutation(refreshMutationOptions(client));
 
   const cause = refreshMutation.error ?? query.error;
 
@@ -111,10 +106,6 @@ export function App({ login }: AppProps) {
         ? "Shipshape couldn't queue the check."
         : "Shipshape couldn't load your repositories."
     : null;
-
-  async function refresh(repo?: string): Promise<void> {
-    await refreshMutation.mutateAsync(repo).catch(() => null);
-  }
 
   useEffect(() => {
     document.title = `${TITLES[route.view]} | Shipshape`;
@@ -128,7 +119,13 @@ export function App({ login }: AppProps) {
       <a class="skip" href="#main">
         Skip to content
       </a>
-      <Masthead login={login} overview={overview} onRefresh={() => refresh()} section={section} />
+      <Masthead
+        login={login}
+        overview={overview}
+        onRefresh={() => refreshMutation.mutate()}
+        refreshing={refreshMutation.isPending}
+        section={section}
+      />
       <main id="main" class={`page page-${route.view}`}>
         {error && (
           <p class="notice notice-error" role="alert">
@@ -147,7 +144,13 @@ export function App({ login }: AppProps) {
         )}
         {!overview && !error && <p class="loading">Loading repositories…</p>}
         {overview && route.view === "overview" && (
-          <Overview overview={overview} login={login} repo={route.repo} onRefresh={refresh} />
+          <Overview
+            overview={overview}
+            login={login}
+            repo={route.repo}
+            onRefresh={refreshMutation.mutate}
+            refreshing={refreshMutation.isPending}
+          />
         )}
         {overview && route.view === "practices" && <Practices overview={overview} />}
         {overview && route.view === "practice" && (
