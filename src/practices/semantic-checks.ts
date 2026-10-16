@@ -5,6 +5,7 @@ import { configObject } from "./config-value";
 import { inspectLintConfig, joinPath, LINT_CONFIG_NAMES, parseConfig } from "./lint-config";
 import { parseWorkflow } from "./workflows";
 import { inspectFormatConfig } from "./format-config";
+import { readTextFile } from "./repository-files";
 
 interface Inspection {
   state: "pass" | "fail" | "unknown";
@@ -65,17 +66,16 @@ export function inspectOxforgeFormat(
 }
 
 function unavailable(snapshot: RepoSnapshot, path: string): Inspection | null {
-  const content = snapshot.files.get(path);
+  const file = readTextFile(snapshot, path);
 
-  if (z.string().safeParse(content).success) {
-    return null;
+  switch (file.status) {
+    case "available":
+      return null;
+    case "missing":
+      return { state: "fail", path, detail: "The required file is missing." };
+    case "unavailable":
+      return { state: "unknown", path, detail: file.detail };
   }
-
-  if (content || !snapshot.tree || snapshot.tree.truncated || snapshot.tree.paths.has(path)) {
-    return { state: "unknown", path, detail: "The required file could not be read completely." };
-  }
-
-  return { state: "fail", path, detail: "The required file is missing." };
 }
 
 function meetsMinimum(version: string, minimum: string): boolean | null {

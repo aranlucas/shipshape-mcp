@@ -1,5 +1,25 @@
-import { describe, expect, it } from "vitest";
-import { checkLabel, parsePractice } from "../../src/practices/schema";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+  CheckSchema,
+  checkLabel,
+  parsePractice,
+  type BRANCH_PROTECTION_KEYS,
+  type Check,
+} from "../../src/practices/schema";
+
+type BranchCheck = Extract<Check, { type: "branch-protection" }>;
+
+type PathCheck = Extract<Check, { type: "json-path" | "yaml-path" }>;
+
+type JsonPathCheck = Extract<Check, { type: "json-path" }>;
+
+type YamlPathCheck = Extract<Check, { type: "yaml-path" }>;
+
+type ReviewCountCheck = Extract<BranchCheck, { key: "requiredApprovingReviews" }>;
+
+type StatusChecksCheck = Extract<BranchCheck, { key: "requiredStatusChecks" }>;
+
+type ExistencePredicate = Extract<PathCheck["predicate"], { kind: "exists" }>;
 
 const fixture = `
 version: 1
@@ -98,6 +118,53 @@ describe("practice schema", () => {
     const result = parsePractice(fixture.replace("    equals: husky\n", ""));
     expect(result.ok).toBe(false);
     expect(issuesOf(result).find((issue) => issue.path === "checks.3")).toBeTruthy();
+  });
+
+  it.each(["json-path", "yaml-path"])(
+    "normalizes %s predicates without changing YAML fields",
+    (type) => {
+      const base = { type, file: "config.json", path: "enabled" };
+
+      expect(CheckSchema.parse({ ...base, equals: false })).toEqual({
+        ...base,
+        predicate: { kind: "equals", value: false },
+      });
+      expect(CheckSchema.parse({ ...base, exists: false })).toEqual({
+        ...base,
+        predicate: { kind: "exists", value: false },
+      });
+      expect(CheckSchema.safeParse(base).success).toBe(false);
+      expect(CheckSchema.safeParse({ ...base, equals: false, exists: false }).success).toBe(false);
+    },
+  );
+
+  it.each([
+    { key: "requiredApprovingReviews", equals: true },
+    { key: "requiredApprovingReviews", equals: -1 },
+    { key: "requiredApprovingReviews", equals: 1.5 },
+    { key: "requiredStatusChecks", equals: true },
+    { key: "requiredStatusChecks", equals: [""] },
+    { key: "enforceAdmins", equals: 1 },
+    { key: "notAProtectionKey", equals: true },
+  ])("rejects incompatible branch-protection expectations $key = $equals", (check) => {
+    expect(CheckSchema.safeParse({ type: "branch-protection", ...check }).success).toBe(false);
+  });
+
+  it("preserves key and expected-value relationships in TypeScript", () => {
+    expectTypeOf<BranchCheck["key"]>().toEqualTypeOf<(typeof BRANCH_PROTECTION_KEYS)[number]>();
+    expectTypeOf<ReviewCountCheck["equals"]>().toEqualTypeOf<number>();
+    expectTypeOf<StatusChecksCheck["equals"]>().toEqualTypeOf<string[]>();
+    expectTypeOf<ExistencePredicate["value"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<JsonPathCheck["type"]>().toEqualTypeOf<"json-path">();
+    expectTypeOf<YamlPathCheck["type"]>().toEqualTypeOf<"yaml-path">();
+
+    expect(
+      CheckSchema.parse({
+        type: "branch-protection",
+        key: "required_linear_history",
+        equals: true,
+      }),
+    ).toEqual({ type: "branch-protection", key: "requiredLinearHistory", equals: true });
   });
 
   it("validates file match sources", () => {

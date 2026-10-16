@@ -3,7 +3,7 @@ import { CheckSchema, parsePractice, type Check } from "@/practices/schema";
 import { aggregate, runCheck } from "@/practices/checks";
 import { makeSnapshot } from "@test/helpers/snapshot";
 
-type CheckInput = Record<string, string | boolean | undefined>;
+type CheckInput = Record<string, string | boolean | number | string[] | undefined>;
 
 function asCheck(value: CheckInput): Check {
   return CheckSchema.parse(value);
@@ -593,6 +593,165 @@ describe("workflow checks", () => {
         makeSnapshot({ paths: ["README.md"] }),
       ),
     ).toMatchObject({ state: "fail" });
+  });
+});
+
+describe("file availability", () => {
+  it.each([
+    { type: "file-contains", path: "config.json", text: "enabled" },
+    { type: "file-matches", path: "config.json", source: "files/config.json" },
+    { type: "json-path", file: "config.json", path: "enabled", equals: true },
+    { type: "yaml-path", file: "config.json", path: "enabled", equals: true },
+    { type: "dependency", file: "config.json", name: "zod" },
+  ])("keeps $type unknown when a tree entry has no collected content", (check) => {
+    const sources = { "files/config.json": "{}" };
+
+    expect(result(check, makeSnapshot({ paths: ["config.json"] }), sources)).toMatchObject({
+      state: "unknown",
+      detail: "config.json could not be read at the evaluated commit.",
+    });
+    expect(result(check, makeSnapshot(), sources)).toMatchObject({ state: "fail" });
+    expect(result(check, makeSnapshot({ truncated: true }), sources)).toMatchObject({
+      state: "unknown",
+    });
+    expect(result(check, makeSnapshot({ tree: null }), sources)).toMatchObject({
+      state: "unknown",
+    });
+  });
+});
+
+describe("structured path predicates", () => {
+  it.each(["json-path", "yaml-path"])(
+    "preserves false, null, arrays and own-property lookup for %s",
+    (type) => {
+      const snapshot = makeSnapshot({
+        files: { "config.json": '{"enabled":false,"empty":null,"items":[{"name":"first"}]}' },
+      });
+
+      expect(
+        result({ type, file: "config.json", path: "enabled", equals: false }, snapshot),
+      ).toMatchObject({ state: "pass", expected: "false", actual: "false" });
+      expect(
+        result({ type, file: "config.json", path: "empty", exists: true }, snapshot),
+      ).toMatchObject({ state: "pass", actual: "null" });
+      expect(
+        result({ type, file: "config.json", path: "items.0.name", equals: "first" }, snapshot),
+      ).toMatchObject({ state: "pass" });
+      expect(
+        result({ type, file: "config.json", path: "items.length", equals: 1 }, snapshot),
+      ).toMatchObject({ state: "pass" });
+      expect(
+        result({ type, file: "config.json", path: "toString", exists: false }, snapshot),
+      ).toMatchObject({ state: "pass" });
+      expect(
+        result({ type, file: "config.json", path: "items.1", exists: false }, snapshot),
+      ).toMatchObject({ state: "pass" });
+    },
+  );
+
+  it("keeps ambiguous YAML with duplicate keys unknown", () => {
+    expect(
+      result(
+        { type: "yaml-path", file: "config.yml", path: "enabled", equals: true },
+        makeSnapshot({ files: { "config.yml": "enabled: false\nenabled: true\n" } }),
+      ),
+    ).toMatchObject({ state: "unknown" });
+  });
+});
+
+describe("typed branch protection expectations", () => {
+  it.each([
+    { expected: 0, state: "fail" },
+    { expected: 1, state: "pass" },
+    { expected: 2, state: "fail" },
+  ])("compares review counts with $expected", ({ expected, state }) => {
+    expect(
+      result(
+        { type: "branch-protection", key: "requiredApprovingReviews", equals: expected },
+        makeSnapshot({ protection: { main: protectedFact } }),
+      ),
+    ).toMatchObject({ state, expected: String(expected), actual: "1" });
+  });
+
+  it.each([
+    { expected: ["lint", "test"], state: "pass" },
+    { expected: ["test", "lint"], state: "pass" },
+    { expected: ["test", "lint", "lint"], state: "pass" },
+    { expected: ["test"], state: "fail" },
+    { expected: ["test", "lint", "build"], state: "fail" },
+    { expected: [], state: "fail" },
+  ])("compares status-check sets $expected", ({ expected, state }) => {
+    const snapshot = makeSnapshot({
+      protection: {
+        main: {
+          ...protectedFact,
+          protection: {
+            ...protectedFact.protection,
+            statusChecks: {
+              strict: true,
+              checks: [
+                { context: "test", appId: null },
+                { context: "lint", appId: null },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(
+      result(
+        { type: "branch-protection", key: "requiredStatusChecks", equals: expected },
+        snapshot,
+      ),
+    ).toMatchObject({ state, expected: JSON.stringify(expected), actual: '["test","lint"]' });
+  });
+
+  it("uses zero reviews and no required checks for unprotected branches", () => {
+    const snapshot = makeSnapshot({ protection: { main: { status: "unprotected" } } });
+
+    expect(
+      result({ type: "branch-protection", key: "requiredApprovingReviews", equals: 0 }, snapshot),
+    ).toMatchObject({ state: "pass", actual: "0" });
+    expect(
+      result({ type: "branch-protection", key: "requiredStatusChecks", equals: [] }, snapshot),
+    ).toMatchObject({ state: "pass", actual: "[]" });
+  });
+
+  it("keeps undisclosed protection flags unknown", () => {
+    const snapshot = makeSnapshot({
+      protection: {
+        main: {
+          ...protectedFact,
+          protection: { ...protectedFact.protection, requiredSignatures: null },
+        },
+      },
+    });
+
+    expect(
+      result({ type: "branch-protection", key: "requiredSignatures", equals: true }, snapshot),
+    ).toMatchObject({ state: "unknown" });
+  });
+});
+
+describe("diagnostic formatting", () => {
+  it("bounds multibyte evidence and read errors after evaluation", () => {
+    const text = "🙂".repeat(4096);
+    const check = { type: "file-contains", path: "README.md", text: "Shipshape" };
+    const output = result(check, makeSnapshot({ files: { "README.md": text } }));
+    const error = result(check, makeSnapshot({ files: { "README.md": { error: text } } }));
+
+    expect(output.state).toBe("fail");
+    expect(output.actual).toContain("… [truncated for storage]");
+    expect(output.detail).toContain("Diagnostic values were truncated");
+    expect(error.state).toBe("unknown");
+    expect(error.detail).toContain("… [truncated for storage]");
+    expect(new TextEncoder().encode(JSON.stringify(output.actual)).byteLength).toBeLessThanOrEqual(
+      2048,
+    );
+    expect(new TextEncoder().encode(JSON.stringify(error.detail)).byteLength).toBeLessThanOrEqual(
+      2048,
+    );
   });
 });
 
