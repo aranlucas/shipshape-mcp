@@ -1,6 +1,11 @@
 import { ConfigValueSchema, type ConfigValue } from "./config-value";
 import type { RepoSnapshot } from "./snapshot";
 import { parseYaml } from "./yaml";
+import { z } from "zod";
+
+const FileText = z.string();
+
+const FileError = z.object({ error: z.string() });
 
 export type ReadResult<T> =
   | { status: "available"; value: T }
@@ -12,10 +17,11 @@ export function readTextFile(snapshot: RepoSnapshot, path: string): ReadResult<s
   const value = snapshot.files.get(path);
 
   if (value !== undefined) {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Narrow the already-typed snapshot file union.
-    return typeof value === "string"
-      ? { status: "available", value }
-      : { status: "unavailable", detail: value.error };
+    const text = FileText.safeParse(value);
+
+    return text.success
+      ? { status: "available", value: text.data }
+      : { status: "unavailable", detail: FileError.parse(value).error };
   }
 
   if (!snapshot.tree || snapshot.tree.truncated || snapshot.tree.paths.has(path)) {

@@ -1,6 +1,9 @@
 import type { CheckResult } from "../../api/contract";
 import type { ConfigValue } from "../config-value";
 import { checkLabel, type Check } from "../schema";
+import { z } from "zod";
+
+const DiagnosticText = z.string();
 
 /** Evidence stays structured until the result is prepared for storage. */
 export interface CheckOutcome {
@@ -18,9 +21,10 @@ const DIAGNOSTIC_TRUNCATION_SUFFIX = "… [truncated for storage]";
 const diagnosticEncoder = new TextEncoder();
 
 function stringified(value: ConfigValue): string | null {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Preserve strings when serializing validated diagnostic values.
-  if (typeof value === "string") {
-    return value;
+  const text = DiagnosticText.safeParse(value);
+
+  if (text.success) {
+    return text.data;
   }
 
   const serialized = JSON.stringify(value);
