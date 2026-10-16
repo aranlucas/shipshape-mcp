@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { invokesShellCommand } from "./shell-command";
 import { ConfigObjectSchema, type ConfigValue } from "./config-value";
 import type { CheckOutcome } from "./checks/result";
 import { readConfigFile } from "./repository-files";
@@ -18,55 +19,6 @@ const WORKFLOW_FILE = /^\.github\/workflows\/[^/]+\.ya?ml$/u;
 // This is static evidence; arbitrary scripts and computed commands are not executed.
 const NPM_COMMAND =
   /^\s*(?:(?:env|command|exec|if|then|do|sudo|cross-env|corepack)\s+|[A-Za-z_]\w*=\S+\s+)*(?:npm|npx|"npm"|"npx"|'npm'|'npx')(?=\s|$)/u;
-
-/** Shell separators inside quoted arguments do not introduce a new command. */
-function invokesNpm(source: string): boolean {
-  let quote = "";
-  let escaped = false;
-  let comment = false;
-  let command = "";
-
-  for (const character of source) {
-    if (comment && character !== "\n") {
-      continue;
-    }
-
-    comment = false;
-
-    if (escaped) {
-      command += character;
-      escaped = false;
-    } else if (character === "\\" && quote !== "'") {
-      escaped = true;
-    } else if (quote) {
-      command += character;
-
-      if (character === quote) {
-        quote = "";
-      }
-    } else if (character === "'" || character === '"' || character === "`") {
-      quote = character;
-      command += character;
-    } else if (character === "#" && (!command || /\s$/u.test(command))) {
-      if (NPM_COMMAND.test(command)) {
-        return true;
-      }
-
-      comment = true;
-      command = "";
-    } else if (/[;&|()\n\r]/u.test(character)) {
-      if (NPM_COMMAND.test(command)) {
-        return true;
-      }
-
-      command = "";
-    } else {
-      command += character;
-    }
-  }
-
-  return NPM_COMMAND.test(command);
-}
 
 function manifestPath(path: string): boolean {
   return path === "package.json" || path.endsWith("/package.json");
@@ -125,7 +77,7 @@ function inspectFile(snapshot: RepoSnapshot, path: string, setupOnly: boolean): 
     }
 
     const script = Object.entries(manifest.data.scripts ?? {}).find(([, command]) =>
-      invokesNpm(command),
+      invokesShellCommand(command, NPM_COMMAND),
     );
 
     return script
@@ -154,7 +106,9 @@ function inspectFile(snapshot: RepoSnapshot, path: string, setupOnly: boolean): 
       : { state: "pass", path };
   }
 
-  return namedStrings(file.value, "run").some((command) => invokesNpm(command))
+  return namedStrings(file.value, "run").some((command) =>
+    invokesShellCommand(command, NPM_COMMAND),
+  )
     ? { state: "fail", path, detail: "Workflow or composite action invokes npm or npx." }
     : { state: "pass", path };
 }

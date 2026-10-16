@@ -4,7 +4,7 @@ import { CheckSchema } from "@/practices/schema";
 import { makeSnapshot, type SnapshotOptions, type SnapshotValue } from "@test/helpers/snapshot";
 
 function evaluate(
-  type: "portless-dev" | "cloudflare-cf-cli",
+  type: "portless-dev",
   manifest: SnapshotValue,
   options: SnapshotOptions = {},
   directory = ".",
@@ -136,97 +136,7 @@ describe("Portless local development", () => {
   });
 });
 
-describe("Cloudflare CLI declaration", () => {
-  it("accepts local cf without imposing a version or scanning documentation", () => {
-    expect(
-      evaluate(
-        "cloudflare-cf-cli",
-        { devDependencies: { cf: "catalog:" } },
-        {
-          paths: ["package.json", "README.md"],
-          files: {
-            "package.json": '{"devDependencies":{"cf":"catalog:"}}',
-            "README.md": "wrangler preview secret bulk",
-          },
-        },
-      ).state,
-    ).toBe("pass");
-  });
-
-  it.each(["cloudflare.config.ts", "wrangler.jsonc", "wrangler.json", "wrangler.toml"])(
-    "detects projects from %s without executing configuration",
-    (config) => {
-      expect(evaluate("cloudflare-cf-cli", {}, { paths: ["package.json", config] }).state).toBe(
-        "fail",
-      );
-    },
-  );
-
-  it.each(["dependencies", "devDependencies"] as const)(
-    "rejects a direct Wrangler declaration in %s",
-    (section) => {
-      const manifest = { dependencies: {}, devDependencies: { cf: "1.0.0" } };
-      const dependencies = { ...manifest[section], wrangler: "^4.0.0" };
-
-      expect(
-        evaluate("cloudflare-cf-cli", {
-          ...manifest,
-          [section]: dependencies,
-        }).state,
-      ).toBe("fail");
-    },
-  );
-
-  it("requires cf in devDependencies", () => {
-    expect(evaluate("cloudflare-cf-cli", { dependencies: { cf: "1.0.0" } }).state).toBe("fail");
-    expect(evaluate("cloudflare-cf-cli", { devDependencies: { cf: " " } }).state).toBe("fail");
-  });
-
-  it("does not impose Cloudflare tooling on other packages", () => {
-    expect(evaluate("cloudflare-cf-cli", {})).toMatchObject({
-      state: "pass",
-      detail: "No Cloudflare CLI dependency or configuration found in this directory.",
-    });
-    expect(evaluate("cloudflare-cf-cli", {}, { truncated: true }).state).toBe("unknown");
-    expect(evaluate("cloudflare-cf-cli", {}, { tree: null }).state).toBe("unknown");
-  });
-
-  it("preserves known declarations despite incomplete inventories", () => {
-    expect(
-      evaluate("cloudflare-cf-cli", { devDependencies: { wrangler: "4.0.0" } }, { truncated: true })
-        .state,
-    ).toBe("fail");
-    expect(
-      evaluate("cloudflare-cf-cli", { devDependencies: { cf: "1.0.0" } }, { truncated: true })
-        .state,
-    ).toBe("pass");
-  });
-
-  it("detects workspace configuration only within the checked directory", () => {
-    expect(
-      evaluate(
-        "cloudflare-cf-cli",
-        {},
-        {
-          paths: ["apps/web/package.json", "cloudflare.config.ts"],
-        },
-        "apps/web",
-      ).state,
-    ).toBe("pass");
-    expect(
-      evaluate(
-        "cloudflare-cf-cli",
-        {},
-        {
-          paths: ["apps/web/package.json", "apps/web/cloudflare.config.ts"],
-        },
-        "apps/web",
-      ).state,
-    ).toBe("fail");
-  });
-});
-
-describe.each(["portless-dev", "cloudflare-cf-cli"] as const)("%s evidence", (type) => {
+describe.each(["portless-dev"] as const)("%s evidence", (type) => {
   it.each<SnapshotOptions["files"]>([
     {},
     { "package.json": { error: "HTTP 403" } },
