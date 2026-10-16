@@ -26,6 +26,12 @@ function errorStatus(error: unknown): number | undefined {
   return z.object({ status: z.number() }).safeParse(error).data?.status;
 }
 
+function isTransientGitHubError(error: unknown): boolean {
+  const status = errorStatus(error);
+
+  return status !== undefined && status >= 500 && status < 600;
+}
+
 function headError(error: unknown): string {
   return errorStatus(error) === 409
     ? "Repository has no commits"
@@ -138,7 +144,7 @@ export async function evaluateRepository(
   env: AppEnv,
   fullName: string,
   options: { force?: boolean } = {},
-): Promise<"evaluated" | "skipped" | "unavailable"> {
+): Promise<"evaluated" | "skipped" | "unavailable" | "retry"> {
   const storedCatalog = await readStoredCatalog(env.DB);
   const catalog: Catalog = storedCatalog ?? (await loadCatalog(env));
   const repo = await getRepository(env.DB, fullName);
@@ -151,11 +157,22 @@ export async function evaluateRepository(
 
   try {
     client = await installationClient(env, repo.installationId, { retry: "bounded" });
-  } catch {
+  } catch (error) {
     // Any installation token failure means this repository is unavailable for this run.
     await markUnknown(env.DB, fullName, catalog, "GitHub App installation unavailable");
-    return "unavailable";
+    return isTransientGitHubError(error) ? "retry" : "unavailable";
   }
+
+  let retryableReadFailure = false;
+
+  // This outer hook sees only failures that exhaust Octokit's request-level retries.
+  client.hook.error("request", (error, request) => {
+    if (request.method === "GET" && isTransientGitHubError(error)) {
+      retryableReadFailure = true;
+    }
+
+    throw error;
+  });
 
   const preloadedHead = await readHead(client, repo);
   const previous = await lastEvaluation(env.DB, fullName);
@@ -200,5 +217,5 @@ export async function evaluateRepository(
     catalog.practices.map((practice) => practice.id),
   );
 
-  return "evaluated";
+  return retryableReadFailure ? "retry" : "evaluated";
 }

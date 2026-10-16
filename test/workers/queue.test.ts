@@ -63,7 +63,7 @@ function response(body: unknown, status = 200): Response {
   });
 }
 
-function mockGitHub(): void {
+function mockGitHub(treeStatus = 200): void {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -83,6 +83,10 @@ function mockGitHub(): void {
         return Promise.resolve(response({ sha: headSha }));
       }
       if (url.pathname.endsWith(`/git/trees/${headSha}`)) {
+        if (treeStatus !== 200) {
+          return Promise.resolve(response({ message: "temporary tree failure" }, treeStatus));
+        }
+
         return Promise.resolve(
           response({
             truncated: false,
@@ -124,19 +128,20 @@ async function clearData(): Promise<void> {
   ]);
 }
 
-async function runQueue(messages: EvaluationMessage[]) {
+async function runQueue(messages: EvaluationMessage[], attempts = 1) {
   const batch = createMessageBatch<EvaluationMessage>(
     "shipshape-evaluations",
     messages.map((body, index) => ({
       id: `message-${index + 1}`,
       timestamp: Date.now(),
-      attempts: 1,
+      attempts,
       body,
     })),
   );
   const ctx = createExecutionContext();
+  const retries = batch.messages.map((message) => vi.spyOn(message, "retry"));
   await handleQueue(batch, appEnv);
-  return { batch, result: await getQueueResult(batch, ctx) };
+  return { batch, retries, result: await getQueueResult(batch, ctx) };
 }
 
 describe("evaluation queue Worker seam", () => {
@@ -202,6 +207,75 @@ describe("evaluation queue Worker seam", () => {
         last_completed_at: string | null;
       }>(),
     ).toEqual({ pending: 1, last_completed_at: null });
+  });
+
+  it("retries an exhausted GitHub 500 and completes pending after recovery at the same SHA", async () => {
+    const repo = repository("octo/demo", 1);
+    await upsertRepositories(appEnv.DB, [repo], new Date().toISOString());
+    await writeCatalog(appEnv.DB, catalog(), new Date().toISOString());
+    await appEnv.DB.prepare("UPDATE sweep SET pending = 1 WHERE id = 1").run();
+    const message: EvaluationMessage = { repo: repo.fullName, installationId: 1, reason: "push" };
+    mockGitHub(500);
+
+    const first = await runQueue([message]);
+
+    expect(first.result.explicitAcks).toEqual([]);
+    expect(first.result.retryMessages).toEqual([{ msgId: "message-1" }]);
+    expect(first.retries[0]).toHaveBeenCalledWith({ delaySeconds: 60 });
+    expect((await store.readResults(appEnv.DB, repo.fullName))[0]?.cell.state).toBe("unknown");
+    expect(
+      await appEnv.DB.prepare("SELECT pending, last_completed_at FROM sweep WHERE id = 1").first(),
+    ).toEqual({ pending: 1, last_completed_at: null });
+
+    mockGitHub();
+    const recovered = await runQueue([message], 2);
+
+    expect(recovered.result.explicitAcks).toEqual(["message-1"]);
+    expect(recovered.result.retryMessages).toEqual([]);
+    expect((await store.readResults(appEnv.DB, repo.fullName))[0]?.cell.state).toBe("pass");
+    const sweep = await appEnv.DB.prepare(
+      "SELECT pending, last_completed_at FROM sweep WHERE id = 1",
+    ).first<{ pending: number; last_completed_at: string | null }>();
+
+    expect(sweep?.pending).toBe(0);
+    expect(sweep?.last_completed_at).toEqual(expect.any(String));
+  });
+
+  it.each([1, 2, 3])("bounds transient evaluation retries at delivery %s", async (attempts) => {
+    await upsertRepositories(appEnv.DB, [repository("octo/demo", 1)], new Date().toISOString());
+    await appEnv.DB.prepare("UPDATE sweep SET pending = 1 WHERE id = 1").run();
+    vi.spyOn(evaluate, "evaluateRepository").mockResolvedValue("retry");
+
+    const { result, retries } = await runQueue(
+      [{ repo: "octo/demo", installationId: 1, reason: "push" }],
+      attempts,
+    );
+
+    expect(result.explicitAcks).toEqual(attempts === 3 ? ["message-1"] : []);
+    expect(result.retryMessages).toEqual(attempts === 3 ? [] : [{ msgId: "message-1" }]);
+    expect(retries[0]?.mock.calls).toEqual(
+      attempts === 3 ? [] : [[{ delaySeconds: 60 * attempts }]],
+    );
+    const sweep = await appEnv.DB.prepare(
+      "SELECT pending, last_completed_at FROM sweep WHERE id = 1",
+    ).first<{ pending: number; last_completed_at: string | null }>();
+
+    expect(sweep?.pending).toBe(attempts === 3 ? 0 : 1);
+    expect(Boolean(sweep?.last_completed_at)).toBe(attempts === 3);
+  });
+
+  it("acknowledges a permanently unavailable installation without retrying", async () => {
+    await upsertRepositories(appEnv.DB, [repository("octo/demo", 1)], new Date().toISOString());
+    await appEnv.DB.prepare("UPDATE sweep SET pending = 1 WHERE id = 1").run();
+    vi.spyOn(evaluate, "evaluateRepository").mockResolvedValue("unavailable");
+
+    const { result } = await runQueue([{ repo: "octo/demo", installationId: 1, reason: "push" }]);
+
+    expect(result.explicitAcks).toEqual(["message-1"]);
+    expect(result.retryMessages).toEqual([]);
+    expect(await appEnv.DB.prepare("SELECT pending FROM sweep WHERE id = 1").first()).toEqual({
+      pending: 0,
+    });
   });
 
   it("acknowledges a queued message for a repository deleted from inventory", async () => {

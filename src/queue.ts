@@ -11,6 +11,7 @@ import {
 } from "./practices/store";
 
 const MAX_BATCH_SIZE = 100;
+const MAX_EVALUATION_ATTEMPTS = 3;
 
 export async function enqueueRepositories(
   env: AppEnv,
@@ -57,13 +58,19 @@ export async function handleQueue(
         continue;
       }
 
-      await evaluateRepository(env, message.body.repo, {
+      const outcome = await evaluateRepository(env, message.body.repo, {
         force:
           message.body.reason === "manual" ||
           message.body.reason === "catalog" ||
           message.body.reason === "installation" ||
           message.body.reason === "sweep",
       });
+
+      if (outcome === "retry" && message.attempts < MAX_EVALUATION_ATTEMPTS) {
+        message.retry({ delaySeconds: 60 * message.attempts });
+        continue;
+      }
+
       await completePendingMessage(env.DB);
       message.ack();
     } catch {

@@ -77,8 +77,14 @@ workflow.
 Evaluations retry transient GitHub server/transport failures at most twice,
 with 250 ms and 1 s backoffs and the existing 8 s per-request timeout.
 HTTP 4xx responses, including permission and feature errors, are not retried.
-Exhausted reads remain unknown. These retries do not change catalog-write
-behavior or trigger additional sweeps.
+Exhausted transient reads remain unknown and request a delayed retry of that
+repository's queue message. Installation-token HTTP 5xx failures also request a
+delayed retry. These failures allow at most three evaluation deliveries, with
+60 s and 120 s delays;
+pending bookkeeping completes on recovery or the final delivery. Persistent
+failures remain unknown for the next sweep or manual refresh. Permission and
+feature errors do not request queue retries. Catalog writes are not replayed,
+and these retries do not trigger additional sweeps.
 
 The starter CI rule checks ci.yml, pnpm setup, read-only contents permission,
 and that every static CI job name is a required status check on the default

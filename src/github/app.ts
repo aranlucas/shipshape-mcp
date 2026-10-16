@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AppEnv } from "../env";
+import { InstallationTokenRequestError } from "./installation-token-error";
 import {
   GITHUB_API_VERSION,
   createGitHubOctokit,
@@ -99,7 +100,7 @@ export async function installationToken(env: AppEnv, installationId: number): Pr
   }
 
   if (!response.ok) {
-    throw new Error(`GitHub installation token request failed: ${response.status}`);
+    throw new InstallationTokenRequestError(response.status);
   }
 
   const parsed = tokenSchema.parse(await response.json());
