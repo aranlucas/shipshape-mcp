@@ -60,6 +60,7 @@ const YamlPathCheck = z
   });
 
 export const CheckSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("husky-lint-staged") }).strict(),
   z
     .object({
       type: z.literal("oxforge-format"),
@@ -260,6 +261,8 @@ export function checkLabel(check: Check): string {
   switch (check.type) {
     case "oxforge-format":
       return `Shared Oxforge formatting with Tailwind sorting when declared in ${check.directory}`;
+    case "husky-lint-staged":
+      return "Husky initializes and runs configured lint-staged tasks";
     case "oxforge":
       return `Shared Oxforge >= ${check.minimumVersion} in ${check.directory}`;
     case "dependabot-grouped":

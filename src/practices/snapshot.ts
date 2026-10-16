@@ -82,6 +82,10 @@ export function filesNeeded(practices: Practice[]): string[] {
         paths.add(joinPath(check.directory, "package.json"));
         paths.add(joinPath(check.directory, "oxfmt.config.ts"));
       }
+      if (check.type === "husky-lint-staged") {
+        paths.add("package.json");
+        paths.add(".husky/pre-commit");
+      }
       if (check.type === "oxforge") {
         paths.add(joinPath(check.directory, "package.json"));
         for (const name of LINT_CONFIG_NAMES) {

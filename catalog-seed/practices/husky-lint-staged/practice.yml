@@ -7,16 +7,4 @@ appliesTo:
   languages: [TypeScript, JavaScript]
   hasFiles: [package.json]
 checks:
-  - type: file-exists
-    path: .husky/pre-commit
-  - type: file-matches
-    path: .husky/pre-commit
-    source: files/.husky/pre-commit
-  - type: json-path
-    file: package.json
-    path: scripts.prepare
-    equals: husky
-  - type: json-path
-    file: package.json
-    path: lint-staged
-    exists: true
+  - type: husky-lint-staged
