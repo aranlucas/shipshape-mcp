@@ -141,6 +141,7 @@ interface FetchCall {
 }
 
 interface GitHubMockOptions {
+  failedRead?: { path: string; status: number };
   tokenStatus?: number;
   headStatus?: number;
   treeStatus?: number;
@@ -162,6 +163,12 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
       const request = new Request(input, init);
       const url = new URL(request.url);
       calls.push({ method: request.method, path: url.pathname });
+
+      if (request.method === "GET" && url.pathname === options.failedRead?.path) {
+        return Promise.resolve(
+          jsonResponse({ message: "read unavailable" }, options.failedRead.status),
+        );
+      }
 
       if (request.method === "POST" && url.pathname === "/app/installations/42/access_tokens") {
         if (options.tokenStatus && options.tokenStatus !== 200) {
@@ -509,7 +516,7 @@ describe("evaluateRepository", () => {
     expect(calls.some((call) => call.path === `/repos/octo/demo/git/trees/${headSha}`)).toBe(true);
   });
 
-  it.each([404, 401, 500])(
+  it.each([404, 401, 500, 502, 503, 504])(
     "marks existing results unknown and preserves checked_at for installation token HTTP %s",
     async (status) => {
       const practices = [
@@ -520,7 +527,9 @@ describe("evaluateRepository", () => {
       await seed(catalog(practices), [storedRow("readme")]);
       mockGitHub({ tokenStatus: status });
 
-      await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("unavailable");
+      await expect(evaluateRepository(appEnv, repoName)).resolves.toBe(
+        status >= 500 ? "retry" : "unavailable",
+      );
 
       const rows = await readResults(appEnv.DB, repoName);
       expect(rows).toHaveLength(1);
@@ -528,6 +537,56 @@ describe("evaluateRepository", () => {
       expect(JSON.stringify(rows)).toContain("GitHub App installation unavailable");
     },
   );
+
+  it.each([
+    "/repos/octo/demo/commits/main",
+    `/repos/octo/demo/git/trees/${headSha}`,
+    "/repos/octo/demo/contents/README.md",
+    "/repos/octo/demo",
+    "/repos/octo/demo/branches/main",
+    "/repos/octo/demo/branches/main/protection",
+  ])("requests a queue retry after exhausting HTTP 500 reads at %s", async (path) => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+        validPractice("squash", "settings", [
+          { type: "setting", key: "allow_squash_merge", equals: true },
+        ]),
+        validPractice("protection", "settings", [
+          { type: "branch-protection", key: "enforceAdmins", equals: false },
+        ]),
+      ]),
+    );
+    const calls = mockGitHub({ failedRead: { path, status: 500 } });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("retry");
+
+    expect(calls.filter((call) => call.path === path)).toHaveLength(3);
+    const rows = await readResults(appEnv.DB, repoName);
+    expect(rows).toHaveLength(3);
+    expect(rows.some((row) => row.cell.state === "unknown")).toBe(true);
+    expect(rows.some((row) => row.cell.state === "pass")).toBe(true);
+    expect(rows.some((row) => row.cell.state === "fail")).toBe(false);
+  });
+
+  it.each([403, 404, 429])("does not request a queue retry for HTTP %s reads", async (status) => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+      ]),
+    );
+    const path = "/repos/octo/demo/contents/README.md";
+    const calls = mockGitHub({ failedRead: { path, status } });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    expect(calls.filter((call) => call.path === path)).toHaveLength(1);
+    expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("unknown");
+  });
 
   it("recovers after an unavailable installation even when head and catalog are unchanged", async () => {
     const practices = [

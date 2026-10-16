@@ -26,7 +26,7 @@ describe("GitHub API boundaries", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it.each([500, 403, 404])(
+  it.each([500, 502, 503, 504, 401, 403, 404, 409, 422, 429])(
     "bounds retries for HTTP %s without retrying permission or feature errors",
     async (status) => {
       const fetcher = vi.fn(() =>
@@ -38,9 +38,27 @@ describe("GitHub API boundaries", () => {
       await expect(
         octokitGet(client, "GET /items", {}, z.object({ id: z.number() })),
       ).rejects.toMatchObject({ status });
-      expect(fetcher).toHaveBeenCalledTimes(status === 500 ? 3 : 1);
+      expect(fetcher).toHaveBeenCalledTimes(status >= 500 ? 3 : 1);
     },
   );
+
+  it("does not replay catalog writes with retries disabled after HTTP 500", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ message: "temporary failure" }, { status: 500 })),
+    );
+
+    const client = createGitHubOctokit("token", fetcher, { retry: false });
+
+    await expect(
+      client.request("POST /repos/{owner}/{repo}/git/commits", {
+        owner: "octo",
+        repo: "practices",
+        message: "Update practice",
+        tree: "a".repeat(40),
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
 
   it("uses shared Zod schemas for repository coordinates and refs", () => {
     expect(RepositoryCoordinatesSchema.parse({ owner: "octo", repo: "demo.js" })).toEqual({
