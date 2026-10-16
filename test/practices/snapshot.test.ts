@@ -293,6 +293,30 @@ describe("takeSnapshot API reads", () => {
 });
 
 describe("semantic lint snapshot collection", () => {
+  it("reads external lint-staged tasks at the captured commit without executing scripts", async () => {
+    const contents = {
+      "package.json": {
+        content: JSON.stringify({
+          devDependencies: { husky: "^9.1.7", "lint-staged": "^17.6.0" },
+          scripts: { postinstall: "husky" },
+        }),
+      },
+      ".husky/pre-commit": { content: "npx lint-staged\n" },
+      ".lintstagedrc.yml": { content: '"*.ts": oxlint' },
+      "scripts/unrelated.js": { content: "throw new Error('never execute')" },
+    };
+
+    const { client, calls } = snapshotClient({ treePaths: Object.keys(contents), contents });
+    const selected = check({ type: "husky-lint-staged" });
+    const snapshot = await takeSnapshot(client, snapshotRepository, [practice([selected])]);
+
+    expect(runCheck(selected, snapshot, {}).state).toBe("pass");
+    const reads = calls.filter((url) => url.pathname.includes("/contents/"));
+    expect(reads).toHaveLength(3);
+    expect(reads.every((url) => url.searchParams.get("ref") === headSha)).toBe(true);
+    expect(snapshot.files.has("scripts/unrelated.js")).toBe(false);
+  });
+
   it("reads the formatter and package manifest at the captured commit", async () => {
     const contents = {
       "apps/web/package.json": {

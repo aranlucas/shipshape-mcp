@@ -43,6 +43,11 @@ describe("inspection evidence links", () => {
       `https://github.com/octo/demo/tree/${sha}`,
     );
   });
+  it("links Husky evidence to the evaluated hook", () => {
+    expect(
+      evidenceLink(repo, sha, { ...check, type: "husky-lint-staged", path: ".husky/pre-commit" }),
+    ).toBe(`https://github.com/octo/demo/blob/${sha}/.husky/pre-commit`);
+  });
   it("does not invent source evidence for settings, missing SHAs or unsafe paths", () => {
     expect(evidenceLink(repo, sha, { ...check, type: "branch-protection" })).toBeNull();
     expect(evidenceLink(repo, null, check)).toBeNull();

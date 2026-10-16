@@ -11,6 +11,7 @@ const FILE_CHECKS = new Set([
   "oxforge",
   "oxforge-format",
   "dependabot-grouped",
+  "husky-lint-staged",
 ]);
 
 /** Evidence must point at the evaluated commit, never the moving default branch. */

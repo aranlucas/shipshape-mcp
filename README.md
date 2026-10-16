@@ -32,13 +32,15 @@ practice has a strict `practice.yml` definition and may include canonical files
 and agent instructions. Checks cover repository files, JSON/YAML paths,
 dependencies, repository settings, branch protection, and workflow security.
 
-The `husky-lint-staged` check reads `package.json` and `.husky/pre-commit`.
-It requires local Husky and lint-staged dependencies, a prepare script that
-initializes Husky, non-empty inline staged tasks, and a direct hook invocation.
-It recognizes npm, pnpm, Yarn, and Bun runners while preserving extra hook steps.
-It never executes repository commands. Unreadable inputs, complex shell flow
-before the invocation, and explicitly selected external configuration need
-review and remain unknown.
+The `husky-lint-staged` check reads `package.json`, `.husky/pre-commit`, and
+recognized root lint-staged configuration files. It checks local dependencies,
+Husky initialization through prepare or postinstall, nonempty inline or
+JSON/YAML tasks, and a hook invocation that preserves lint failures. Common
+npm, pnpm, Yarn and Bun commands and bounded package-script aliases are supported.
+It never executes repository commands. Custom installers, shell preambles,
+CLI config/cwd/diff selectors, ambiguous configuration and JS/TS tasks require
+review and remain unknown. Task execution and machine-local Git settings are
+outside this static check.
 
 The dashboard and API contract are documented in
 [`docs/architecture.md`](docs/architecture.md); the TypeScript response source
