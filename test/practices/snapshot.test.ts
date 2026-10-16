@@ -187,52 +187,78 @@ describe("takeSnapshot API reads", () => {
     expect(fixture.calls.some((url) => url.pathname.includes("/branches/"))).toBe(false);
   });
 
-  it("reads root and nested manifests at the evaluated commit", async () => {
-    const fixture = snapshotClient({
-      treePaths: ["package.json", "apps/web/package.json", "fixtures/package.json", "other.json"],
-      contents: {
-        "package.json": { content: '{"scripts":{"test":"vitest run"}}' },
-        "apps/web/package.json": { content: '{"scripts":{"test":"vitest"}}' },
-        "fixtures/package.json": { content: "{}" },
-      },
-    });
+  it.each(["vitest-test-script", "required-package-scripts"] as const)(
+    "reads root and nested manifests at the evaluated commit for %s",
+    async (type) => {
+      const fixture = snapshotClient({
+        treePaths: ["package.json", "apps/web/package.json", "fixtures/package.json", "other.json"],
+        contents: {
+          "package.json": {
+            content:
+              '{"scripts":{"test":"vitest run","lint":"oxlint","format":"oxfmt","build":"vite build"}}',
+          },
+          "apps/web/package.json": {
+            content:
+              '{"scripts":{"test":"vitest","lint":"oxlint","format":"oxfmt","build":"vite build"}}',
+          },
+          "fixtures/package.json": { content: "{}" },
+        },
+      });
 
-    const selected = check({ type: "vitest-test-script" });
-    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
-    expect([...snapshot.files.keys()].toSorted()).toEqual([
-      "apps/web/package.json",
-      "fixtures/package.json",
-      "package.json",
-    ]);
-    expect(runCheck(selected, snapshot, {})).toMatchObject({
-      state: "fail",
-      path: "fixtures/package.json",
-    });
-    expect(
-      fixture.calls
-        .filter((url) => url.pathname.includes("/contents/"))
-        .every((url) => url.searchParams.get("ref") === headSha),
-    ).toBe(true);
-  });
+      const selected = check({ type });
 
-  it("keeps excess manifests unknown within the shared read budget", async () => {
-    const paths = Array.from({ length: 65 }, (_, index) => `packages/p${index}/package.json`);
+      const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [
+        practice([selected]),
+      ]);
 
-    const fixture = snapshotClient({
-      treePaths: paths,
-      contents: Object.fromEntries(
-        paths.map((path) => [path, { content: '{"scripts":{"test":"vitest run"}}' }]),
-      ),
-    });
+      expect([...snapshot.files.keys()].toSorted()).toEqual([
+        "apps/web/package.json",
+        "fixtures/package.json",
+        "package.json",
+      ]);
+      expect(runCheck(selected, snapshot, {})).toMatchObject({
+        state: "fail",
+        path: "fixtures/package.json",
+      });
+      expect(
+        fixture.calls
+          .filter((url) => url.pathname.includes("/contents/"))
+          .every((url) => url.searchParams.get("ref") === headSha),
+      ).toBe(true);
+    },
+  );
 
-    const selected = check({ type: "vitest-test-script" });
-    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
-    expect(fixture.calls.filter((url) => url.pathname.includes("/contents/"))).toHaveLength(64);
-    expect(runCheck(selected, snapshot, {})).toMatchObject({
-      state: "unknown",
-      detail: "Read budget exceeded",
-    });
-  });
+  it.each(["vitest-test-script", "required-package-scripts"] as const)(
+    "keeps excess manifests unknown within the shared read budget for %s",
+    async (type) => {
+      const paths = Array.from({ length: 65 }, (_, index) => `packages/p${index}/package.json`);
+
+      const fixture = snapshotClient({
+        treePaths: paths,
+        contents: Object.fromEntries(
+          paths.map((path) => [
+            path,
+            {
+              content:
+                '{"scripts":{"test":"vitest run","lint":"oxlint","format":"oxfmt","build":"vite build"}}',
+            },
+          ]),
+        ),
+      });
+
+      const selected = check({ type });
+
+      const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [
+        practice([selected]),
+      ]);
+
+      expect(fixture.calls.filter((url) => url.pathname.includes("/contents/"))).toHaveLength(64);
+      expect(runCheck(selected, snapshot, {})).toMatchObject({
+        state: "unknown",
+        detail: "Read budget exceeded",
+      });
+    },
+  );
 
   it("reads commit and tree, but conditionally skips settings and protection endpoints", async () => {
     const fixture = snapshotClient({ treePaths: ["README.md"] });

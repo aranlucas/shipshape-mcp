@@ -14,6 +14,7 @@ const expectedPracticeIds = [
   "preferred-package-manager",
   "pnpm-setup",
   "vitest-test-script",
+  "required-package-scripts",
   "oxforge-lint-format",
   "husky-lint-staged",
   "dependabot-weekly-grouped",
@@ -30,6 +31,7 @@ const fileWorkflowPracticeIds = new Set<string>([
   "preferred-package-manager",
   "pnpm-setup",
   "vitest-test-script",
+  "required-package-scripts",
   "oxforge-lint-format",
   "husky-lint-staged",
   "dependabot-weekly-grouped",
@@ -210,7 +212,7 @@ describe("seed practice catalog", () => {
     const snapshot = repositorySnapshot();
     const seeds = seedPractices();
 
-    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(9);
+    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(10);
 
     for (const seed of seeds) {
       if (!fileWorkflowPracticeIds.has(seed.parsed.id)) {

@@ -28,6 +28,15 @@ const check: CheckResult = {
 };
 
 describe("inspection evidence links", () => {
+  it("links required-script failures to the evaluated package manifest", () => {
+    expect(
+      evidenceLink(repo, sha, {
+        ...check,
+        type: "required-package-scripts",
+        path: "packages/core/package.json",
+      }),
+    ).toBe(`https://github.com/octo/demo/blob/${sha}/packages/core/package.json`);
+  });
   it("links CI job definitions at the evaluated commit", () => {
     expect(
       evidenceLink(repo, sha, {

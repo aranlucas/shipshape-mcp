@@ -1,0 +1,7 @@
+version: 1
+id: required-package-scripts
+title: Required lint, format, and build scripts
+summary: Every tracked package.json must declare non-empty lint, format, and build scripts.
+kind: files
+checks:
+  - type: required-package-scripts

@@ -110,6 +110,7 @@ const CheckDefinitionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("preferred-package-manager") }).strict(),
   z.object({ type: z.literal("pnpm-setup") }).strict(),
   z.object({ type: z.literal("vitest-test-script") }).strict(),
+  z.object({ type: z.literal("required-package-scripts") }).strict(),
   z.object({ type: z.literal("husky-lint-staged") }).strict(),
   z
     .object({
@@ -194,6 +195,7 @@ export const CheckSchema = CheckDefinitionSchema.transform((check) => {
         key: check.key === "required_linear_history" ? "requiredLinearHistory" : check.key,
       };
     case "vitest-test-script":
+    case "required-package-scripts":
     case "ci-required-checks":
     case "ci-test-script":
     case "preferred-package-manager":
@@ -342,6 +344,8 @@ export function checkLabel(check: Check): string {
       return "Use pnpm/setup instead of pnpm/action-setup";
     case "vitest-test-script":
       return "Every package.json has a test script that runs Vitest";
+    case "required-package-scripts":
+      return "Every package.json declares lint, format, and build scripts";
     case "oxforge-format":
       return `Shared Oxforge formatting with Tailwind sorting when declared in ${check.directory}`;
     case "husky-lint-staged":
