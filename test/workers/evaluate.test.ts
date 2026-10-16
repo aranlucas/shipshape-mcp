@@ -149,6 +149,7 @@ interface GitHubMockOptions {
   head?: string;
   fileContent?: string;
   transientContentFailure?: boolean;
+  requiredChecks?: string[];
 }
 
 function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
@@ -213,6 +214,18 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
 
       if (url.pathname === "/repos/octo/demo") {
         return Promise.resolve(jsonResponse({ allow_squash_merge: true, ...options.settings }));
+      }
+
+      if (url.pathname === "/repos/octo/demo/branches/main") {
+        return Promise.resolve(
+          jsonResponse({ name: "main", protected: true, commit: { sha: currentHead } }),
+        );
+      }
+
+      if (url.pathname === "/repos/octo/demo/branches/main/protection") {
+        return Promise.resolve(
+          jsonResponse({ required_status_checks: { contexts: options.requiredChecks ?? [] } }),
+        );
       }
 
       if (url.pathname.startsWith("/repos/octo/demo/contents/")) {
@@ -461,6 +474,26 @@ describe("evaluateRepository", () => {
     await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
     expect(calls.some((call) => call.path === "/repos/octo/demo")).toBe(true);
     expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("fail");
+  });
+
+  it("rechecks CI protection changes without a new commit or catalog revision", async () => {
+    await seed(catalog([validPractice("ci", "files", [{ type: "ci-required-checks" }])]));
+    const options = {
+      treePaths: [".github/workflows/ci.yml"],
+      fileContent: "jobs:\n  ci:\n    runs-on: ubuntu-latest\n",
+    };
+    mockGitHub({ ...options, requiredChecks: ["ci"] });
+    await evaluateRepository(appEnv, repoName);
+    expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("pass");
+
+    const calls = mockGitHub({ ...options, requiredChecks: [] });
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+    expect(calls.some((call) => call.path === "/repos/octo/demo/branches/main/protection")).toBe(
+      true,
+    );
+    const row = (await readResults(appEnv.DB, repoName))[0];
+    expect(row?.cell.state).toBe("fail");
+    expect(row?.checks[0]).toMatchObject({ expected: '["ci"]', actual: "[]" });
   });
 
   it("re-evaluates when force is true even when head and catalog are unchanged", async () => {

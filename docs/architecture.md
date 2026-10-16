@@ -80,8 +80,12 @@ HTTP 4xx responses, including permission and feature errors, are not retried.
 Exhausted reads remain unknown. These retries do not change catalog-write
 behavior or trigger additional sweeps.
 
-The starter CI rule checks ci.yml, pnpm setup, and read-only contents permission.
-It does not verify workflow uniqueness or branch protection. The starter
+The starter CI rule checks ci.yml, pnpm setup, read-only contents permission,
+and that every static CI job name is a required status check on the default
+branch. Additional required checks are allowed. Unreadable protection and
+dynamic or ambiguous job contexts remain unknown. This uses classic branch
+protection reads; ruleset-only requirements are not resolved. The rule does
+not verify workflow uniqueness or successful CI execution. The starter
 auto-merge rule checks file existence; its pass does not establish safe or
 successful merge behavior. Exact file comparisons intentionally report
 template differences, including repository-specific additions.

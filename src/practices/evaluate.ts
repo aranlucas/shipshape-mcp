@@ -167,7 +167,10 @@ export async function evaluateRepository(
     (practice) =>
       practice.parsed.ok &&
       practice.parsed.practice.checks.some(
-        (check) => check.type === "setting" || check.type === "branch-protection",
+        (check) =>
+          check.type === "setting" ||
+          check.type === "branch-protection" ||
+          check.type === "ci-required-checks",
       ),
   );
 

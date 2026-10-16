@@ -105,6 +105,7 @@ const BranchProtectionCheck = z.discriminatedUnion("key", [
 ]);
 
 const CheckDefinitionSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ci-required-checks") }).strict(),
   z.object({ type: z.literal("vitest-test-script") }).strict(),
   z.object({ type: z.literal("husky-lint-staged") }).strict(),
   z
@@ -190,6 +191,7 @@ export const CheckSchema = CheckDefinitionSchema.transform((check) => {
         key: check.key === "required_linear_history" ? "requiredLinearHistory" : check.key,
       };
     case "vitest-test-script":
+    case "ci-required-checks":
     case "dependabot-grouped":
     case "dependency":
     case "file-contains":
@@ -324,6 +326,8 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
 
 export function checkLabel(check: Check): string {
   switch (check.type) {
+    case "ci-required-checks":
+      return "ci.yml jobs are required status checks on the default branch";
     case "vitest-test-script":
       return "Every package.json has a test script that runs Vitest";
     case "oxforge-format":

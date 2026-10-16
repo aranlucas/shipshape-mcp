@@ -1,4 +1,5 @@
 import type { CheckResult } from "../api/contract";
+import { inspectCiRequiredChecks } from "./ci-required-checks";
 import {
   inspectFileExists,
   inspectFileMatches,
@@ -21,6 +22,8 @@ function inspectCheck(
   practiceFiles: PracticeFiles,
 ): CheckOutcome {
   switch (check.type) {
+    case "ci-required-checks":
+      return inspectCiRequiredChecks(snapshot);
     case "vitest-test-script":
       return inspectVitestTestScripts(snapshot);
     case "oxforge-format":
