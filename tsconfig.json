@@ -23,6 +23,7 @@
   "include": [
     "src",
     "test",
+    "scripts",
     "cloudflare.config.ts",
     "vite.config.ts",
     ".cloudflare/types",

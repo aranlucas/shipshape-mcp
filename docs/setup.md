@@ -143,8 +143,23 @@ protected JSON file outside the repository and use:
 
 ```sh
 pnpm build
-pnpm exec cf deploy --prebuilt --secrets-file /secure/path/app-secrets.json
+pnpm run deploy:ci --secrets-file /secure/path/app-secrets.json
 ```
+
+Use `pnpm run deploy` for a local production release, or `pnpm run deploy:ci`
+after `pnpm build`. Both apply pending D1 migrations before uploading the Worker
+and stop if a migration fails. The database ID comes from the built Worker's
+`DB` binding, so it stays aligned with the deployed artifact. Prebuilt output
+must use production mode; Preview output is refused. `pnpm dry-run` builds and
+checks the same artifact without applying migrations or uploading anything.
+
+Workers Builds uses `pnpm run build` followed by `pnpm run deploy`; keep its
+deploy command on the package script so it receives the migration gate.
+Direct `cf deploy` calls bypass that gate. The build token needs D1 edit access
+for the bound database as well as Worker deployment access. Forward a named
+CLI auth profile with `--profile <name>` when needed; both migration and upload
+use it. Changes to an existing schema must remain compatible with the currently
+running Worker because migrations run before the new code is uploaded.
 
 After deployment, sign in and choose **Find my repositories**. On an empty
 database this imports the App's installed repositories, loads the catalog,
