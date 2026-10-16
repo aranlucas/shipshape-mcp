@@ -70,11 +70,14 @@ export function applies(
     return false;
   }
 
-  if (!selection.include.some((pattern) => globMatches(pattern, repo.name))) {
+  const matchesRepository = (pattern: string): boolean =>
+    globMatches(pattern, pattern.includes("/") ? repo.fullName : repo.name);
+
+  if (!selection.include.some(matchesRepository)) {
     return false;
   }
 
-  if (selection.exclude.some((pattern) => globMatches(pattern, repo.name))) {
+  if (selection.exclude.some(matchesRepository)) {
     return false;
   }
 
