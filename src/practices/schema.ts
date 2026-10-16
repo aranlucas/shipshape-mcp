@@ -105,6 +105,8 @@ const BranchProtectionCheck = z.discriminatedUnion("key", [
 ]);
 
 const CheckDefinitionSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("preferred-package-manager") }).strict(),
+  z.object({ type: z.literal("pnpm-setup") }).strict(),
   z.object({ type: z.literal("vitest-test-script") }).strict(),
   z.object({ type: z.literal("husky-lint-staged") }).strict(),
   z
@@ -190,6 +192,8 @@ export const CheckSchema = CheckDefinitionSchema.transform((check) => {
         key: check.key === "required_linear_history" ? "requiredLinearHistory" : check.key,
       };
     case "vitest-test-script":
+    case "preferred-package-manager":
+    case "pnpm-setup":
     case "dependabot-grouped":
     case "dependency":
     case "file-contains":
@@ -324,6 +328,10 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
 
 export function checkLabel(check: Check): string {
   switch (check.type) {
+    case "preferred-package-manager":
+      return "Use pnpm or Bun instead of npm";
+    case "pnpm-setup":
+      return "Use pnpm/setup instead of pnpm/action-setup";
     case "vitest-test-script":
       return "Every package.json has a test script that runs Vitest";
     case "oxforge-format":

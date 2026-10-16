@@ -12,6 +12,8 @@ const FILE_CHECKS = new Set([
   "oxforge-format",
   "dependabot-grouped",
   "husky-lint-staged",
+  "preferred-package-manager",
+  "pnpm-setup",
 ]);
 
 /** Evidence must point at the evaluated commit, never the moving default branch. */
