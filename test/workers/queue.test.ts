@@ -527,6 +527,46 @@ describe("evaluation queue Worker seam", () => {
     expect(retry).toHaveBeenCalledWith({ delaySeconds: 60 });
   });
 
+  it("completes pending on a final practice attempt even when clearing retrying fails", async () => {
+    await upsertRepositories(appEnv.DB, [repository("octo/demo", 1)], new Date().toISOString());
+    await appEnv.DB.prepare("UPDATE sweep SET pending = 1 WHERE id = 1").run();
+    vi.spyOn(evaluate, "evaluateRepository").mockRejectedValue(
+      new Error("D1_ERROR: no such column: retrying"),
+    );
+    vi.spyOn(store, "setResultsRetrying").mockRejectedValue(
+      new Error("D1_ERROR: no such column: retrying"),
+    );
+    const retry = vi.fn();
+    const ack = vi.fn();
+    const batch = {
+      messages: [
+        {
+          id: "message-1",
+          timestamp: new Date(),
+          attempts: 2,
+          body: {
+            repo: "octo/demo",
+            installationId: 1,
+            reason: "push" as const,
+            practiceId: "readme",
+          },
+          retry,
+          ack,
+        },
+      ],
+    } as unknown as MessageBatch<EvaluationMessage>;
+
+    await handleQueue(batch, appEnv);
+
+    expect(retry).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(
+      await appEnv.DB.prepare("SELECT pending FROM sweep WHERE id = 1").first<{
+        pending: number;
+      }>(),
+    ).toMatchObject({ pending: 0 });
+  });
+
   it("forces installation and sweep evaluations even when their SHA is unchanged", async () => {
     await upsertRepositories(
       appEnv.DB,

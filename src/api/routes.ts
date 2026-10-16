@@ -111,6 +111,12 @@ function isKnownPractice(catalog: Catalog, id: string): CatalogPractice | undefi
   return catalog.practices.find((practice) => practice.id === id);
 }
 
+// Results from an older catalog are hidden, so re-evaluate now instead of waiting for the push webhook.
+async function reloadCatalogAndRequeue(env: AppEnv): Promise<void> {
+  await loadCatalog(env);
+  await enqueueRepositories(env, await listRepositories(env.DB), "catalog");
+}
+
 async function handleSave(env: AppEnv, request: Request, practiceId: string): Promise<Response> {
   const body = SavePracticeSchema.parse(await readJson(request));
   const parsed = parsePractice(body.yaml, practiceId);
@@ -141,7 +147,7 @@ async function handleSave(env: AppEnv, request: Request, practiceId: string): Pr
     instructions: body.instructions,
     files: body.files,
   });
-  await loadCatalog(env);
+  await reloadCatalogAndRequeue(env);
 
   return json({ catalogSha }, 200);
 }
@@ -154,7 +160,7 @@ async function handleDelete(env: AppEnv, practiceId: string): Promise<Response> 
   }
 
   const catalogSha = await commitCatalogChange(env, { practiceId, delete: true });
-  await loadCatalog(env);
+  await reloadCatalogAndRequeue(env);
 
   return json({ catalogSha }, 200);
 }

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppEnv } from "@/env";
 import worker from "@/index";
-import { upsertRepositories, type StoredRepository } from "@/practices/store";
+import { upsertRepositories, writeCatalog, type StoredRepository } from "@/practices/store";
 
 const appEnv = env as AppEnv;
 const origin = "https://shipshape-mcp.aranlucas.workers.dev";
@@ -95,6 +95,30 @@ async function clearData(): Promise<void> {
   ]);
 }
 
+function catalogFetch(catalogSha: string) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+
+    if (request.method === "POST" && url.pathname === "/app/installations/1/access_tokens") {
+      return Promise.resolve(
+        jsonResponse(url, { token: "installation-token", expires_at: "2030-01-01T00:00:00Z" }),
+      );
+    }
+    if (url.pathname === "/repos/aranlucas/practices") {
+      return Promise.resolve(jsonResponse(url, { default_branch: "main" }));
+    }
+    if (url.pathname === "/repos/aranlucas/practices/commits/main") {
+      return Promise.resolve(jsonResponse(url, { sha: catalogSha }));
+    }
+    if (url.pathname === `/repos/aranlucas/practices/git/trees/${catalogSha}`) {
+      return Promise.resolve(jsonResponse(url, { truncated: false, tree: [] }));
+    }
+
+    return Promise.resolve(jsonResponse(url, { message: `Unexpected ${url.pathname}` }, 404));
+  });
+}
+
 describe("GitHub webhook Worker seam", () => {
   beforeEach(async () => {
     await clearData();
@@ -162,27 +186,7 @@ describe("GitHub webhook Worker seam", () => {
       new Date().toISOString(),
     );
     const catalogSha = "c".repeat(40);
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const request = new Request(input, init);
-      const url = new URL(request.url);
-
-      if (request.method === "POST" && url.pathname === "/app/installations/1/access_tokens") {
-        return Promise.resolve(
-          jsonResponse(url, { token: "installation-token", expires_at: "2030-01-01T00:00:00Z" }),
-        );
-      }
-      if (url.pathname === "/repos/aranlucas/practices") {
-        return Promise.resolve(jsonResponse(url, { default_branch: "main" }));
-      }
-      if (url.pathname === "/repos/aranlucas/practices/commits/main") {
-        return Promise.resolve(jsonResponse(url, { sha: catalogSha }));
-      }
-      if (url.pathname === `/repos/aranlucas/practices/git/trees/${catalogSha}`) {
-        return Promise.resolve(jsonResponse(url, { truncated: false, tree: [] }));
-      }
-
-      return Promise.resolve(jsonResponse(url, { message: `Unexpected ${url.pathname}` }, 404));
-    });
+    const fetchMock = catalogFetch(catalogSha);
     vi.stubGlobal("fetch", fetchMock);
     const spies = queueSpies();
 
@@ -202,6 +206,31 @@ describe("GitHub webhook Worker seam", () => {
       { repo: "aranlucas/practices", installationId: 1, reason: "catalog" },
       { repo: "octo/demo", installationId: 1, reason: "catalog" },
     ]);
+  });
+
+  it("does not enqueue a catalog push already loaded by a dashboard save", async () => {
+    await upsertRepositories(
+      appEnv.DB,
+      [repository("aranlucas/practices", 1), repository("octo/demo", 1)],
+      new Date().toISOString(),
+    );
+    const catalogSha = "c".repeat(40);
+    await writeCatalog(
+      appEnv.DB,
+      { repo: "aranlucas/practices", sha: catalogSha, practices: [] },
+      new Date().toISOString(),
+    );
+    vi.stubGlobal("fetch", catalogFetch(catalogSha));
+    const spies = queueSpies();
+
+    const result = await dispatch("push", {
+      ref: "refs/heads/main",
+      repository: { full_name: "aranlucas/practices", default_branch: "main" },
+      installation: { id: 1 },
+    });
+
+    expect(result.status).toBe(202);
+    expect(spies.messages()).toEqual([]);
   });
 
   it("answers GitHub ping without queue work", async () => {
