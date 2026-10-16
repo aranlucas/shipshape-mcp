@@ -7,10 +7,10 @@
   "scripts": {
     "build": "pnpm ui:build && cf build",
     "check": "pnpm types && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
-    "deploy": "cf deploy",
-    "deploy:ci": "cf deploy --prebuilt",
+    "deploy": "node scripts/deploy.ts",
+    "deploy:ci": "node scripts/deploy.ts --prebuilt",
     "dev": "portless run vite",
-    "dry-run": "pnpm ui:build && cf deploy --dry-run",
+    "dry-run": "node scripts/deploy.ts --dry-run",
     "format": "oxfmt --config oxfmt.config.ts",
     "format:check": "oxfmt --config oxfmt.config.ts --check",
     "lint": "oxlint",
