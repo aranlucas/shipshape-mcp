@@ -33,6 +33,11 @@ describe("inspection evidence links", () => {
       `https://github.com/octo/demo/blob/${sha}/config/a%20%23.json`,
     );
   });
+  it("links semantic formatter evidence to the inspected config", () => {
+    expect(
+      evidenceLink(repo, sha, { ...check, type: "oxforge-format", path: "oxfmt.config.ts" }),
+    ).toBe(`https://github.com/octo/demo/blob/${sha}/oxfmt.config.ts`);
+  });
   it("uses the inspected tree for a missing file", () => {
     expect(evidenceLink(repo, sha, { ...check, type: "file-exists", actual: "false" })).toBe(
       `https://github.com/octo/demo/tree/${sha}`,

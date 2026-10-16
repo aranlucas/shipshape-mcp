@@ -78,6 +78,10 @@ export function filesNeeded(practices: Practice[]): string[] {
 
   for (const practice of practices) {
     for (const check of practice.checks) {
+      if (check.type === "oxforge-format") {
+        paths.add(joinPath(check.directory, "package.json"));
+        paths.add(joinPath(check.directory, "oxfmt.config.ts"));
+      }
       if (check.type === "oxforge") {
         paths.add(joinPath(check.directory, "package.json"));
         for (const name of LINT_CONFIG_NAMES) {

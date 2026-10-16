@@ -9,6 +9,4 @@ appliesTo:
 checks:
   - type: oxforge
     minimumVersion: "0.2.0"
-  - type: file-matches
-    path: oxfmt.config.ts
-    source: files/oxfmt.config.ts
+  - type: oxforge-format

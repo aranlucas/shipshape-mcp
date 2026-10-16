@@ -293,6 +293,27 @@ describe("takeSnapshot API reads", () => {
 });
 
 describe("semantic lint snapshot collection", () => {
+  it("reads the formatter and package manifest at the captured commit", async () => {
+    const contents = {
+      "apps/web/package.json": {
+        content: JSON.stringify({ devDependencies: { tailwindcss: "^4.0.0" } }),
+      },
+      "apps/web/oxfmt.config.ts": {
+        content: 'export { default } from "@aranlucas/oxforge/format-tailwind";',
+      },
+    };
+
+    const { client, calls } = snapshotClient({ treePaths: Object.keys(contents), contents });
+    const selected = check({ type: "oxforge-format", directory: "apps/web" });
+    const snapshot = await takeSnapshot(client, snapshotRepository, [practice([selected])]);
+
+    expect(runCheck(selected, snapshot, {}).state).toBe("pass");
+    const reads = calls.filter((url) => url.pathname.includes("/contents/"));
+
+    expect(reads).toHaveLength(2);
+    expect(reads.every((url) => url.searchParams.get("ref") === headSha)).toBe(true);
+  });
+
   it("follows local inherited JSONC at the pinned commit without reading plugin code", async () => {
     const shared = "./node_modules/@aranlucas/oxforge/configs/base.json";
 
