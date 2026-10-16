@@ -11,7 +11,7 @@ import { isAllowedAccount, isOwner } from "./auth/owner";
 import type { AppEnv } from "./env";
 import { GitHubOwnerInputSchema } from "./github/schemas";
 import { loadCatalog } from "./practices/catalog";
-import { listRepositories, type StoredRepository } from "./practices/store";
+import { listRepositories, readCatalogRow, type StoredRepository } from "./practices/store";
 import { enqueueRepositories, handleQueue } from "./queue";
 import { handleScheduled, inventoryForTrigger } from "./scheduled";
 import { createPracticesServer } from "./mcp";
@@ -180,8 +180,13 @@ async function handleWebhookWork(
     }
 
     if (push.repository.full_name.toLowerCase() === env.CATALOG_REPO.toLowerCase()) {
-      await loadCatalog(env);
-      await enqueueRepositories(env, await listRepositories(env.DB), "catalog");
+      const previousSha = (await readCatalogRow(env.DB))?.sha;
+      const catalog = await loadCatalog(env);
+
+      // Dashboard saves load and enqueue their own commit before GitHub delivers this push.
+      if (catalog.sha !== previousSha) {
+        await enqueueRepositories(env, await listRepositories(env.DB), "catalog");
+      }
       return;
     }
 

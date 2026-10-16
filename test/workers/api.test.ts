@@ -8,6 +8,7 @@ import worker from "@/index";
 import { createSession, SESSION_COOKIE_NAME } from "@/web/session";
 import { parsePractice } from "@/practices/schema";
 import {
+  listRepositories,
   upsertRepositories,
   writeCatalog,
   writeResults,
@@ -498,6 +499,27 @@ describe("dashboard API", () => {
     expect(
       requests.some(({ method, path }) => method === "GET" && path.endsWith("/commits/main")),
     ).toBe(true);
+  });
+
+  it("queues every repository for re-evaluation after a saved catalog change", async () => {
+    const { fetchMock } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const repos = await listRepositories(appEnv.DB);
+
+    const response = await request("/app/api/practices/husky", {
+      method: "PUT",
+      headers: { origin: ORIGIN },
+      body: JSON.stringify({ yaml: validYaml }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(repos.length).toBeGreaterThan(0);
+    expect(sendBatch).toHaveBeenCalledWith(
+      repos.map((repo) => ({
+        body: { repo: repo.fullName, installationId: repo.installationId, reason: "catalog" },
+      })),
+    );
   });
 
   it("prepends the catalog files directory to repository-relative file paths", async () => {

@@ -157,7 +157,13 @@ async function handleMessage(message: Message<EvaluationMessage>, env: AppEnv): 
 
       if (message.attempts >= maxAttempts) {
         if (message.body.practiceId) {
-          await setResultsRetrying(env.DB, message.body.repo, [message.body.practiceId], false);
+          // A redelivery past this point would be dropped by the queue without completing pending.
+          await setResultsRetrying(
+            env.DB,
+            message.body.repo,
+            [message.body.practiceId],
+            false,
+          ).catch(() => {});
         }
         await completePendingMessage(env.DB);
         message.ack();
