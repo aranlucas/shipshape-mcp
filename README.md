@@ -32,6 +32,11 @@ practice has a strict `practice.yml` definition and may include canonical files
 and agent instructions. Checks cover repository files, JSON/YAML paths,
 dependencies, repository settings, branch protection, and workflow security.
 
+Practice `appliesTo.include` and `appliesTo.exclude` selectors accept case-insensitive
+`*` and `?` globs. Bare patterns such as `legacy-*` match repository names across
+owners; patterns containing `/`, such as `aranlucas/agents-mobile` or `octo/*`,
+match the full `owner/repository` name. Exclusions take precedence over inclusions.
+
 The CI practice includes `ci-required-checks`: jobs in `.github/workflows/ci.yml`
 must be required status checks on the default branch. It uses each job's `name`
 or job ID and allows additional required checks. Dynamic names, matrix jobs,

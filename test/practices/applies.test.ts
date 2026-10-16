@@ -111,6 +111,43 @@ describe("practice applicability", () => {
     ).toBe(false);
   });
 
+  it.each(["octo/demo", "OCTO/DEMO", "octo/dem?", "*/demo", "oct*/dem*"])(
+    "matches owner-qualified include pattern %s",
+    (pattern) => {
+      const selected = practice({ appliesTo: { include: [pattern] } });
+
+      expect(applies(selected, snapshotRepository, makeSnapshot())).toBe(true);
+    },
+  );
+
+  it("keeps qualified selectors scoped to their owner", () => {
+    const included = practice({ appliesTo: { include: ["other/demo"] } });
+    const excluded = practice({ appliesTo: { exclude: ["other/demo"] } });
+
+    expect(applies(included, snapshotRepository, makeSnapshot())).toBe(false);
+    expect(applies(excluded, snapshotRepository, makeSnapshot())).toBe(true);
+  });
+
+  it("excludes qualified repositories before requiring a readable tree", () => {
+    const selected = practice({
+      appliesTo: { exclude: ["OCTO/dem*"], hasFiles: ["package.json"] },
+    });
+
+    expect(applies(selected, snapshotRepository, makeSnapshot({ tree: null }))).toBe(false);
+  });
+
+  it("still requires files after matching a qualified selector", () => {
+    const selected = practice({
+      appliesTo: { include: ["octo/demo"], hasFiles: ["package.json"] },
+    });
+
+    expect(applies(selected, snapshotRepository, makeSnapshot())).toBe(false);
+    expect(applies(selected, snapshotRepository, makeSnapshot({ tree: null }))).toBe("unknown");
+    expect(applies(selected, snapshotRepository, makeSnapshot({ paths: ["package.json"] }))).toBe(
+      true,
+    );
+  });
+
   it("filters archived repositories and honors the archived flag", () => {
     const archived = { ...snapshotRepository, archived: true };
     expect(applies(practice(), archived, makeSnapshot({ repo: archived }))).toBe(false);
