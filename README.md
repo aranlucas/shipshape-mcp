@@ -40,6 +40,11 @@ reports missing requirements and provides remediation instructions without
 changing repository settings. Deploy evaluator support before adopting the
 updated seed in the separate live catalog.
 
+The CI practice also includes `ci-test-script`: the root `package.json` must
+declare a non-empty `scripts.test`, and `.github/workflows/ci.yml` must invoke
+it through a package-manager script command or a simple alias. Parallel steps
+are supported; conditional, indirect, or failure-ignoring execution needs review.
+
 The `vitest-test-script` check requires every tracked `package.json`, including
 nested packages, to declare a test script that runs Vitest (for example,
 `"test": "vitest run"`). It reads manifests at the evaluated commit without

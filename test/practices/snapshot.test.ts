@@ -162,6 +162,31 @@ describe("filesNeeded", () => {
 });
 
 describe("takeSnapshot API reads", () => {
+  it("collects the manifest and CI workflow for the test-script rule at the captured commit", async () => {
+    const path = ".github/workflows/ci.yml";
+
+    const fixture = snapshotClient({
+      treePaths: ["package.json", path],
+      contents: {
+        "package.json": { content: '{"scripts":{"test":"vitest run"}}' },
+        [path]: { content: "jobs:\n  ci:\n    steps:\n      - run: pnpm test\n" },
+      },
+    });
+
+    const selected = check({ type: "ci-test-script" });
+
+    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
+
+    expect(runCheck(selected, snapshot, {}).state).toBe("pass");
+    expect([...snapshot.files.keys()].toSorted()).toEqual([path, "package.json"]);
+    expect(
+      fixture.calls
+        .filter((url) => url.pathname.includes("/contents/"))
+        .every((url) => url.searchParams.get("ref") === headSha),
+    ).toBe(true);
+    expect(fixture.calls.some((url) => url.pathname.includes("/branches/"))).toBe(false);
+  });
+
   it("reads root and nested manifests at the evaluated commit", async () => {
     const fixture = snapshotClient({
       treePaths: ["package.json", "apps/web/package.json", "fixtures/package.json", "other.json"],

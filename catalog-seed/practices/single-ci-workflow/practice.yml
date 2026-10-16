@@ -1,12 +1,13 @@
 version: 1
 id: single-ci-workflow
 title: Single protected CI workflow
-summary: Keep one CI workflow with read-only contents permission, pnpm setup, and required branch checks.
+summary: Keep one CI workflow that runs the package test script, with read-only contents permission, pnpm setup, and required branch checks.
 kind: files
 appliesTo:
   languages: [TypeScript, JavaScript]
   hasFiles: [package.json]
 checks:
+  - type: ci-test-script
   - type: ci-required-checks
   - type: file-exists
     path: .github/workflows/ci.yml

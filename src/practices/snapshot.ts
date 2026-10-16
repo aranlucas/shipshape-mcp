@@ -63,6 +63,7 @@ export interface PreloadedHead {
 function checkFilePath(check: Check): string | null {
   switch (check.type) {
     case "ci-required-checks":
+    case "ci-test-script":
       return CI_WORKFLOW_PATH;
     case "dependabot-grouped":
       return check.path;
@@ -83,6 +84,9 @@ export function filesNeeded(practices: Practice[]): string[] {
 
   for (const practice of practices) {
     for (const check of practice.checks) {
+      if (check.type === "ci-test-script") {
+        paths.add("package.json");
+      }
       if (check.type === "vitest-test-script" || check.type === "preferred-package-manager") {
         paths.add(PACKAGE_MARKER);
       }
