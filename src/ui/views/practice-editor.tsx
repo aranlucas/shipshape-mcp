@@ -8,6 +8,7 @@ import type {
 import { ApiError } from "../api";
 import { Distribution } from "../components/distribution";
 import { StateMark } from "../components/state-mark";
+import { QueryStatus } from "../components/query-status";
 import { STATE_WORDS } from "../format";
 import { cellState, practiceCounts } from "../model";
 import { deletePracticeMutationOptions, savePracticeMutationOptions } from "../mutations";
@@ -81,7 +82,7 @@ export function PracticeEditor({ overview, id }: EditorProps) {
   const query = useQuery(practiceQuery(id));
 
   if (id !== null && query.isPending) {
-    return <p class="loading">Loading practice…</p>;
+    return <QueryStatus query={query} label="Loading practice…" />;
   }
 
   if (id !== null && query.isError && !query.data) {

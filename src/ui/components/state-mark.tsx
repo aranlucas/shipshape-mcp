@@ -3,6 +3,7 @@ import { STATE_WORDS, type CellState } from "../format";
 interface StateMarkProps {
   state: CellState;
   label?: string;
+  loading?: boolean;
 }
 
 /**
@@ -10,7 +11,22 @@ interface StateMarkProps {
  * reads in grayscale: a quiet dot for following, a split flag for behind,
  * a hatched box for couldn't check, a speck for doesn't apply.
  */
-export function StateMark({ state, label }: StateMarkProps) {
+export function StateMark({ state, label, loading = false }: StateMarkProps) {
+  if (loading) {
+    return (
+      <svg
+        class="mark mark-loading"
+        viewBox="0 0 16 16"
+        width="16"
+        height="16"
+        role="img"
+        aria-label={`${label ?? STATE_WORDS[state]} · Retrying…`}
+      >
+        <circle cx="8" cy="8" r="5" />
+      </svg>
+    );
+  }
+
   return (
     <svg
       class={`mark mark-${state}`}

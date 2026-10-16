@@ -143,10 +143,17 @@ function evaluatePractice(
 export async function evaluateRepository(
   env: AppEnv,
   fullName: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; practiceId?: string } = {},
 ): Promise<"evaluated" | "skipped" | "unavailable" | "retry"> {
   const storedCatalog = await readStoredCatalog(env.DB);
   const catalog: Catalog = storedCatalog ?? (await loadCatalog(env));
+  const practices = options.practiceId
+    ? catalog.practices.filter((practice) => practice.id === options.practiceId)
+    : catalog.practices;
+
+  if (options.practiceId && practices.length === 0) {
+    return "skipped";
+  }
   const repo = await getRepository(env.DB, fullName);
 
   if (!repo) {
@@ -159,7 +166,12 @@ export async function evaluateRepository(
     client = await installationClient(env, repo.installationId, { retry: "bounded" });
   } catch (error) {
     // Any installation token failure means this repository is unavailable for this run.
-    await markUnknown(env.DB, fullName, catalog, "GitHub App installation unavailable");
+    await markUnknown(
+      env.DB,
+      fullName,
+      { ...catalog, practices },
+      "GitHub App installation unavailable",
+    );
     return isTransientGitHubError(error) ? "retry" : "unavailable";
   }
 
@@ -193,6 +205,7 @@ export async function evaluateRepository(
 
   if (
     !options.force &&
+    !options.practiceId &&
     !hasMutableChecks &&
     preloadedHead.sha !== null &&
     !hasRetriableUnknown &&
@@ -202,11 +215,11 @@ export async function evaluateRepository(
     return "skipped";
   }
 
-  const validPractices = catalog.practices.flatMap((practice) =>
+  const validPractices = practices.flatMap((practice) =>
     practice.parsed.ok ? [practice.parsed.practice] : [],
   );
   const snapshot = await takeSnapshot(client, repo, validPractices, preloadedHead);
-  const rows = catalog.practices.map((practice) =>
+  const rows = practices.map((practice) =>
     evaluatePractice(fullName, practice, snapshot, catalog.sha),
   );
 
@@ -217,5 +230,7 @@ export async function evaluateRepository(
     catalog.practices.map((practice) => practice.id),
   );
 
-  return retryableReadFailure ? "retry" : "evaluated";
+  return retryableReadFailure && rows.some((row) => row.cell.unknown > 0 && row.checks.length > 0)
+    ? "retry"
+    : "evaluated";
 }

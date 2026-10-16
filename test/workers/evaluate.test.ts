@@ -571,6 +571,34 @@ describe("evaluateRepository", () => {
     expect(rows.some((row) => row.cell.state === "fail")).toBe(false);
   });
 
+  it("retries one practice without reading or rewriting completed practices", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+        validPractice("squash", "settings", [
+          { type: "setting", key: "allow_squash_merge", equals: true },
+        ]),
+      ]),
+    );
+    mockGitHub({ failedRead: { path: "/repos/octo/demo/contents/README.md", status: 500 } });
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("retry");
+    const completed = (await readResults(appEnv.DB, repoName)).find(
+      (row) => row.practiceId === "squash",
+    );
+    expect(completed?.cell.state).toBe("pass");
+
+    const calls = mockGitHub();
+    await expect(evaluateRepository(appEnv, repoName, { practiceId: "readme" })).resolves.toBe(
+      "evaluated",
+    );
+    const rows = await readResults(appEnv.DB, repoName);
+    expect(rows.find((row) => row.practiceId === "readme")?.cell.state).toBe("pass");
+    expect(rows.find((row) => row.practiceId === "squash")).toEqual(completed);
+    expect(calls.some((call) => call.path === "/repos/octo/demo")).toBe(false);
+  });
+
   it.each([403, 404, 429])("does not request a queue retry for HTTP %s reads", async (status) => {
     await seed(
       catalog([

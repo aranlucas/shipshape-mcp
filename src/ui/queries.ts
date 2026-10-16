@@ -1,6 +1,6 @@
 import { QueryClient, queryOptions, skipToken } from "@tanstack/react-query";
 import type { OverviewResponse, RepoDetailResponse } from "../api/contract";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 
 export const POLL_MS = 3_000;
 
@@ -13,7 +13,15 @@ export const queryKeys = {
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false, staleTime: 30_000 },
+      queries: {
+        retry: (_, error) =>
+          !(error instanceof ApiError) ||
+          error.status === 408 ||
+          error.status === 429 ||
+          error.status >= 500,
+        retryDelay: (attempt) => Math.min(POLL_MS * 2 ** attempt, 30_000),
+        staleTime: 30_000,
+      },
     },
   });
 }
@@ -21,7 +29,14 @@ export function createQueryClient(): QueryClient {
 export const overviewQuery = queryOptions({
   queryKey: queryKeys.overview,
   queryFn: ({ signal }) => api.overview(signal),
-  refetchInterval: (query) => (query.state.data?.sweep.pending ? POLL_MS : false),
+  refetchInterval: (query) =>
+    query.state.data &&
+    (query.state.data.sweep.pending > 0 ||
+      Object.values(query.state.data.results).some((repo) =>
+        Object.values(repo).some((cell) => cell.retrying),
+      ))
+      ? POLL_MS
+      : false,
 });
 
 export function repoQuery(owner: string, name: string) {
@@ -46,11 +61,15 @@ export function repoNeedsUpdate(detail: RepoDetailResponse, overview: OverviewRe
   }
 
   return Object.entries(overview.results[detail.repo.fullName] ?? {}).some(([id, expected]) => {
+    const actual = detail.practices.find((entry) => entry.practice.id === id)?.result;
+
+    if (Boolean(actual?.retrying) !== Boolean(expected.retrying)) {
+      return true;
+    }
+
     if (!expected.checkedAt) {
       return false;
     }
-
-    const actual = detail.practices.find((entry) => entry.practice.id === id)?.result;
 
     return !actual?.checkedAt || Date.parse(actual.checkedAt) < Date.parse(expected.checkedAt);
   });

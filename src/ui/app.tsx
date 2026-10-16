@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "preact/hooks";
 import type { OverviewResponse } from "../api/contract";
 import { ApiError } from "./api";
+import { QueryStatus } from "./components/query-status";
 import { plural, timeAgo } from "./format";
 import { refreshMutationOptions } from "./mutations";
 import { overviewQuery } from "./queries";
@@ -58,9 +59,7 @@ function Masthead({ login, overview, onRefresh, refreshing, section }: MastheadP
       <div class="sweep" role="status">
         {overview &&
           (pending > 0 ? (
-            <span class="sweep-running">
-              Checking {plural(pending, "repository", "repositories")}…
-            </span>
+            <span class="sweep-running">Checking… {plural(pending, "evaluation")} remaining</span>
           ) : (
             <span>
               {overview.sweep.lastCompletedAt
@@ -142,7 +141,10 @@ export function App({ login }: AppProps) {
             </button>
           </p>
         )}
-        {!overview && !error && <p class="loading">Loading repositories…</p>}
+        <QueryStatus
+          query={query}
+          label={overview ? "Updating repositories…" : "Loading repositories…"}
+        />
         {overview && route.view === "overview" && (
           <Overview
             overview={overview}

@@ -8,11 +8,12 @@ import type {
 } from "../../api/contract";
 import { ApiError } from "../api";
 import { evidenceLink } from "../evidence";
-import { STATE_WORDS, timeAgo } from "../format";
+import { STATE_WORDS, plural, timeAgo } from "../format";
 import { linkHandler, navigate, paths } from "../router";
 import { POLL_MS, repoNeedsUpdate, repoQuery } from "../queries";
 import { startTask } from "../tasks";
 import { StateMark } from "./state-mark";
+import { QueryStatus } from "./query-status";
 
 interface RepoPanelProps {
   owner: string;
@@ -153,11 +154,16 @@ function PracticeEntry({ entry, repo }: PracticeEntryProps) {
   return (
     <li class={`entry entry-${result.state}`}>
       <div class="entry-head">
-        <StateMark state={result.checkedAt ? result.state : "pending"} />
+        <StateMark state={result.checkedAt ? result.state : "pending"} loading={result.retrying} />
         <a href={href} onClick={linkHandler(href)} class="entry-title">
           {practice.title}
         </a>
       </div>
+      {result.retrying && (
+        <p class="loading" role="status">
+          Retrying unavailable checks…
+        </p>
+      )}
       <p class="entry-evidence">
         {result.checkedAt
           ? `Checked ${timeAgo(result.checkedAt)}`
@@ -236,6 +242,7 @@ export function RepoPanel({ owner, name, overview, onRefresh, refreshing }: Repo
   }, [fullName]);
 
   const sections = sectionsFor(detail);
+  const retrying = detail?.practices.filter((entry) => entry.result.retrying).length ?? 0;
 
   const neverChecked = detail?.practices.every((entry) => entry.result.checkedAt === null) ?? false;
 
@@ -305,7 +312,12 @@ export function RepoPanel({ owner, name, overview, onRefresh, refreshing }: Repo
             </button>
           </p>
         )}
-        {!detail && !error && <p class="loading">Loading checks…</p>}
+        <QueryStatus query={query} label={detail ? "Updating checks…" : "Loading checks…"} />
+        {retrying > 0 && (
+          <p class="loading" role="status">
+            Retrying {plural(retrying, "unavailable practice")}. Results will appear automatically.
+          </p>
+        )}
         {neverChecked && (
           <p class="notice">
             Shipshape hasn't checked this repository yet. Use Check again to queue it now.
