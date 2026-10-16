@@ -105,6 +105,8 @@ const BranchProtectionCheck = z.discriminatedUnion("key", [
 ]);
 
 const CheckDefinitionSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("portless-dev"), directory: RepoPath.default(".") }).strict(),
+  z.object({ type: z.literal("cloudflare-cf-cli"), directory: RepoPath.default(".") }).strict(),
   z.object({ type: z.literal("ci-required-checks") }).strict(),
   z.object({ type: z.literal("ci-test-script") }).strict(),
   z.object({ type: z.literal("preferred-package-manager") }).strict(),
@@ -195,6 +197,8 @@ export const CheckSchema = CheckDefinitionSchema.transform((check) => {
         key: check.key === "required_linear_history" ? "requiredLinearHistory" : check.key,
       };
     case "vitest-test-script":
+    case "portless-dev":
+    case "cloudflare-cf-cli":
     case "required-package-scripts":
     case "ci-required-checks":
     case "ci-test-script":
@@ -334,6 +338,10 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
 
 export function checkLabel(check: Check): string {
   switch (check.type) {
+    case "portless-dev":
+      return `Default web development uses local Portless in ${check.directory}`;
+    case "cloudflare-cf-cli":
+      return `Cloudflare projects use the local cf CLI in ${check.directory}`;
     case "ci-required-checks":
       return "ci.yml jobs are required status checks on the default branch";
     case "ci-test-script":

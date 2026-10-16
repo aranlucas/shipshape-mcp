@@ -1,6 +1,8 @@
 import type { CheckResult, RepoSummary } from "../api/contract";
 
 const FILE_CHECKS = new Set([
+  "portless-dev",
+  "cloudflare-cf-cli",
   "ci-required-checks",
   "ci-test-script",
   "required-package-scripts",

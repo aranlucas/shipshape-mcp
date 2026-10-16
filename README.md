@@ -71,6 +71,12 @@ CLI config/cwd/diff selectors, ambiguous configuration and JS/TS tasks require
 review and remain unknown. Task execution and machine-local Git settings are
 outside this static check.
 
+The `portless-local-dev` and `cloudflare-cf-cli` seed practices capture recurring
+requests for local development tooling. Their evidence, existing related rules,
+and adoption boundaries are recorded in
+[`docs/recurring-preferences.md`](docs/recurring-preferences.md). Deploy evaluator
+support before adopting the definitions in the separate live catalog.
+
 The dashboard and API contract are documented in
 [`docs/architecture.md`](docs/architecture.md); the TypeScript response source
 of truth is [`src/api/contract.ts`](src/api/contract.ts). Setup instructions

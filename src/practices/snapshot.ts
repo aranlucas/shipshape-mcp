@@ -62,6 +62,9 @@ export interface PreloadedHead {
 
 function checkFilePath(check: Check): string | null {
   switch (check.type) {
+    case "portless-dev":
+    case "cloudflare-cf-cli":
+      return joinPath(check.directory, "package.json");
     case "ci-required-checks":
     case "ci-test-script":
       return CI_WORKFLOW_PATH;

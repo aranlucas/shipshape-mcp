@@ -1,4 +1,5 @@
 import type { CheckResult } from "../api/contract";
+import { inspectLocalCli } from "./local-cli";
 import { inspectCiRequiredChecks } from "./ci-required-checks";
 import { inspectCiTestScript } from "./ci-test-script";
 import {
@@ -25,6 +26,9 @@ function inspectCheck(
   practiceFiles: PracticeFiles,
 ): CheckOutcome {
   switch (check.type) {
+    case "portless-dev":
+    case "cloudflare-cf-cli":
+      return inspectLocalCli(check, snapshot);
     case "ci-required-checks":
       return inspectCiRequiredChecks(snapshot);
     case "ci-test-script":
