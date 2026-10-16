@@ -5,13 +5,14 @@ import { TEST_PRIVATE_KEY_PEM } from "./test/helpers/app-key";
 const testMigrations = await readD1Migrations("./migrations");
 
 export default defineConfig({
-  resolve: { tsconfigPaths: true },
+  resolve: { tsconfigPaths: true, alias: { react: "preact/compat" } },
   test: {
     projects: [
       {
         extends: true,
         test: {
           name: "node",
+          server: { deps: { inline: ["@tanstack/react-query"] } },
           include: ["test/**/*.test.ts"],
           exclude: ["test/workers/**"],
         },

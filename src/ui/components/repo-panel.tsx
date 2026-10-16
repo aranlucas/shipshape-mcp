@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type {
   CheckResult,
@@ -5,10 +6,11 @@ import type {
   RepoDetailResponse,
   RepoSummary,
 } from "../../api/contract";
-import { api, ApiError } from "../api";
+import { ApiError } from "../api";
 import { evidenceLink } from "../evidence";
 import { STATE_WORDS, timeAgo } from "../format";
 import { linkHandler, navigate, paths } from "../router";
+import { repoQuery } from "../queries";
 import { startTask } from "../tasks";
 import { StateMark } from "./state-mark";
 
@@ -17,11 +19,6 @@ interface RepoPanelProps {
   name: string;
   overview: OverviewResponse;
   onRefresh: (repo?: string) => Promise<void>;
-}
-
-interface LoadedRepoDetail {
-  fullName: string;
-  detail: RepoDetailResponse;
 }
 
 type Entry = RepoDetailResponse["practices"][number];
@@ -204,33 +201,17 @@ function PracticeEntry({ entry, repo }: PracticeEntryProps) {
 export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) {
   const fullName = `${owner}/${name}`;
   const summary = overview.repos.find((item) => item.fullName === fullName);
-  // Overview polling returns new objects even when this repository hasn't changed.
-  const revision = JSON.stringify([overview.catalog.sha, summary, overview.results[fullName]]);
-  const [loaded, setLoaded] = useState<LoadedRepoDetail | null>(null);
-  const detail = loaded?.fullName === fullName ? loaded.detail : null;
-  const [error, setError] = useState<string | null>(null);
+  const query = useQuery(repoQuery(owner, name, overview));
+  const detail = query.data ?? null;
+
+  const error = query.error
+    ? query.error instanceof ApiError
+      ? query.error.message
+      : "The repository couldn't be loaded."
+    : null;
+
   const [refreshing, setRefreshing] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
-
-  useEffect(() => {
-    let current = true;
-
-    setError(null);
-    api
-      .repo(owner, name)
-      .then((value) => current && setLoaded({ fullName, detail: value }))
-      .catch(
-        (cause: unknown) =>
-          current &&
-          setError(
-            cause instanceof ApiError ? cause.message : "The repository couldn't be loaded.",
-          ),
-      );
-
-    return () => {
-      current = false;
-    };
-  }, [owner, name, revision]);
 
   useEffect(() => {
     heading.current?.focus();

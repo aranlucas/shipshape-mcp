@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { createElement, render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OverviewResponse, RepoDetailResponse, RepoSummary } from "@/api/contract";
-import { api } from "@/ui/api";
+import { api, ApiError } from "@/ui/api";
 import { App } from "@/ui/app";
+import { createQueryClient } from "@/ui/queries";
 import { navigate } from "@/ui/router";
 
 function repository(name: string): RepoSummary {
@@ -90,9 +92,12 @@ function deferred<T>() {
 
 let container: HTMLDivElement;
 
+let client: QueryClient;
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("reportError", vi.fn());
+  client = createQueryClient();
   window.history.replaceState(null, "", "/app/repos/aranlucas/vienna-travel");
   container = document.createElement("div");
   document.body.replaceChildren(container);
@@ -100,6 +105,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(() => render(null, container));
+  client.clear();
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -108,9 +114,19 @@ afterEach(async () => {
 
 async function mount() {
   await act(() => {
-    render(createElement(App, { login: "aranlucas" }), container);
+    render(
+      createElement(QueryClientProvider, { client }, createElement(App, { login: "aranlucas" })),
+      container,
+    );
   });
-  await act(() => Promise.resolve());
+  await flushQueries();
+  await flushQueries();
+}
+
+async function flushQueries() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
 }
 
 async function poll() {
@@ -121,6 +137,63 @@ async function poll() {
 }
 
 describe("repository panel during overview polling", () => {
+  it("starts polling after a refresh mutation and stops when the sweep completes", async () => {
+    const refresh = vi.spyOn(api, "refresh").mockResolvedValue({ queued: 1 });
+
+    const overviewRequest = vi
+      .spyOn(api, "overview")
+      .mockResolvedValueOnce(overview(0))
+      .mockResolvedValueOnce(overview(1))
+      .mockResolvedValue(overview(0, "2026-10-15T13:00:00Z"));
+
+    vi.spyOn(api, "repo").mockResolvedValue(detail());
+    await mount();
+    await poll();
+    expect(overviewRequest).toHaveBeenCalledTimes(1);
+
+    await act(() => {
+      const button = [...container.querySelectorAll(".panel button")].find(
+        (item) => item.textContent === "Check again",
+      );
+
+      if (!(button instanceof HTMLButtonElement)) {
+        throw new Error("Missing Check again button");
+      }
+
+      button.click();
+    });
+    await flushQueries();
+    await flushQueries();
+    expect(refresh).toHaveBeenCalledWith(vienna.fullName);
+    expect(overviewRequest).toHaveBeenCalledTimes(2);
+    await poll();
+    expect(overviewRequest).toHaveBeenCalledTimes(3);
+    await poll();
+    expect(overviewRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it("displays a failed refresh mutation without discarding checks", async () => {
+    vi.spyOn(api, "refresh").mockRejectedValue(new ApiError("Couldn't queue repository", 503));
+    vi.spyOn(api, "overview").mockResolvedValue(overview(0));
+    vi.spyOn(api, "repo").mockResolvedValue(detail());
+    await mount();
+    await act(() => {
+      const button = [...container.querySelectorAll("button")].find(
+        (item) => item.textContent === "Check all again",
+      );
+
+      if (!(button instanceof HTMLButtonElement)) {
+        throw new Error("Missing Check all again button");
+      }
+
+      button.click();
+    });
+    await flushQueries();
+    expect(container.textContent).toContain("Couldn't queue repository");
+    expect(container.textContent).toContain("Original check");
+    expect(api.overview).toHaveBeenCalledTimes(1);
+  });
+
   it("does not restart a slow detail request when unrelated sweep state changes", async () => {
     const request = deferred<RepoDetailResponse>();
 
@@ -140,6 +213,7 @@ describe("repository panel during overview polling", () => {
       request.resolve(detail());
       await request.promise;
     });
+    await flushQueries();
     expect(container.textContent).toContain("Original check");
   });
 
@@ -169,6 +243,7 @@ describe("repository panel during overview polling", () => {
       updated.resolve(detail(vienna, "Updated check"));
       await updated.promise;
     });
+    await flushQueries();
     expect(container.textContent).toContain("Updated check");
     expect(container.querySelector(".panel-section details")).toBe(section);
     expect(section.open).toBe(true);
@@ -204,11 +279,13 @@ describe("repository panel during overview polling", () => {
       pendingVienna.resolve(detail(vienna, "Late Vienna check"));
       await pendingVienna.promise;
     });
+    await flushQueries();
     expect(container.textContent).not.toContain("Late Vienna check");
     await act(async () => {
       pendingOther.resolve(detail(other, "Other check"));
       await pendingOther.promise;
     });
+    await flushQueries();
     expect(container.textContent).toContain("Other check");
     expect(container.textContent).not.toContain("Late Vienna check");
   });

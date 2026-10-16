@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "preact/hooks";
 import type { OverviewResponse } from "../api/contract";
 import { api, ApiError } from "./api";
 import { plural, timeAgo } from "./format";
+import { overviewQuery } from "./queries";
 import { linkHandler, paths, useRoute, type Route } from "./router";
 import { startTask } from "./tasks";
 import { Overview } from "./views/overview";
 import { PracticeEditor } from "./views/practice-editor";
 import { Practices } from "./views/practices";
-
-const POLL_MS = 3_000;
 
 const TITLES = {
   overview: "Repositories",
@@ -93,61 +93,28 @@ function Masthead({ login, overview, onRefresh, section }: MastheadProps) {
 
 export function App({ login }: AppProps) {
   const route = useRoute();
-  const [overview, setOverview] = useState<OverviewResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const client = useQueryClient();
+  const query = useQuery(overviewQuery);
+  const overview = query.data ?? null;
 
-  const load = useCallback(
-    () =>
-      api
-        .overview()
-        .then((value) => {
-          setOverview(value);
-          setError(null);
+  const refreshMutation = useMutation({
+    mutationFn: (repo?: string) => api.refresh(repo),
+    onSuccess: () => client.invalidateQueries({ queryKey: overviewQuery.queryKey }),
+  });
 
-          return value;
-        })
-        .catch((cause: unknown) => {
-          setError(
-            cause instanceof ApiError
-              ? cause.message
-              : "Shipshape couldn't load your repositories.",
-          );
+  const cause = refreshMutation.error ?? query.error;
 
-          return null;
-        }),
-    [],
-  );
+  const error = cause
+    ? cause instanceof ApiError
+      ? cause.message
+      : refreshMutation.error
+        ? "Shipshape couldn't queue the check."
+        : "Shipshape couldn't load your repositories."
+    : null;
 
-  useEffect(() => {
-    startTask(load());
-  }, [load]);
-
-  const pending = overview?.sweep.pending ?? 0;
-
-  useEffect(() => {
-    if (pending === 0) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      startTask(load());
-    }, POLL_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [overview, pending, load]);
-
-  const refresh = useCallback(
-    async (repo?: string) => {
-      try {
-        await api.refresh(repo);
-      } catch (cause: unknown) {
-        setError(cause instanceof ApiError ? cause.message : "Shipshape couldn't queue the check.");
-      }
-
-      await load();
-    },
-    [load],
-  );
+  async function refresh(repo?: string): Promise<void> {
+    await refreshMutation.mutateAsync(repo).catch(() => null);
+  }
 
   useEffect(() => {
     document.title = `${TITLES[route.view]} | Shipshape`;
@@ -170,7 +137,8 @@ export function App({ login }: AppProps) {
               type="button"
               class="link-button"
               onClick={() => {
-                startTask(load());
+                refreshMutation.reset();
+                startTask(query.refetch());
               }}
             >
               Try again
@@ -183,22 +151,10 @@ export function App({ login }: AppProps) {
         )}
         {overview && route.view === "practices" && <Practices overview={overview} />}
         {overview && route.view === "practice" && (
-          <PracticeEditor
-            overview={overview}
-            id={route.id}
-            onSaved={() => {
-              startTask(load());
-            }}
-          />
+          <PracticeEditor overview={overview} id={route.id} />
         )}
         {overview && route.view === "new-practice" && (
-          <PracticeEditor
-            overview={overview}
-            id={null}
-            onSaved={() => {
-              startTask(load());
-            }}
-          />
+          <PracticeEditor overview={overview} id={null} />
         )}
         {route.view === "missing" && (
           <section class="empty-state">
