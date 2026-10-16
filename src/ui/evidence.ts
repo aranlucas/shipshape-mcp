@@ -1,6 +1,7 @@
 import type { CheckResult, RepoSummary } from "../api/contract";
 
 const FILE_CHECKS = new Set([
+  "ci-required-checks",
   "file-exists",
   "file-matches",
   "file-contains",

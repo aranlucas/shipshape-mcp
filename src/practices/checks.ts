@@ -1,4 +1,5 @@
 import type { CheckResult } from "../api/contract";
+import { inspectCiRequiredChecks } from "./ci-required-checks";
 import {
   inspectFileExists,
   inspectFileMatches,
@@ -22,6 +23,8 @@ function inspectCheck(
   practiceFiles: PracticeFiles,
 ): CheckOutcome {
   switch (check.type) {
+    case "ci-required-checks":
+      return inspectCiRequiredChecks(snapshot);
     case "preferred-package-manager":
       return inspectPackageManager(snapshot);
     case "pnpm-setup":

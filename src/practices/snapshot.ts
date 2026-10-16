@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/require-readable-spacing, typescript/switch-exhaustiveness-check */
 
 import pLimit from "p-limit";
+import { CI_WORKFLOW_PATH } from "./ci-required-checks";
 import { LINT_CONFIG_NAMES, joinPath, parseConfig, parentPath, resolvePath } from "./lint-config";
 import { z } from "zod";
 import { GitHubBranchProtectionSchema, GitHubBranchSchema } from "../github/schemas";
@@ -61,6 +62,8 @@ export interface PreloadedHead {
 
 function checkFilePath(check: Check): string | null {
   switch (check.type) {
+    case "ci-required-checks":
+      return CI_WORKFLOW_PATH;
     case "dependabot-grouped":
       return check.path;
     case "file-matches":
@@ -214,7 +217,11 @@ export async function takeSnapshot(
   const branchNames = new Set(
     practices.flatMap((practice) =>
       practice.checks.flatMap((check) =>
-        check.type === "branch-protection" ? [check.branch ?? repo.defaultBranch] : [],
+        check.type === "ci-required-checks"
+          ? [repo.defaultBranch]
+          : check.type === "branch-protection"
+            ? [check.branch ?? repo.defaultBranch]
+            : [],
       ),
     ),
   );

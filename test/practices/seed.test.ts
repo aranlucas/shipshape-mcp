@@ -206,7 +206,7 @@ describe("seed practice catalog", () => {
     expect(missingSources).toEqual([]);
   });
 
-  it("passes every file and workflow seed against this repository's on-disk snapshot", () => {
+  it("passes file checks against disk and leaves uncollected CI protection unknown", () => {
     const snapshot = repositorySnapshot();
     const seeds = seedPractices();
 
@@ -219,7 +219,14 @@ describe("seed practice catalog", () => {
 
       const checks = seed.parsed.checks.map((check) => runCheck(check, snapshot, seed.files));
 
-      expect(aggregate(checks).state, seed.parsed.id).toBe("pass");
+      expect(aggregate(checks).state, seed.parsed.id).toBe(
+        seed.parsed.id === "single-ci-workflow" ? "unknown" : "pass",
+      );
+
+      expect(
+        aggregate(checks.filter((check) => check.type !== "ci-required-checks")).state,
+        seed.parsed.id,
+      ).toBe("pass");
     }
   });
 });

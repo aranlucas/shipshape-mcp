@@ -233,7 +233,7 @@ describe("takeSnapshot API reads", () => {
     expect(fixture.calls.filter((url) => url.pathname === "/repos/octo/demo")).toHaveLength(1);
   });
 
-  it("reads branch protection only when a branch-protection check exists", async () => {
+  it("reads branch protection when a branch-protection check exists", async () => {
     const fixture = snapshotClient({ treePaths: [], protection: true });
 
     const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [
@@ -247,6 +247,31 @@ describe("takeSnapshot API reads", () => {
     expect(
       fixture.calls.some((url) => url.pathname === "/repos/octo/demo/branches/main/protection"),
     ).toBe(true);
+  });
+
+  it("collects ci.yml at the captured commit and default-branch protection for CI checks", async () => {
+    const path = ".github/workflows/ci.yml";
+    const content = "jobs:\n  ci:\n    runs-on: ubuntu-latest\n";
+
+    const fixture = snapshotClient({
+      treePaths: [path],
+      contents: { [path]: { content } },
+    });
+
+    const selected = check({ type: "ci-required-checks" });
+    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
+
+    expect(snapshot.files.get(path)).toBe(content);
+    expect(snapshot.protection.get("main")?.status).toBe("protected");
+    expect(
+      fixture.calls
+        .find((url) => decodeURIComponent(url.pathname).endsWith(`/contents/${path}`))
+        ?.searchParams.get("ref"),
+    ).toBe(headSha);
+    expect(
+      fixture.calls.filter((url) => url.pathname === "/repos/octo/demo/branches/main/protection"),
+    ).toHaveLength(1);
+    expect(runCheck(selected, snapshot, {}).state).toBe("fail");
   });
 
   it("turns an empty-repository tree 409 into a null tree with a stable error", async () => {

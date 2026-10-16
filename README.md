@@ -32,6 +32,14 @@ practice has a strict `practice.yml` definition and may include canonical files
 and agent instructions. Checks cover repository files, JSON/YAML paths,
 dependencies, repository settings, branch protection, and workflow security.
 
+The CI practice includes `ci-required-checks`: jobs in `.github/workflows/ci.yml`
+must be required status checks on the default branch. It uses each job's `name`
+or job ID and allows additional required checks. Dynamic names, matrix jobs,
+reusable workflows and unreadable protection settings remain unknown. Shipshape
+reports missing requirements and provides remediation instructions without
+changing repository settings. Deploy evaluator support before adopting the
+updated seed in the separate live catalog.
+
 The `vitest-test-script` check requires every tracked `package.json`, including
 nested packages, to declare a test script that runs Vitest (for example,
 `"test": "vitest run"`). It reads manifests at the evaluated commit without

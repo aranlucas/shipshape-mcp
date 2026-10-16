@@ -28,6 +28,15 @@ const check: CheckResult = {
 };
 
 describe("inspection evidence links", () => {
+  it("links CI job definitions at the evaluated commit", () => {
+    expect(
+      evidenceLink(repo, sha, {
+        ...check,
+        type: "ci-required-checks",
+        path: ".github/workflows/ci.yml",
+      }),
+    ).toBe(`https://github.com/octo/demo/blob/${sha}/.github/workflows/ci.yml`);
+  });
   it("pins and encodes file evidence at the individual evaluated commit", () => {
     expect(evidenceLink(repo, sha, check)).toBe(
       `https://github.com/octo/demo/blob/${sha}/config/a%20%23.json`,
