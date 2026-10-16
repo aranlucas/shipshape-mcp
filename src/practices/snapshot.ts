@@ -63,7 +63,6 @@ export interface PreloadedHead {
 function checkFilePath(check: Check): string | null {
   switch (check.type) {
     case "portless-dev":
-    case "cloudflare-cf-cli":
       return joinPath(check.directory, "package.json");
     case "ci-required-checks":
     case "ci-test-script":
@@ -93,11 +92,16 @@ export function filesNeeded(practices: Practice[]): string[] {
       if (
         check.type === "vitest-test-script" ||
         check.type === "required-package-scripts" ||
-        check.type === "preferred-package-manager"
+        check.type === "preferred-package-manager" ||
+        check.type === "cloudflare-cf-cli"
       ) {
         paths.add(PACKAGE_MARKER);
       }
-      if (check.type === "preferred-package-manager" || check.type === "pnpm-setup") {
+      if (
+        check.type === "preferred-package-manager" ||
+        check.type === "pnpm-setup" ||
+        check.type === "cloudflare-cf-cli"
+      ) {
         paths.add(WORKFLOW_MARKER);
         paths.add("**/action.yml");
       }

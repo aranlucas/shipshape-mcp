@@ -19,8 +19,11 @@ requests. Preserve existing catalog exceptions when adopting them.
   [Restore Vitest 4 and Build](t3-thread://v1/7a7fa6ea-a4b4-4f45-b9c4-18e060ac50e6),
   [Optimize GitHub CI Workflows](t3-thread://v1/cb1ecc4b-b768-405b-99a5-366a75e0a2b3),
   and [Simplify Preview Build Checks](t3-thread://v1/88fcaf69-8f9f-4b0b-ae28-8e4319568491).
-  The `cloudflare-cf-cli` practice checks direct CLI dependency declarations.
-  Actual command migration and removal of unnecessary wrappers require verification.
+  The `cloudflare-cf-cli` practice checks for the absence of direct Wrangler
+  dependencies and explicit CLI usage across manifests, workflows and composite
+  actions. Lucas clarified on 2026-10-16 that this is an absence policy, without
+  a requirement for every repository to install cf. Arbitrary wrapper scripts
+  still require review.
 
 ## Recurring preferences already represented
 

@@ -1,22 +1,32 @@
-Use Cloudflare's `cf` CLI for Worker development, builds and deployment. Install
-`cf` as a local dev dependency with pnpm or Bun and remove the direct `wrangler`
-dependency after migrating its consumers. Simplify obsolete migration guides,
-fallback scripts and build wrappers once equivalent cf behavior is verified.
-Preserve application-specific build steps and database migration gates.
+Remove direct Wrangler dependencies and CLI invocations. Use the supported `cf`
+command where Cloudflare tooling is needed; other repositories do not need to
+install cf. Preserve application-specific build steps and database migration gates.
 
-The `cloudflare-cf-cli` check detects a Cloudflare project from a direct `cf` or
-`wrangler` dependency or one of `cloudflare.config.ts`, `wrangler.jsonc`,
-`wrangler.json`, or `wrangler.toml` in the checked directory. It requires a nonempty
-`devDependencies.cf` and fails a direct Wrangler dependency. Transitive Wrangler
-dependencies and documentation references are outside this declaration check.
-Packages with neither dependency nor configuration pass with an explicit
-no-Cloudflare diagnostic only when the repository inventory is complete.
+The `cloudflare-cf-cli` check applies across eligible repositories, without a root
+package.json or Cloudflare-project prerequisite. At the captured commit it reads:
 
-The check reads the manifest and captured tree, without importing configuration
-or running commands. It does not establish that scripts, workflows, generated
-types, deployment configuration or hosted Workers Builds have migrated correctly.
-Verify those consumers with the installed CLI before removing tooling. Record
-any required unsupported CLI operation as an explicit catalog exception instead
-of adding a silent fallback. For monorepos, add a check with `directory` set to
-each Worker package. Unreadable or malformed manifests and incomplete evidence
-remain unknown unless an observed declaration proves a failure.
+- Every tracked root and nested package.json: reject a `wrangler` key in
+  dependencies, devDependencies, optionalDependencies or peerDependencies (including
+  npm aliases pointing to Wrangler), and
+  inspect every package script for explicit Wrangler CLI invocations.
+- Every .github/workflows/*.yml or *.yaml: inspect run steps (including parallel
+  steps) and reject cloudflare/wrangler-action, including full SHA pins.
+- Tracked composite action.yml/action.yaml files: inspect their run and uses steps.
+
+The command recognizer supports direct calls, local binary paths, explicit
+pnpm/yarn exec or dlx, npm exec/npx, bun x/bunx, common env/exec wrappers and shell
+command lists. Comments and quoted prose are not invocation evidence. Ambiguous
+package aliases, indirect shells, command substitutions and reusable workflows
+require review. The check neither executes repository code nor follows arbitrary
+shell/JavaScript files, Dockerfiles or remote action implementations. A pass
+establishes absence only in the inspected declarations and recognized commands.
+
+Transitive Wrangler entries in lockfiles, documentation mentions and wrangler.*
+configuration filenames alone do not fail. No cf dependency is required.
+Unreadable or malformed relevant files and incomplete inventories remain unknown
+unless observed evidence proves a failure. Reads share the existing 64-file and
+512-KB-per-file budgets. Keep explicit owner-approved exceptions in the catalog.
+
+Deploy the updated evaluator before adopting this revised definition in the
+separate live catalog. The stable check ID is retained; the previous directory
+option is removed because this policy now inspects the entire repository.

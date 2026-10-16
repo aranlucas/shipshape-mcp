@@ -162,7 +162,40 @@ describe("filesNeeded", () => {
 });
 
 describe("takeSnapshot API reads", () => {
-  it.each(["portless-dev", "cloudflare-cf-cli"])(
+  it("collects every Wrangler policy input at the captured commit without executing configs", async () => {
+    const contents = {
+      "packages/worker/package.json": { content: '{"scripts":{"deploy":"wrangler deploy"}}' },
+      ".github/workflows/deploy.yaml": {
+        content: "jobs:\n  deploy:\n    steps:\n      - run: cf deploy\n",
+      },
+      "tooling/deploy/action.yaml": {
+        content: "runs:\n  using: composite\n  steps:\n    - run: cf deploy\n",
+      },
+      "cloudflare.config.ts": { content: "throw new Error('never execute')" },
+      "pnpm-lock.yaml": { content: "wrangler: transitive" },
+      "scripts/deploy.mjs": { content: "throw new Error('never execute')" },
+    };
+
+    const fixture = snapshotClient({ treePaths: Object.keys(contents), contents });
+    const selected = check({ type: "cloudflare-cf-cli" });
+    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
+
+    expect([...snapshot.files.keys()].toSorted()).toEqual([
+      ".github/workflows/deploy.yaml",
+      "packages/worker/package.json",
+      "tooling/deploy/action.yaml",
+    ]);
+    expect(runCheck(selected, snapshot, {})).toMatchObject({
+      state: "fail",
+      path: "packages/worker/package.json",
+    });
+    expect(
+      fixture.calls
+        .filter((url) => url.pathname.includes("/contents/"))
+        .every((url) => url.searchParams.get("ref") === headSha),
+    ).toBe(true);
+  });
+  it.each(["portless-dev"] as const)(
     "reads only the selected manifest at the captured commit for %s",
     async (type) => {
       const contents = {
@@ -259,7 +292,7 @@ describe("takeSnapshot API reads", () => {
     },
   );
 
-  it.each(["vitest-test-script", "required-package-scripts"] as const)(
+  it.each(["vitest-test-script", "required-package-scripts", "cloudflare-cf-cli"] as const)(
     "keeps excess manifests unknown within the shared read budget for %s",
     async (type) => {
       const paths = Array.from({ length: 65 }, (_, index) => `packages/p${index}/package.json`);

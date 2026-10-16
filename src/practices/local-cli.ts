@@ -13,7 +13,7 @@ const Manifest = z.object({
 
 type PackageManifest = z.infer<typeof Manifest>;
 
-type LocalCliCheck = Extract<Check, { type: "portless-dev" | "cloudflare-cf-cli" }>;
+type LocalCliCheck = Extract<Check, { type: "portless-dev" }>;
 
 type Invocation = "portless" | "web" | "unknown";
 
@@ -86,52 +86,6 @@ function inspectPortless(manifest: PackageManifest): CheckOutcome {
     : { state: "fail", detail: "Install portless as a local devDependency." };
 }
 
-function inspectCloudflare(
-  manifest: PackageManifest,
-  check: LocalCliCheck,
-  snapshot: RepoSnapshot,
-): CheckOutcome {
-  const cliNames = ["cf", "wrangler"];
-
-  const declared = cliNames.some(
-    (name) =>
-      Object.hasOwn(manifest.dependencies, name) || Object.hasOwn(manifest.devDependencies, name),
-  );
-
-  const configs = ["cloudflare.config.ts", "wrangler.jsonc", "wrangler.json", "wrangler.toml"];
-
-  const configured = configs.some((name) =>
-    snapshot.tree?.paths.has(joinPath(check.directory, name)),
-  );
-
-  if (!declared && !configured) {
-    return snapshot.tree && !snapshot.tree.truncated
-      ? {
-          state: "pass",
-          detail: "No Cloudflare CLI dependency or configuration found in this directory.",
-        }
-      : { state: "unknown", detail: "Incomplete inventory cannot exclude a Cloudflare project." };
-  }
-
-  if (
-    Object.hasOwn(manifest.dependencies, "wrangler") ||
-    Object.hasOwn(manifest.devDependencies, "wrangler")
-  ) {
-    return {
-      state: "fail",
-      detail: "Replace the direct Wrangler dependency with cf in devDependencies.",
-    };
-  }
-
-  return manifest.devDependencies.cf?.trim()
-    ? {
-        state: "pass",
-        detail:
-          "Cloudflare CLI cf is a local devDependency. Script and deployment behavior are not checked.",
-      }
-    : { state: "fail", detail: "Install cf as a local devDependency for this Cloudflare project." };
-}
-
 export function inspectLocalCli(check: LocalCliCheck, snapshot: RepoSnapshot): CheckOutcome {
   const path = joinPath(check.directory, "package.json");
   const file = readConfigFile(snapshot, path, "json");
@@ -150,10 +104,7 @@ export function inspectLocalCli(check: LocalCliCheck, snapshot: RepoSnapshot): C
     return { state: "unknown", path, detail: "Package scripts or dependencies could not be read." };
   }
 
-  const outcome =
-    check.type === "portless-dev"
-      ? inspectPortless(manifest.data)
-      : inspectCloudflare(manifest.data, check, snapshot);
+  const outcome = inspectPortless(manifest.data);
 
   return { ...outcome, path };
 }

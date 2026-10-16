@@ -212,7 +212,7 @@ describe("seed practice catalog", () => {
     expect(missingSources).toEqual([]);
   });
 
-  it("passes file checks against disk and leaves uncollected CI protection unknown", () => {
+  it("passes file checks and preserves unknown for CI protection and indirect shell commands", () => {
     const snapshot = repositorySnapshot();
     const seeds = seedPractices();
 
@@ -225,14 +225,16 @@ describe("seed practice catalog", () => {
 
       const checks = seed.parsed.checks.map((check) => runCheck(check, snapshot, seed.files));
 
-      expect(aggregate(checks).state, seed.parsed.id).toBe(
-        seed.parsed.id === "single-ci-workflow" ? "unknown" : "pass",
+      expect(aggregate(checks).state, `${seed.parsed.id}: ${JSON.stringify(checks)}`).toBe(
+        seed.parsed.id === "single-ci-workflow" || seed.parsed.id === "cloudflare-cf-cli"
+          ? "unknown"
+          : "pass",
       );
 
       expect(
         aggregate(checks.filter((check) => check.type !== "ci-required-checks")).state,
         seed.parsed.id,
-      ).toBe("pass");
+      ).toBe(seed.parsed.id === "cloudflare-cf-cli" ? "unknown" : "pass");
     }
   });
 });

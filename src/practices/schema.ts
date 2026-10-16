@@ -106,7 +106,7 @@ const BranchProtectionCheck = z.discriminatedUnion("key", [
 
 const CheckDefinitionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("portless-dev"), directory: RepoPath.default(".") }).strict(),
-  z.object({ type: z.literal("cloudflare-cf-cli"), directory: RepoPath.default(".") }).strict(),
+  z.object({ type: z.literal("cloudflare-cf-cli") }).strict(),
   z.object({ type: z.literal("ci-required-checks") }).strict(),
   z.object({ type: z.literal("ci-test-script") }).strict(),
   z.object({ type: z.literal("preferred-package-manager") }).strict(),
@@ -341,7 +341,7 @@ export function checkLabel(check: Check): string {
     case "portless-dev":
       return `Default web development uses local Portless in ${check.directory}`;
     case "cloudflare-cf-cli":
-      return `Cloudflare projects use the local cf CLI in ${check.directory}`;
+      return "No direct Wrangler dependencies or CLI usage in manifests and workflows";
     case "ci-required-checks":
       return "ci.yml jobs are required status checks on the default branch";
     case "ci-test-script":
