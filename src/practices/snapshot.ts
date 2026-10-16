@@ -87,7 +87,11 @@ export function filesNeeded(practices: Practice[]): string[] {
       if (check.type === "ci-test-script") {
         paths.add("package.json");
       }
-      if (check.type === "vitest-test-script" || check.type === "preferred-package-manager") {
+      if (
+        check.type === "vitest-test-script" ||
+        check.type === "required-package-scripts" ||
+        check.type === "preferred-package-manager"
+      ) {
         paths.add(PACKAGE_MARKER);
       }
       if (check.type === "preferred-package-manager" || check.type === "pnpm-setup") {

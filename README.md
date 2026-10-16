@@ -51,6 +51,11 @@ nested packages, to declare a test script that runs Vitest (for example,
 executing scripts. Unreadable files, incomplete inventories, and indirect or
 complex commands require review and remain unknown.
 
+The `required-package-scripts` check also requires non-empty `lint`, `format`,
+and `build` scripts in every tracked `package.json`. Missing entries and obvious
+placeholders fail. It checks declarations without running commands; unreadable
+manifests and incomplete inventories remain unknown unless a known failure exists.
+
 The `husky-lint-staged` check reads `package.json`, `.husky/pre-commit`, and
 recognized root lint-staged configuration files. It checks local dependencies,
 Husky initialization through prepare or postinstall, nonempty inline or

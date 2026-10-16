@@ -13,6 +13,7 @@ import { inspectPath, inspectDependency } from "./checks/structured";
 import { inspectWorkflows } from "./checks/workflow";
 import { inspectLintStaged } from "./lint-staged";
 import { inspectVitestTestScripts } from "./vitest-test-script";
+import { inspectRequiredPackageScripts } from "./required-package-scripts";
 import type { Check } from "./schema";
 import { inspectOxforge, inspectOxforgeFormat, inspectDependabot } from "./semantic-checks";
 import type { RepoSnapshot } from "./snapshot";
@@ -34,6 +35,8 @@ function inspectCheck(
       return inspectPnpmSetup(snapshot);
     case "vitest-test-script":
       return inspectVitestTestScripts(snapshot);
+    case "required-package-scripts":
+      return inspectRequiredPackageScripts(snapshot);
     case "oxforge-format":
       return inspectOxforgeFormat(check, snapshot);
     case "husky-lint-staged":
