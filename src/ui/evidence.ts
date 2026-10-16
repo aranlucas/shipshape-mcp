@@ -9,6 +9,7 @@ const FILE_CHECKS = new Set([
   "dependency",
   "workflow",
   "oxforge",
+  "oxforge-format",
   "dependabot-grouped",
 ]);
 

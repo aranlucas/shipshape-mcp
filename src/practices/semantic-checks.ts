@@ -4,6 +4,7 @@ import type { RepoSnapshot } from "./snapshot";
 import { configObject } from "./config-value";
 import { inspectLintConfig, joinPath, LINT_CONFIG_NAMES, parseConfig } from "./lint-config";
 import { parseWorkflow } from "./workflows";
+import { inspectFormatConfig } from "./format-config";
 
 interface Inspection {
   state: "pass" | "fail" | "unknown";
@@ -14,6 +15,54 @@ interface Inspection {
 type OxforgeCheck = Extract<Check, { type: "oxforge" }>;
 
 type DependabotCheck = Extract<Check, { type: "dependabot-grouped" }>;
+
+type OxforgeFormatCheck = Extract<Check, { type: "oxforge-format" }>;
+
+export function inspectOxforgeFormat(
+  check: OxforgeFormatCheck,
+  snapshot: RepoSnapshot,
+): Inspection {
+  const manifestPath = joinPath(check.directory, "package.json");
+  const path = joinPath(check.directory, "oxfmt.config.ts");
+  const missing = unavailable(snapshot, manifestPath) ?? unavailable(snapshot, path);
+
+  if (missing) {
+    return missing;
+  }
+
+  const manifest = parseConfig(z.string().safeParse(snapshot.files.get(manifestPath)).data);
+
+  if (!manifest) {
+    return {
+      state: "unknown",
+      path: manifestPath,
+      detail: "The package manifest could not be parsed.",
+    };
+  }
+
+  const sections = [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+  ].map((section) => z.record(z.string(), z.string()).safeParse(manifest[section] ?? {}));
+
+  if (sections.some((section) => !section.success)) {
+    return {
+      state: "unknown",
+      path: manifestPath,
+      detail: "Package dependency declarations could not be parsed.",
+    };
+  }
+
+  const needsTailwind = sections.some(
+    (section) => section.success && Object.hasOwn(section.data, "tailwindcss"),
+  );
+
+  const text = z.string().parse(snapshot.files.get(path));
+
+  return { path, ...inspectFormatConfig(text, needsTailwind) };
+}
 
 function unavailable(snapshot: RepoSnapshot, path: string): Inspection | null {
   const content = snapshot.files.get(path);

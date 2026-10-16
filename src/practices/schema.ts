@@ -62,6 +62,12 @@ const YamlPathCheck = z
 export const CheckSchema = z.discriminatedUnion("type", [
   z
     .object({
+      type: z.literal("oxforge-format"),
+      directory: RepoPath.default("."),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("oxforge"),
       directory: RepoPath.default("."),
       minimumVersion: z
@@ -252,6 +258,8 @@ export function parsePractice(yamlText: string, expectedId?: string): ParsedPrac
 
 export function checkLabel(check: Check): string {
   switch (check.type) {
+    case "oxforge-format":
+      return `Shared Oxforge formatting with Tailwind sorting when declared in ${check.directory}`;
     case "oxforge":
       return `Shared Oxforge >= ${check.minimumVersion} in ${check.directory}`;
     case "dependabot-grouped":
