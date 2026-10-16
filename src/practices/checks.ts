@@ -2,6 +2,7 @@
 
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { inspectLintStaged } from "./lint-staged";
 import type { CheckResult, PracticeState } from "../api/contract";
 import type { BranchProtectionFact, ProtectionState } from "./protection";
 import { checkLabel, type Check } from "./schema";
@@ -305,6 +306,10 @@ export function runCheck(
     return result(check, inspection.state, inspection);
   }
 
+  if (check.type === "husky-lint-staged") {
+    const inspection = inspectLintStaged(snapshot);
+    return result(check, inspection.state, inspection);
+  }
   if (check.type === "oxforge" || check.type === "dependabot-grouped") {
     const inspection =
       check.type === "oxforge"
