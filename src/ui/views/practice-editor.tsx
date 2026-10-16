@@ -4,13 +4,13 @@ import type {
   ApiErrorResponse,
   OverviewResponse,
   PracticeDetailResponse,
-  SavePracticeRequest,
 } from "../../api/contract";
-import { api, ApiError } from "../api";
+import { ApiError } from "../api";
 import { Distribution } from "../components/distribution";
 import { StateMark } from "../components/state-mark";
 import { STATE_WORDS } from "../format";
 import { cellState, practiceCounts } from "../model";
+import { deletePracticeMutationOptions, savePracticeMutationOptions } from "../mutations";
 import { linkHandler, navigate, paths } from "../router";
 import { practiceQuery } from "../queries";
 import { startTask } from "../tasks";
@@ -77,11 +77,6 @@ interface FormProps extends EditorProps {
   detail: PracticeDetailResponse | null;
 }
 
-interface SaveVariables {
-  id: string;
-  body: SavePracticeRequest;
-}
-
 export function PracticeEditor({ overview, id }: EditorProps) {
   const query = useQuery(practiceQuery(id));
 
@@ -123,36 +118,8 @@ function PracticeForm({ overview, id, detail }: FormProps) {
   const [newPath, setNewPath] = useState("");
   const feedback = useRef<HTMLDivElement>(null);
 
-  const saveMutation = useMutation({
-    mutationFn: (variables: SaveVariables) => api.savePractice(variables.id, variables.body),
-    onSuccess: async (saved, variables) => {
-      client.setQueryData(practiceQuery(variables.id).queryKey, (previous) =>
-        previous
-          ? {
-              ...previous,
-              yaml: variables.body.yaml,
-              instructions: variables.body.instructions ?? null,
-              files: variables.body.files ?? [],
-            }
-          : undefined,
-      );
-      setResult({ ok: true, sha: saved.catalogSha });
-      await client.invalidateQueries();
-
-      if (id === null) {
-        navigate(paths.practice(variables.id), { replace: true });
-      }
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (target: string) => api.deletePractice(target),
-    onSuccess: async (_, target) => {
-      navigate(paths.practices, { replace: true });
-      client.removeQueries({ queryKey: practiceQuery(target).queryKey });
-      await client.invalidateQueries();
-    },
-  });
+  const saveMutation = useMutation(savePracticeMutationOptions(client));
+  const deleteMutation = useMutation(deletePracticeMutationOptions(client));
 
   const saving = saveMutation.isPending || deleteMutation.isPending;
 
@@ -166,7 +133,7 @@ function PracticeForm({ overview, id, detail }: FormProps) {
   const dirty = JSON.stringify(draft) !== JSON.stringify(original) || id === null;
   const summary = overview.practices.find((item) => item.id === id) ?? detail?.practice ?? null;
 
-  async function save(event: Event) {
+  function save(event: Event) {
     event.preventDefault();
     const target = id ?? yamlId(draft.yaml);
 
@@ -184,38 +151,47 @@ function PracticeForm({ overview, id, detail }: FormProps) {
 
     setResult(null);
 
-    try {
-      await saveMutation.mutateAsync({
+    saveMutation.mutate(
+      {
         id: target,
         body: {
           yaml: draft.yaml,
           instructions: draft.instructions.trim() ? draft.instructions : null,
           files: draft.files,
         },
-      });
-    } catch (cause: unknown) {
-      setResult({
-        ok: false,
-        error: cause instanceof ApiError ? cause.message : "The practice couldn't be saved.",
-        issues: cause instanceof ApiError ? cause.issues : [],
-      });
-    }
+      },
+      {
+        onSuccess: (saved, variables) => {
+          setResult({ ok: true, sha: saved.catalogSha });
+
+          if (id === null) {
+            navigate(paths.practice(variables.id), { replace: true });
+          }
+        },
+        onError: (cause) =>
+          setResult({
+            ok: false,
+            error: cause instanceof ApiError ? cause.message : "The practice couldn't be saved.",
+            issues: cause instanceof ApiError ? cause.issues : [],
+          }),
+      },
+    );
   }
 
-  async function remove() {
+  function remove() {
     if (!id) {
       return;
     }
 
-    try {
-      await deleteMutation.mutateAsync(id);
-    } catch (cause: unknown) {
-      setResult({
-        ok: false,
-        error: cause instanceof ApiError ? cause.message : "The practice couldn't be deleted.",
-        issues: [],
-      });
-    }
+    deleteMutation.mutate(id, {
+      onSuccess: () => navigate(paths.practices, { replace: true }),
+      onError: (cause) =>
+        setResult({
+          ok: false,
+          error: cause instanceof ApiError ? cause.message : "The practice couldn't be deleted.",
+          issues: [],
+        }),
+    });
   }
 
   const tabValue =
@@ -289,12 +265,7 @@ function PracticeForm({ overview, id, detail }: FormProps) {
       {counts && <Distribution counts={counts} />}
 
       <div class="editor-layout">
-        <form
-          class="editor"
-          onSubmit={(event) => {
-            startTask(save(event));
-          }}
-        >
+        <form class="editor" onSubmit={save}>
           <div class="tabs" role="tablist" aria-label="Practice files">
             <button
               type="button"
@@ -439,9 +410,7 @@ function PracticeForm({ overview, id, detail }: FormProps) {
                     type="button"
                     class="button button-danger button-small"
                     disabled={saving}
-                    onClick={() => {
-                      startTask(remove());
-                    }}
+                    onClick={remove}
                   >
                     Delete practice
                   </button>

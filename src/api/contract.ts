@@ -55,6 +55,7 @@ export interface OverviewResponse {
 
 // GET /app/api/repos/:owner/:name
 export interface RepoDetailResponse {
+  catalog: Pick<OverviewResponse["catalog"], "sha" | "loadedAt">;
   repo: RepoSummary;
   headSha: string | null;
   practices: Array<{

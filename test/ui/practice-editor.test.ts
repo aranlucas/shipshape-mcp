@@ -3,6 +3,7 @@ import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { createElement, render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CatalogWriteResponse } from "@/api/contract";
 import { api, ApiError } from "@/ui/api";
 import { App } from "@/ui/app";
 import { createStore, overview, practiceDetail } from "@/ui/dev/fixtures";
@@ -96,6 +97,54 @@ async function clickButton(label: string) {
 }
 
 describe("practice editor queries and mutations", () => {
+  it("does not redirect back to a new practice after leaving a pending save", async () => {
+    window.history.replaceState(null, "", "/app/practices/new");
+    let complete!: (value: CatalogWriteResponse) => void;
+
+    const saved = new Promise<CatalogWriteResponse>((resolve) => {
+      complete = resolve;
+    });
+
+    vi.spyOn(api, "savePractice").mockReturnValue(saved);
+    client.setQueryData(["unrelated"], { value: "unaffected" });
+    await mount();
+    await editYaml("id: new-practice\n");
+    await clickButton("Add practice");
+    await act(() => navigate("/app"));
+
+    await act(async () => {
+      complete({ catalogSha: "b".repeat(40) });
+      await saved;
+    });
+    await flushQueries();
+    expect(window.location.pathname).toBe("/app");
+    expect(api.overview).toHaveBeenCalledTimes(2);
+    expect(client.getQueryState(["unrelated"])?.isInvalidated).toBe(false);
+  });
+
+  it("invalidates a completed delete without redirecting after leaving the editor", async () => {
+    let complete!: (value: CatalogWriteResponse) => void;
+
+    const removed = new Promise<CatalogWriteResponse>((resolve) => {
+      complete = resolve;
+    });
+
+    vi.spyOn(api, "deletePractice").mockReturnValue(removed);
+    await mount();
+    await clickButton("Delete practice");
+    await clickButton("Delete practice");
+    await act(() => navigate("/app"));
+
+    await act(async () => {
+      complete({ catalogSha: "b".repeat(40) });
+      await removed;
+    });
+    await flushQueries();
+    expect(window.location.pathname).toBe("/app");
+    expect(api.overview).toHaveBeenCalledTimes(2);
+    expect(client.getQueryData(practiceQuery(PRACTICE_ID).queryKey)).toBeUndefined();
+  });
+
   it("creates a practice without fetching a draft for the new-practice route", async () => {
     window.history.replaceState(null, "", "/app/practices/new");
 
@@ -199,5 +248,6 @@ describe("practice editor queries and mutations", () => {
     expect(window.location.pathname).toBe("/app/practices");
     expect(client.getQueryData(practiceQuery(PRACTICE_ID).queryKey)).toBeUndefined();
     expect(api.overview).toHaveBeenCalledTimes(2);
+    expect(api.practice).toHaveBeenCalledTimes(1);
   });
 });

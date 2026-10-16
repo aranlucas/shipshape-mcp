@@ -576,6 +576,7 @@ export function repoDetail(store: FixtureStore, fullName: string): RepoDetailRes
   const row = store.results.get(fullName);
 
   return {
+    catalog: { sha: store.catalogSha, loadedAt: CHECKED_AT },
     repo,
     headSha: row ? `${hash(fullName).toString(16).slice(2, 9)}e1c0ffee` : null,
     practices: [...store.practices.map((seed) => seed.summary), store.broken].map((summary) => {

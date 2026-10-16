@@ -1,46 +1,66 @@
 import { QueryClient, queryOptions, skipToken } from "@tanstack/react-query";
-import type { OverviewResponse } from "../api/contract";
+import type { OverviewResponse, RepoDetailResponse } from "../api/contract";
 import { api } from "./api";
 
-const POLL_MS = 3_000;
+export const POLL_MS = 3_000;
+
+export const queryKeys = {
+  overview: ["overview"],
+  repos: ["repos"],
+  practices: ["practices"],
+} as const;
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false, refetchOnWindowFocus: false },
+      queries: { retry: false, staleTime: 30_000 },
     },
   });
 }
 
 export const overviewQuery = queryOptions({
-  queryKey: ["overview"],
+  queryKey: queryKeys.overview,
   queryFn: ({ signal }) => api.overview(signal),
   refetchInterval: (query) => (query.state.data?.sweep.pending ? POLL_MS : false),
 });
 
-export function repoQuery(owner: string, name: string, overview: OverviewResponse) {
-  const fullName = `${owner}/${name}`;
-
+export function repoQuery(owner: string, name: string) {
   return queryOptions({
-    queryKey: [
-      "repos",
-      owner,
-      name,
-      {
-        catalogSha: overview.catalog.sha,
-        repo: overview.repos.find((item) => item.fullName === fullName),
-        results: overview.results[fullName],
-      },
-    ],
+    queryKey: [...queryKeys.repos, owner, name],
     queryFn: ({ signal }) => api.repo(owner, name, signal),
-    placeholderData: (previous, query) =>
-      query?.queryKey[1] === owner && query.queryKey[2] === name ? previous : undefined,
+  });
+}
+
+/** Poll only while details lag behind a known server snapshot. */
+export function repoNeedsUpdate(detail: RepoDetailResponse, overview: OverviewResponse) {
+  if (detail.catalog.sha !== overview.catalog.sha) {
+    if (!overview.catalog.sha) {
+      return false;
+    }
+
+    return (
+      !detail.catalog.loadedAt ||
+      !overview.catalog.loadedAt ||
+      Date.parse(detail.catalog.loadedAt) <= Date.parse(overview.catalog.loadedAt)
+    );
+  }
+
+  return Object.entries(overview.results[detail.repo.fullName] ?? {}).some(([id, expected]) => {
+    if (!expected.checkedAt) {
+      return false;
+    }
+
+    const actual = detail.practices.find((entry) => entry.practice.id === id)?.result;
+
+    return !actual?.checkedAt || Date.parse(actual.checkedAt) < Date.parse(expected.checkedAt);
   });
 }
 
 export function practiceQuery(id: string | null) {
   return queryOptions({
-    queryKey: ["practices", id],
+    queryKey: [...queryKeys.practices, id],
     queryFn: id === null ? skipToken : ({ signal }) => api.practice(id, signal),
+    // This owner-only editor deliberately takes an initial copy for its draft.
+    staleTime: Infinity,
   });
 }

@@ -380,6 +380,7 @@ describe("dashboard API", () => {
     const body = RepoDetailResponseSchema.parse(await parseJson(detail));
     expect(body.repo.fullName).toBe("aranlucas/alpha");
     expect(body.practices).toEqual([]);
+    expect(body.catalog).toEqual({ sha: null, loadedAt: null });
   });
 
   it("does not present results from a previous catalog revision as current evidence", async () => {
@@ -407,6 +408,7 @@ describe("dashboard API", () => {
     expect(detail.status).toBe(200);
     const body = RepoDetailResponseSchema.parse(await parseJson(detail));
     expect(body.repo.fullName).toBe("aranlucas/alpha");
+    expect(body.catalog.sha).toBe(catalogSha);
     expect(body.practices.find((entry) => entry.practice.id === "husky")).toMatchObject({
       headSha: "h".repeat(40),
       catalogSha,

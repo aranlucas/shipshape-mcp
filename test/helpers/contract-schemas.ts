@@ -65,6 +65,7 @@ export const OverviewResponseSchema = z
 
 export const RepoDetailResponseSchema = z
   .object({
+    catalog: z.object({ sha: z.string().nullable(), loadedAt: z.string().nullable() }).strict(),
     repo: repoSummary,
     headSha: z.string().nullable(),
     practices: z.array(
