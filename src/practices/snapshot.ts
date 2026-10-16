@@ -19,6 +19,7 @@ const ContentsFileSchema = z.object({
 });
 
 const WORKFLOW_MARKER = ".github/workflows/*";
+const PACKAGE_MARKER = "**/package.json";
 const MAX_FILE_READS = 64;
 const MAX_FILE_BYTES = 512 * 1024;
 
@@ -79,6 +80,9 @@ export function filesNeeded(practices: Practice[]): string[] {
 
   for (const practice of practices) {
     for (const check of practice.checks) {
+      if (check.type === "vitest-test-script") {
+        paths.add(PACKAGE_MARKER);
+      }
       if (check.type === "oxforge-format") {
         paths.add(joinPath(check.directory, "package.json"));
         paths.add(joinPath(check.directory, "oxfmt.config.ts"));
@@ -167,7 +171,13 @@ function contentPaths(treePaths: Set<string>, needed: string[]): string[] {
   const expanded = new Set<string>();
 
   for (const path of needed) {
-    if (path === WORKFLOW_MARKER) {
+    if (path === PACKAGE_MARKER) {
+      for (const treePath of [...treePaths].toSorted()) {
+        if (treePath === "package.json" || treePath.endsWith("/package.json")) {
+          expanded.add(treePath);
+        }
+      }
+    } else if (path === WORKFLOW_MARKER) {
       for (const treePath of treePaths) {
         if (workflowPath(treePath)) {
           expanded.add(treePath);

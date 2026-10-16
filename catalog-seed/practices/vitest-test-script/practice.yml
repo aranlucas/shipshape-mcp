@@ -1,0 +1,7 @@
+version: 1
+id: vitest-test-script
+title: Vitest test scripts in every package
+summary: Every tracked package.json must declare a test script that runs Vitest.
+kind: files
+checks:
+  - type: vitest-test-script

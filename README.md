@@ -32,6 +32,12 @@ practice has a strict `practice.yml` definition and may include canonical files
 and agent instructions. Checks cover repository files, JSON/YAML paths,
 dependencies, repository settings, branch protection, and workflow security.
 
+The `vitest-test-script` check requires every tracked `package.json`, including
+nested packages, to declare a test script that runs Vitest (for example,
+`"test": "vitest run"`). It reads manifests at the evaluated commit without
+executing scripts. Unreadable files, incomplete inventories, and indirect or
+complex commands require review and remain unknown.
+
 The `husky-lint-staged` check reads `package.json`, `.husky/pre-commit`, and
 recognized root lint-staged configuration files. It checks local dependencies,
 Husky initialization through prepare or postinstall, nonempty inline or
