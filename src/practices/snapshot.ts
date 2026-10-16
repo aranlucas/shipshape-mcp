@@ -83,8 +83,12 @@ export function filesNeeded(practices: Practice[]): string[] {
 
   for (const practice of practices) {
     for (const check of practice.checks) {
-      if (check.type === "vitest-test-script") {
+      if (check.type === "vitest-test-script" || check.type === "preferred-package-manager") {
         paths.add(PACKAGE_MARKER);
+      }
+      if (check.type === "preferred-package-manager" || check.type === "pnpm-setup") {
+        paths.add(WORKFLOW_MARKER);
+        paths.add("**/action.yml");
       }
       if (check.type === "oxforge-format") {
         paths.add(joinPath(check.directory, "package.json"));
@@ -174,7 +178,13 @@ function contentPaths(treePaths: Set<string>, needed: string[]): string[] {
   const expanded = new Set<string>();
 
   for (const path of needed) {
-    if (path === PACKAGE_MARKER) {
+    if (path === "**/action.yml") {
+      for (const treePath of [...treePaths].toSorted()) {
+        if (/(?:^|\/)action\.ya?ml$/u.test(treePath)) {
+          expanded.add(treePath);
+        }
+      }
+    } else if (path === PACKAGE_MARKER) {
       for (const treePath of [...treePaths].toSorted()) {
         if (treePath === "package.json" || treePath.endsWith("/package.json")) {
           expanded.add(treePath);

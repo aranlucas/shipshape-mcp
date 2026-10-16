@@ -1,0 +1,7 @@
+version: 1
+id: pnpm-setup
+title: Use pnpm/setup
+summary: Use pnpm/setup instead of pnpm/action-setup in workflows and composite actions.
+kind: files
+checks:
+  - type: pnpm-setup

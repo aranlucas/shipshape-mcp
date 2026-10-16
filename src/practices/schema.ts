@@ -106,6 +106,8 @@ const BranchProtectionCheck = z.discriminatedUnion("key", [
 
 const CheckDefinitionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ci-required-checks") }).strict(),
+  z.object({ type: z.literal("preferred-package-manager") }).strict(),
+  z.object({ type: z.literal("pnpm-setup") }).strict(),
   z.object({ type: z.literal("vitest-test-script") }).strict(),
   z.object({ type: z.literal("husky-lint-staged") }).strict(),
   z
@@ -192,6 +194,8 @@ export const CheckSchema = CheckDefinitionSchema.transform((check) => {
       };
     case "vitest-test-script":
     case "ci-required-checks":
+    case "preferred-package-manager":
+    case "pnpm-setup":
     case "dependabot-grouped":
     case "dependency":
     case "file-contains":
@@ -328,6 +332,10 @@ export function checkLabel(check: Check): string {
   switch (check.type) {
     case "ci-required-checks":
       return "ci.yml jobs are required status checks on the default branch";
+    case "preferred-package-manager":
+      return "Use pnpm or Bun instead of npm";
+    case "pnpm-setup":
+      return "Use pnpm/setup instead of pnpm/action-setup";
     case "vitest-test-script":
       return "Every package.json has a test script that runs Vitest";
     case "oxforge-format":
