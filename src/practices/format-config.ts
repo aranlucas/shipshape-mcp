@@ -1,4 +1,5 @@
-import { parse, type Expression, type Identifier, type Literal } from "acorn";
+import { Parser, type Expression, type Identifier, type Literal } from "acorn";
+import { tsPlugin } from "@sveltejs/acorn-typescript";
 import { z } from "zod";
 
 class StaticObject {
@@ -7,6 +8,12 @@ class StaticObject {
 }
 
 const FORMAT_FACTORY = Symbol("Oxforge format helper");
+
+const ConfigParser = Parser.extend(tsPlugin());
+
+const TypeOnlyImport = z.object({ importKind: z.literal("type") });
+
+const TypeOnlyExport = z.object({ exportKind: z.literal("type") });
 
 type StaticValue = string | number | boolean | null | StaticObject | StaticValue[];
 
@@ -189,14 +196,30 @@ function evaluate(
 }
 
 function readConfig(text: string): StaticValue | undefined {
-  const program = parse(text, { ecmaVersion: "latest", sourceType: "module" });
+  const program = ConfigParser.parse(text, {
+    ecmaVersion: "latest",
+    sourceType: "module",
+    locations: true,
+  });
+
   const bindings = new Map<string, Binding>();
+
   let config: StaticValue | undefined;
 
   for (const statement of program.body) {
+    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- The plugin adds TypeScript nodes beyond Acorn's union; reject every unsupported node by default.
     switch (statement.type) {
       case "ImportDeclaration":
+        // Type-only imports have no runtime binding or side effects.
+        if (TypeOnlyImport.safeParse(statement).success) {
+          break;
+        }
+
         for (const specifier of statement.specifiers) {
+          if (TypeOnlyImport.safeParse(specifier).success) {
+            continue;
+          }
+
           if (specifier.type === "ImportNamespaceSpecifier") {
             unsupported();
           }
@@ -238,6 +261,14 @@ function readConfig(text: string): StaticValue | undefined {
         break;
       case "ExportNamedDeclaration":
         if (
+          TypeOnlyExport.safeParse(statement).success ||
+          (statement.specifiers.length === 1 &&
+            TypeOnlyExport.safeParse(statement.specifiers[0]).success)
+        ) {
+          break;
+        }
+
+        if (
           !statement.source ||
           statement.specifiers.length !== 1 ||
           name(statement.specifiers[0].exported) !== "default"
@@ -261,26 +292,7 @@ function readConfig(text: string): StaticValue | undefined {
         break;
       case "EmptyStatement":
         break;
-      case "BlockStatement":
-      case "BreakStatement":
-      case "ClassDeclaration":
-      case "ContinueStatement":
-      case "DebuggerStatement":
-      case "DoWhileStatement":
-      case "ExportAllDeclaration":
-      case "ExpressionStatement":
-      case "ForInStatement":
-      case "ForOfStatement":
-      case "ForStatement":
-      case "FunctionDeclaration":
-      case "IfStatement":
-      case "LabeledStatement":
-      case "ReturnStatement":
-      case "SwitchStatement":
-      case "ThrowStatement":
-      case "TryStatement":
-      case "WhileStatement":
-      case "WithStatement":
+      default:
         unsupported();
     }
   }

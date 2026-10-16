@@ -28,6 +28,58 @@ function snapshot(config: string, manifest = "{}", directory = ".") {
 const tailwindManifest = JSON.stringify({ devDependencies: { tailwindcss: "^4.0.0" } });
 
 describe("Oxforge format policy", () => {
+  it("accepts ai-shopping-mcp's typed Tailwind config without changing its stylesheet", () => {
+    const config = `import type { OxfmtConfig } from "oxfmt";
+import base from "@aranlucas/oxforge/format-tailwind";
+
+const config: OxfmtConfig = {
+  ...base,
+  sortTailwindcss: { ...base.sortTailwindcss, stylesheet: "views/styles.css" },
+};
+
+export default config;
+`;
+
+    const exactMatch = CheckSchema.parse({
+      type: "file-matches",
+      path: "oxfmt.config.ts",
+      source: "files/oxfmt.config.ts",
+    });
+
+    expect(
+      runCheck(exactMatch, snapshot(config, tailwindManifest), {
+        "files/oxfmt.config.ts": `${base}\n`,
+      }).state,
+    ).toBe("fail");
+    expect(runCheck(check, snapshot(config, tailwindManifest), {}).state).toBe("pass");
+    expect(
+      runCheck(
+        check,
+        snapshot(
+          config.replace('{ ...base.sortTailwindcss, stylesheet: "views/styles.css" }', "false"),
+          tailwindManifest,
+        ),
+        {},
+      ).state,
+    ).toBe("fail");
+  });
+
+  it("ignores inline type imports while checking the runtime export", () => {
+    const config = `import { type OxfmtConfig } from "oxfmt";
+      import base from "@aranlucas/oxforge/format-config";
+      const config: OxfmtConfig = { ...base, printWidth: 120 };
+      export default config;`;
+
+    expect(runCheck(check, snapshot(config), {}).state).toBe("pass");
+  });
+
+  it.each([
+    'export type { default } from "@aranlucas/oxforge/format-config";',
+    'export { type default } from "@aranlucas/oxforge/format-config";',
+  ])("does not treat type-only Oxforge re-exports as a runtime configuration: %s", (config) => {
+    expect(runCheck(check, snapshot(config), {}).state).toBe("fail");
+  });
+
   it("accepts the shared base for repositories without Tailwind", () => {
     expect(runCheck(check, snapshot(base), {}).state).toBe("pass");
     expect(runCheck(check, snapshot(tailwind), {}).state).toBe("pass");
@@ -100,7 +152,15 @@ describe("Oxforge format policy", () => {
     'import arbitrary from "./project.js"; export default arbitrary();',
     "export default process.env.FORMAT_CONFIG;",
     "export default {",
-    projectConfig.replace("const config =", "const config: FormatConfig ="),
+    projectConfig.replace("const config =", "enum Mode { Default }\nconst config ="),
+    projectConfig.replace(
+      "const config =",
+      "namespace Runtime { export const value = 1; }\nconst config =",
+    ),
+    projectConfig.replace("const config =", "declare const config: FormatConfig;\nconst unused ="),
+    projectConfig.replace("const config =", "type Config = FormatConfig;\nconst config ="),
+    `${projectConfig}\nconfig!.sortTailwindcss = false;`,
+    'import type base from "@aranlucas/oxforge/format-config"; export default base;',
     projectConfig.replace("stylesheet:", "get stylesheet() { throw new Error(); }, unused:"),
   ])("keeps dynamic or unsupported code unknown without executing it: %s", (config) => {
     expect(runCheck(check, snapshot(config, tailwindManifest), {}).state).toBe("unknown");
