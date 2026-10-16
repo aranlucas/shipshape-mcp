@@ -312,7 +312,11 @@ export function RepoPanel({ owner, name, overview, onRefresh, refreshing }: Repo
             </button>
           </p>
         )}
-        <QueryStatus query={query} label={detail ? "Updating checks…" : "Loading checks…"} />
+        <QueryStatus
+          query={query}
+          label={detail ? "Updating checks…" : "Loading checks…"}
+          background={detail !== null}
+        />
         {retrying > 0 && (
           <p class="loading" role="status">
             Retrying {plural(retrying, "unavailable practice")}. Results will appear automatically.

@@ -1,4 +1,4 @@
-interface QueryStatusProps {
+export interface QueryStatusProps {
   query: {
     isFetching: boolean;
     isPaused: boolean;
@@ -6,11 +6,17 @@ interface QueryStatusProps {
     failureReason: Error | null;
   };
   label: string;
+  /** Content is already on screen, so a routine refetch stays silent instead of shifting the layout. */
+  background?: boolean;
 }
 
 /** Kept separate from result content so retries never hide a successful response. */
-export function QueryStatus({ query, label }: QueryStatusProps) {
+export function QueryStatus({ query, label, background = false }: QueryStatusProps) {
   if (!query.isFetching && !query.isPaused) {
+    return null;
+  }
+
+  if (background && !query.isPaused && query.failureCount === 0) {
     return null;
   }
 

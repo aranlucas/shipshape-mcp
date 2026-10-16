@@ -143,6 +143,7 @@ export function App({ login }: AppProps) {
         )}
         <QueryStatus
           query={query}
+          background={overview !== null}
           label={overview ? "Updating repositories…" : "Loading repositories…"}
         />
         {overview && route.view === "overview" && (
