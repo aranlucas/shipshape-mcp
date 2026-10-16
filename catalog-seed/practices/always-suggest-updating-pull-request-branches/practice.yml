@@ -1,0 +1,9 @@
+version: 1
+id: always-suggest-updating-pull-request-branches
+title: Always suggest updating pull request branches
+summary: Offer to update pull request branches whenever they fall behind the base branch.
+kind: settings
+checks:
+  - type: setting
+    key: allow_update_branch
+    equals: true

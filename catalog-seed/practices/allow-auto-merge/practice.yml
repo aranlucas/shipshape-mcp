@@ -1,0 +1,11 @@
+version: 1
+id: allow-auto-merge
+title: Allow auto-merge
+summary: Allow pull requests to merge automatically once merge requirements are met in public repositories.
+kind: settings
+appliesTo:
+  visibility: public
+checks:
+  - type: setting
+    key: allow_auto_merge
+    equals: true

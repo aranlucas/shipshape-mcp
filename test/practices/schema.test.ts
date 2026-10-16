@@ -86,6 +86,25 @@ function practiceOf(result: ReturnType<typeof parsePractice>) {
 }
 
 describe("practice schema", () => {
+  it("accepts public or private visibility selectors and rejects other values", () => {
+    for (const visibility of ["public", "private"]) {
+      const result = parsePractice(
+        fixture.replace("appliesTo:", `appliesTo:\n  visibility: ${visibility}`),
+      );
+
+      expect(practiceOf(result).appliesTo.visibility).toBe(visibility);
+    }
+
+    const invalid = parsePractice(
+      fixture.replace("appliesTo:", "appliesTo:\n  visibility: internal"),
+    );
+
+    expect(issuesOf(invalid)).toContainEqual(
+      expect.objectContaining({ path: "appliesTo.visibility" }),
+    );
+    expect(practiceOf(parsePractice(fixture)).appliesTo.visibility).toBeUndefined();
+  });
+
   it("parses every seed check type", () => {
     const result = parsePractice(fixture, "husky-lint-staged");
     expect(result.ok).toBe(true);

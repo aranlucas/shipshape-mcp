@@ -362,6 +362,36 @@ describe("evaluateRepository", () => {
     expect(stored?.checks.at(-1)?.state).toBe("fail");
   });
 
+  it.each([true, false, undefined])(
+    "does not penalize private repositories for auto-merge setting %s",
+    async (allowAutoMerge) => {
+      await seed(
+        catalog([
+          validPractice(
+            "allow-auto-merge",
+            "settings",
+            [{ type: "setting", key: "allow_auto_merge", equals: true }],
+            { visibility: "public" },
+          ),
+        ]),
+      );
+      await upsertRepositories(
+        appEnv.DB,
+        [{ ...repository, private: true }],
+        new Date().toISOString(),
+      );
+      mockGitHub({
+        settings: allowAutoMerge === undefined ? {} : { allow_auto_merge: allowAutoMerge },
+      });
+
+      await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+      const [stored] = await readResults(appEnv.DB, repoName);
+      expect(stored?.cell).toMatchObject({ state: "not_applicable", failing: 0, unknown: 0 });
+      expect(stored?.checks).toEqual([]);
+    },
+  );
+
   it("evaluates passing, failing, and language-inapplicable practices into D1", async () => {
     const practices = [
       validPractice("readme", "files", [{ type: "file-exists", path: "README.md", absent: false }]),
