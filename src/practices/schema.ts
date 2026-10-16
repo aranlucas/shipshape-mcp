@@ -106,6 +106,7 @@ const BranchProtectionCheck = z.discriminatedUnion("key", [
 
 const CheckDefinitionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ci-required-checks") }).strict(),
+  z.object({ type: z.literal("ci-test-script") }).strict(),
   z.object({ type: z.literal("preferred-package-manager") }).strict(),
   z.object({ type: z.literal("pnpm-setup") }).strict(),
   z.object({ type: z.literal("vitest-test-script") }).strict(),
@@ -194,6 +195,7 @@ export const CheckSchema = CheckDefinitionSchema.transform((check) => {
       };
     case "vitest-test-script":
     case "ci-required-checks":
+    case "ci-test-script":
     case "preferred-package-manager":
     case "pnpm-setup":
     case "dependabot-grouped":
@@ -332,6 +334,8 @@ export function checkLabel(check: Check): string {
   switch (check.type) {
     case "ci-required-checks":
       return "ci.yml jobs are required status checks on the default branch";
+    case "ci-test-script":
+      return "ci.yml runs the declared package test script";
     case "preferred-package-manager":
       return "Use pnpm or Bun instead of npm";
     case "pnpm-setup":

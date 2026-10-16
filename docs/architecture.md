@@ -86,7 +86,8 @@ failures remain unknown for the next sweep or manual refresh. Permission and
 feature errors do not request queue retries. Catalog writes are not replayed,
 and these retries do not trigger additional sweeps.
 
-The starter CI rule checks ci.yml, pnpm setup, read-only contents permission,
+The starter CI rule checks ci.yml, a declared root test script invoked by CI,
+pnpm setup, read-only contents permission,
 and that every static CI job name is a required status check on the default
 branch. Additional required checks are allowed. Unreadable protection and
 dynamic or ambiguous job contexts remain unknown. This uses classic branch
