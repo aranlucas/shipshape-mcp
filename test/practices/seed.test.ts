@@ -11,6 +11,8 @@ const repositoryRoot = resolve(import.meta.dirname, "../..");
 const seedRoot = join(repositoryRoot, "catalog-seed", "practices");
 
 const expectedPracticeIds = [
+  "portless-local-dev",
+  "cloudflare-cf-cli",
   "preferred-package-manager",
   "pnpm-setup",
   "vitest-test-script",
@@ -28,6 +30,8 @@ const expectedPracticeIds = [
 ] as const;
 
 const fileWorkflowPracticeIds = new Set<string>([
+  "portless-local-dev",
+  "cloudflare-cf-cli",
   "preferred-package-manager",
   "pnpm-setup",
   "vitest-test-script",
@@ -212,7 +216,7 @@ describe("seed practice catalog", () => {
     const snapshot = repositorySnapshot();
     const seeds = seedPractices();
 
-    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(10);
+    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(12);
 
     for (const seed of seeds) {
       if (!fileWorkflowPracticeIds.has(seed.parsed.id)) {

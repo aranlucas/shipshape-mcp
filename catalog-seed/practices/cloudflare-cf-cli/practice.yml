@@ -1,0 +1,9 @@
+version: 1
+id: cloudflare-cf-cli
+title: Use the Cloudflare cf CLI dependency
+summary: Declare cf as a local dev dependency in Cloudflare projects and remove direct Wrangler dependencies.
+kind: files
+appliesTo:
+  hasFiles: [package.json]
+checks:
+  - type: cloudflare-cf-cli

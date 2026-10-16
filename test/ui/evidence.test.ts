@@ -28,6 +28,11 @@ const check: CheckResult = {
 };
 
 describe("inspection evidence links", () => {
+  it.each(["portless-dev", "cloudflare-cf-cli"])("links %s to the captured manifest", (type) => {
+    expect(evidenceLink(repo, sha, { ...check, type, path: "apps/web/package.json" })).toBe(
+      `https://github.com/octo/demo/blob/${sha}/apps/web/package.json`,
+    );
+  });
   it("links required-script failures to the evaluated package manifest", () => {
     expect(
       evidenceLink(repo, sha, {

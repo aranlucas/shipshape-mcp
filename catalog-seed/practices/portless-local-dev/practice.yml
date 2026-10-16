@@ -1,0 +1,9 @@
+version: 1
+id: portless-local-dev
+title: Use Portless for local web development
+summary: Make portless run the default web dev command and install Portless as a local dev dependency.
+kind: files
+appliesTo:
+  hasFiles: [package.json]
+checks:
+  - type: portless-dev

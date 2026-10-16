@@ -162,6 +162,37 @@ describe("filesNeeded", () => {
 });
 
 describe("takeSnapshot API reads", () => {
+  it.each(["portless-dev", "cloudflare-cf-cli"])(
+    "reads only the selected manifest at the captured commit for %s",
+    async (type) => {
+      const contents = {
+        "apps/web/package.json": {
+          content: JSON.stringify({
+            devDependencies: { portless: "0.15.8", cf: "1.0.0" },
+            scripts: { dev: "portless run cf dev" },
+          }),
+        },
+        "apps/web/cloudflare.config.ts": { content: "throw new Error('never execute')" },
+        "package.json": { content: "{}" },
+      };
+
+      const fixture = snapshotClient({ treePaths: Object.keys(contents), contents });
+      const selected = check({ type, directory: "apps/web" });
+
+      const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [
+        practice([selected]),
+      ]);
+
+      expect([...snapshot.files.keys()]).toEqual(["apps/web/package.json"]);
+      expect(runCheck(selected, snapshot, {}).state).toBe("pass");
+      expect(
+        fixture.calls
+          .filter((url) => url.pathname.includes("/contents/"))
+          .every((url) => url.searchParams.get("ref") === headSha),
+      ).toBe(true);
+      expect(fixture.calls.some((url) => url.pathname.includes("/branches/"))).toBe(false);
+    },
+  );
   it("collects the manifest and CI workflow for the test-script rule at the captured commit", async () => {
     const path = ".github/workflows/ci.yml";
 
