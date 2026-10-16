@@ -26,6 +26,7 @@
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.3",
     "@modelcontextprotocol/server": "2.3.1",
+    "@tanstack/react-query": "^5.104.2",
     "acorn": "^8.19.0",
     "agents": "^0.28.1",
     "jsonc-parser": "^3.3.1",
@@ -45,6 +46,7 @@
     "@preact/preset-vite": "^2.10.6",
     "@types/node": "^26.6.5",
     "cf": "1.0.0-beta.17",
+    "happy-dom": "^21.0.1",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "oxfmt": "^0.73.0",

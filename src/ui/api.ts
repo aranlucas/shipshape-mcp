@@ -46,8 +46,13 @@ function failure(status: number, payload: string): ApiError {
   );
 }
 
-async function request<T>(path: string, method = "GET", body?: RequestBody): Promise<T> {
-  const init: RequestInit = { method, credentials: "same-origin" };
+async function request<T>(
+  path: string,
+  method = "GET",
+  body?: RequestBody,
+  signal?: AbortSignal,
+): Promise<T> {
+  const init: RequestInit = { method, credentials: "same-origin", signal };
 
   if (body !== undefined) {
     init.headers = { "Content-Type": "application/json" };
@@ -76,10 +81,17 @@ async function request<T>(path: string, method = "GET", body?: RequestBody): Pro
 const segment = encodeURIComponent;
 
 export const api = {
-  overview: () => request<OverviewResponse>("/app/api/overview"),
-  repo: (owner: string, name: string) =>
-    request<RepoDetailResponse>(`/app/api/repos/${segment(owner)}/${segment(name)}`),
-  practice: (id: string) => request<PracticeDetailResponse>(`/app/api/practices/${segment(id)}`),
+  overview: (signal?: AbortSignal) =>
+    request<OverviewResponse>("/app/api/overview", "GET", undefined, signal),
+  repo: (owner: string, name: string, signal?: AbortSignal) =>
+    request<RepoDetailResponse>(
+      `/app/api/repos/${segment(owner)}/${segment(name)}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+  practice: (id: string, signal?: AbortSignal) =>
+    request<PracticeDetailResponse>(`/app/api/practices/${segment(id)}`, "GET", undefined, signal),
   savePractice: (id: string, body: SavePracticeRequest) =>
     request<CatalogWriteResponse>(`/app/api/practices/${segment(id)}`, "PUT", body),
   deletePractice: (id: string) =>

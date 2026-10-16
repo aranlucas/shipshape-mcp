@@ -1,8 +1,10 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type {
   ApiErrorResponse,
   OverviewResponse,
   PracticeDetailResponse,
+  SavePracticeRequest,
 } from "../../api/contract";
 import { api, ApiError } from "../api";
 import { Distribution } from "../components/distribution";
@@ -10,6 +12,7 @@ import { StateMark } from "../components/state-mark";
 import { STATE_WORDS } from "../format";
 import { cellState, practiceCounts } from "../model";
 import { linkHandler, navigate, paths } from "../router";
+import { practiceQuery } from "../queries";
 import { startTask } from "../tasks";
 
 const TEMPLATE = `version: 1
@@ -68,63 +71,96 @@ type SaveResult = { ok: true; sha: string } | { ok: false; error: string; issues
 interface EditorProps {
   overview: OverviewResponse;
   id: string | null;
-  onSaved: () => void;
 }
 
-export function PracticeEditor({ overview, id, onSaved }: EditorProps) {
-  const [detail, setDetail] = useState<PracticeDetailResponse | null>(null);
-  const [draft, setDraft] = useState<Draft>(draftFrom(null));
+interface FormProps extends EditorProps {
+  detail: PracticeDetailResponse | null;
+}
+
+interface SaveVariables {
+  id: string;
+  body: SavePracticeRequest;
+}
+
+export function PracticeEditor({ overview, id }: EditorProps) {
+  const query = useQuery(practiceQuery(id));
+
+  if (id !== null && query.isPending) {
+    return <p class="loading">Loading practice…</p>;
+  }
+
+  if (id !== null && query.isError && !query.data) {
+    return (
+      <section class="empty-state">
+        <h1>
+          {query.error instanceof ApiError
+            ? query.error.message
+            : "The practice couldn't be loaded."}
+        </h1>
+        <p>
+          <button type="button" class="link-button" onClick={() => startTask(query.refetch())}>
+            Try again
+          </button>
+        </p>
+        <p>
+          <a href={paths.practices} onClick={linkHandler(paths.practices)}>
+            Back to practices
+          </a>
+        </p>
+      </section>
+    );
+  }
+
+  return <PracticeForm key={id ?? "new"} overview={overview} id={id} detail={query.data ?? null} />;
+}
+
+function PracticeForm({ overview, id, detail }: FormProps) {
+  const client = useQueryClient();
+  const [draft, setDraft] = useState<Draft>(() => draftFrom(detail));
   const [tab, setTab] = useState<Tab>({ kind: "yaml" });
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<SaveResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newPath, setNewPath] = useState("");
   const feedback = useRef<HTMLDivElement>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: (variables: SaveVariables) => api.savePractice(variables.id, variables.body),
+    onSuccess: async (saved, variables) => {
+      client.setQueryData(practiceQuery(variables.id).queryKey, (previous) =>
+        previous
+          ? {
+              ...previous,
+              yaml: variables.body.yaml,
+              instructions: variables.body.instructions ?? null,
+              files: variables.body.files ?? [],
+            }
+          : undefined,
+      );
+      setResult({ ok: true, sha: saved.catalogSha });
+      await client.invalidateQueries();
+
+      if (id === null) {
+        navigate(paths.practice(variables.id), { replace: true });
+      }
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (target: string) => api.deletePractice(target),
+    onSuccess: async (_, target) => {
+      navigate(paths.practices, { replace: true });
+      client.removeQueries({ queryKey: practiceQuery(target).queryKey });
+      await client.invalidateQueries();
+    },
+  });
+
+  const saving = saveMutation.isPending || deleteMutation.isPending;
 
   useEffect(() => {
     if (result) {
       feedback.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }, [result]);
-
-  useEffect(() => {
-    setResult(null);
-    setTab({ kind: "yaml" });
-    setConfirmDelete(false);
-
-    if (id === null) {
-      setDetail(null);
-      setDraft(draftFrom(null));
-
-      return;
-    }
-
-    let current = true;
-
-    setLoadError(null);
-    api
-      .practice(id)
-      .then((value) => {
-        if (current) {
-          setDetail(value);
-          setDraft(draftFrom(value));
-        }
-
-        return value;
-      })
-      .catch(
-        (cause: unknown) =>
-          current &&
-          setLoadError(
-            cause instanceof ApiError ? cause.message : "The practice couldn't be loaded.",
-          ),
-      );
-
-    return () => {
-      current = false;
-    };
-  }, [id]);
 
   const original = draftFrom(detail);
   const dirty = JSON.stringify(draft) !== JSON.stringify(original) || id === null;
@@ -146,41 +182,23 @@ export function PracticeEditor({ overview, id, onSaved }: EditorProps) {
       return;
     }
 
-    setSaving(true);
     setResult(null);
 
     try {
-      const saved = await api.savePractice(target, {
-        yaml: draft.yaml,
-        instructions: draft.instructions.trim() ? draft.instructions : null,
-        files: draft.files,
+      await saveMutation.mutateAsync({
+        id: target,
+        body: {
+          yaml: draft.yaml,
+          instructions: draft.instructions.trim() ? draft.instructions : null,
+          files: draft.files,
+        },
       });
-
-      setResult({ ok: true, sha: saved.catalogSha });
-      onSaved();
-
-      if (id === null) {
-        navigate(paths.practice(target), { replace: true });
-      } else {
-        setDetail((previous) =>
-          previous
-            ? {
-                ...previous,
-                yaml: draft.yaml,
-                instructions: draft.instructions || null,
-                files: draft.files,
-              }
-            : previous,
-        );
-      }
     } catch (cause: unknown) {
       setResult({
         ok: false,
         error: cause instanceof ApiError ? cause.message : "The practice couldn't be saved.",
         issues: cause instanceof ApiError ? cause.issues : [],
       });
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -189,33 +207,15 @@ export function PracticeEditor({ overview, id, onSaved }: EditorProps) {
       return;
     }
 
-    setSaving(true);
-
     try {
-      await api.deletePractice(id);
-      onSaved();
-      navigate(paths.practices, { replace: true });
+      await deleteMutation.mutateAsync(id);
     } catch (cause: unknown) {
       setResult({
         ok: false,
         error: cause instanceof ApiError ? cause.message : "The practice couldn't be deleted.",
         issues: [],
       });
-      setSaving(false);
     }
-  }
-
-  if (loadError) {
-    return (
-      <section class="empty-state">
-        <h1>{loadError}</h1>
-        <p>
-          <a href={paths.practices} onClick={linkHandler(paths.practices)}>
-            Back to practices
-          </a>
-        </p>
-      </section>
-    );
   }
 
   const tabValue =

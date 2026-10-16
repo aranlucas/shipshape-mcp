@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type {
   CheckResult,
@@ -5,10 +6,11 @@ import type {
   RepoDetailResponse,
   RepoSummary,
 } from "../../api/contract";
-import { api, ApiError } from "../api";
+import { ApiError } from "../api";
 import { evidenceLink } from "../evidence";
 import { STATE_WORDS, timeAgo } from "../format";
 import { linkHandler, navigate, paths } from "../router";
+import { repoQuery } from "../queries";
 import { startTask } from "../tasks";
 import { StateMark } from "./state-mark";
 
@@ -198,31 +200,18 @@ function PracticeEntry({ entry, repo }: PracticeEntryProps) {
 
 export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) {
   const fullName = `${owner}/${name}`;
-  const [detail, setDetail] = useState<RepoDetailResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const summary = overview.repos.find((item) => item.fullName === fullName);
+  const query = useQuery(repoQuery(owner, name, overview));
+  const detail = query.data ?? null;
+
+  const error = query.error
+    ? query.error instanceof ApiError
+      ? query.error.message
+      : "The repository couldn't be loaded."
+    : null;
+
   const [refreshing, setRefreshing] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
-
-  useEffect(() => {
-    let current = true;
-
-    setDetail(null);
-    setError(null);
-    api
-      .repo(owner, name)
-      .then((value) => current && setDetail(value))
-      .catch(
-        (cause: unknown) =>
-          current &&
-          setError(
-            cause instanceof ApiError ? cause.message : "The repository couldn't be loaded.",
-          ),
-      );
-
-    return () => {
-      current = false;
-    };
-  }, [owner, name, overview]);
 
   useEffect(() => {
     heading.current?.focus();
@@ -242,7 +231,7 @@ export function RepoPanel({ owner, name, overview, onRefresh }: RepoPanelProps) 
 
   const neverChecked = detail?.practices.every((entry) => entry.result.checkedAt === null) ?? false;
 
-  const repo = detail?.repo ?? overview.repos.find((item) => item.fullName === fullName);
+  const repo = detail?.repo ?? summary;
 
   const checkedAt =
     detail?.practices.find((entry) => entry.result.checkedAt)?.result.checkedAt ?? null;
