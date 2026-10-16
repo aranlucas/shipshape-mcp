@@ -14,6 +14,7 @@ import { inspectVitestTestScripts } from "./vitest-test-script";
 import type { Check } from "./schema";
 import { inspectOxforge, inspectOxforgeFormat, inspectDependabot } from "./semantic-checks";
 import type { RepoSnapshot } from "./snapshot";
+import { inspectPackageManager, inspectPnpmSetup } from "./package-manager";
 
 function inspectCheck(
   check: Check,
@@ -21,6 +22,10 @@ function inspectCheck(
   practiceFiles: PracticeFiles,
 ): CheckOutcome {
   switch (check.type) {
+    case "preferred-package-manager":
+      return inspectPackageManager(snapshot);
+    case "pnpm-setup":
+      return inspectPnpmSetup(snapshot);
     case "vitest-test-script":
       return inspectVitestTestScripts(snapshot);
     case "oxforge-format":

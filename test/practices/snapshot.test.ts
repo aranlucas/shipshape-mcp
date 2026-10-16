@@ -340,6 +340,33 @@ describe("takeSnapshot API reads", () => {
 });
 
 describe("semantic lint snapshot collection", () => {
+  it("reads package-manager evidence and composite actions at the captured commit", async () => {
+    const contents = {
+      "package.json": { content: '{"packageManager":"pnpm@12.11.2"}' },
+      "apps/web/package.json": { content: "{}" },
+      ".github/workflows/ci.yml": { content: "jobs: {}" },
+      "tooling/setup/action.yaml": {
+        content: "runs:\n  using: composite\n  steps:\n    - uses: pnpm/action-setup@v6\n",
+      },
+      "scripts/unrelated.js": { content: "throw new Error('never execute')" },
+    };
+
+    const { client, calls } = snapshotClient({ treePaths: Object.keys(contents), contents });
+    const manager = check({ type: "preferred-package-manager" });
+    const setup = check({ type: "pnpm-setup" });
+    const snapshot = await takeSnapshot(client, snapshotRepository, [practice([manager, setup])]);
+
+    expect(runCheck(manager, snapshot, {}).state).toBe("pass");
+    expect(runCheck(setup, snapshot, {})).toMatchObject({
+      state: "fail",
+      path: "tooling/setup/action.yaml",
+    });
+    const reads = calls.filter((url) => url.pathname.includes("/contents/"));
+    expect(reads).toHaveLength(4);
+    expect(reads.every((url) => url.searchParams.get("ref") === headSha)).toBe(true);
+    expect(snapshot.files.has("scripts/unrelated.js")).toBe(false);
+  });
+
   it("reads external lint-staged tasks at the captured commit without executing scripts", async () => {
     const contents = {
       "package.json": {

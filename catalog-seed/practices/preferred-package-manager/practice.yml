@@ -1,0 +1,9 @@
+version: 1
+id: preferred-package-manager
+title: Use pnpm or Bun
+summary: Use pnpm or Bun instead of npm for JavaScript dependencies and commands.
+kind: files
+appliesTo:
+  hasFiles: [package.json]
+checks:
+  - type: preferred-package-manager
