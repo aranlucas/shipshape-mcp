@@ -114,11 +114,8 @@ async function handleMessage(message: Message<EvaluationMessage>, env: AppEnv): 
     }
 
     const options: Parameters<typeof evaluateRepository>[2] = {
-      force:
-        message.body.reason === "manual" ||
-        message.body.reason === "catalog" ||
-        message.body.reason === "installation" ||
-        message.body.reason === "sweep",
+      // Installation changes require a new permission check even at the same commit.
+      force: message.body.reason === "installation",
     };
 
     if (message.body.practiceId) {

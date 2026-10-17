@@ -8,11 +8,11 @@ import { installationClient } from "../github/app";
 import { octokitGet, type GitHubOctokit } from "../github/client";
 import { loadCatalog, readStoredCatalog, type Catalog, type CatalogPractice } from "./catalog";
 import { applies } from "./applies";
+import { evaluationKey } from "./evaluation-key";
 import { aggregate, runCheck } from "./checks";
 import {
   deleteResultsNotIn,
   getRepository,
-  lastEvaluation,
   markUnknown,
   readResults,
   type StoredResult,
@@ -147,7 +147,7 @@ export async function evaluateRepository(
 ): Promise<"evaluated" | "skipped" | "unavailable" | "retry"> {
   const storedCatalog = await readStoredCatalog(env.DB);
   const catalog: Catalog = storedCatalog ?? (await loadCatalog(env));
-  const practices = options.practiceId
+  let practices = options.practiceId
     ? catalog.practices.filter((practice) => practice.id === options.practiceId)
     : catalog.practices;
 
@@ -187,31 +187,44 @@ export async function evaluateRepository(
   });
 
   const preloadedHead = await readHead(client, repo);
-  const previous = await lastEvaluation(env.DB, fullName);
   const previousResults = await readResults(env.DB, fullName);
-  const hasRetriableUnknown = previousResults.some((result) => result.cell.unknown > 0);
+  const previousById = new Map(previousResults.map((result) => [result.practiceId, result]));
+  const key = evaluationKey(repo);
 
-  // Repository settings and branch protections can change without a Git commit.
-  const hasMutableChecks = catalog.practices.some(
-    (practice) =>
-      practice.parsed.ok &&
-      practice.parsed.practice.checks.some(
-        (check) =>
-          check.type === "setting" ||
-          check.type === "branch-protection" ||
-          check.type === "ci-required-checks",
-      ),
-  );
+  if (!options.force && !options.practiceId && preloadedHead.sha !== null) {
+    practices = practices.filter((practice) => {
+      const previous = previousById.get(practice.id);
+      // Settings and branch protections can change without a Git commit.
+      const mutable =
+        practice.parsed.ok &&
+        practice.parsed.practice.checks.some(
+          (check) =>
+            check.type === "setting" ||
+            check.type === "branch-protection" ||
+            check.type === "ci-required-checks",
+        );
 
-  if (
-    !options.force &&
-    !options.practiceId &&
-    !hasMutableChecks &&
-    preloadedHead.sha !== null &&
-    !hasRetriableUnknown &&
-    previous?.headSha === preloadedHead.sha &&
-    previous.catalogSha === catalog.sha
-  ) {
+      return (
+        mutable ||
+        !practice.parsed.ok ||
+        !previous ||
+        previous.headSha !== preloadedHead.sha ||
+        previous.catalogSha !== catalog.sha ||
+        previous.evaluationKey !== key ||
+        !previous.cell.checkedAt ||
+        previous.cell.state === "unknown" ||
+        previous.cell.unknown > 0 ||
+        Boolean(previous.cell.retrying)
+      );
+    });
+  }
+
+  if (practices.length === 0) {
+    await deleteResultsNotIn(
+      env.DB,
+      fullName,
+      catalog.practices.map((practice) => practice.id),
+    );
     return "skipped";
   }
 
@@ -219,9 +232,10 @@ export async function evaluateRepository(
     practice.parsed.ok ? [practice.parsed.practice] : [],
   );
   const snapshot = await takeSnapshot(client, repo, validPractices, preloadedHead);
-  const rows = practices.map((practice) =>
-    evaluatePractice(fullName, practice, snapshot, catalog.sha),
-  );
+  const rows = practices.map((practice) => ({
+    ...evaluatePractice(fullName, practice, snapshot, catalog.sha),
+    evaluationKey: key,
+  }));
 
   await writeResults(env.DB, rows);
   await deleteResultsNotIn(

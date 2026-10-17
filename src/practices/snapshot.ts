@@ -262,28 +262,36 @@ export async function takeSnapshot(
   let tree: RepoSnapshot["tree"] = null;
   let treeError: string | null = null;
 
-  try {
-    if (!headSha) {
-      throw new Error(headError ?? "Repository head could not be read.");
-    }
-
-    const treeResponse = await octokitGet(
-      client,
-      "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
-      { owner: repo.owner, repo: repo.name, tree_sha: headSha, recursive: "1" },
-      TreeSchema,
-    );
-    tree = {
-      paths: new Set(
-        treeResponse.data.tree
-          .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
-          .map((entry) => entry.path),
+  const needsTree = practices.some(
+    (practice) =>
+      Boolean(practice.appliesTo.hasFiles?.length) ||
+      practice.checks.some(
+        (check) => check.type !== "setting" && check.type !== "branch-protection",
       ),
-      truncated: treeResponse.data.truncated,
-    };
-  } catch (error) {
-    const status = errorStatus(error);
-    treeError = status === 409 ? "Repository has no commits" : (headError ?? readError(error));
+  );
+
+  if (!headSha) {
+    treeError = headError ?? "Repository head could not be read.";
+  } else if (needsTree) {
+    try {
+      const treeResponse = await octokitGet(
+        client,
+        "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
+        { owner: repo.owner, repo: repo.name, tree_sha: headSha, recursive: "1" },
+        TreeSchema,
+      );
+      tree = {
+        paths: new Set(
+          treeResponse.data.tree
+            .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
+            .map((entry) => entry.path),
+        ),
+        truncated: treeResponse.data.truncated,
+      };
+    } catch (error) {
+      const status = errorStatus(error);
+      treeError = status === 409 ? "Repository has no commits" : (headError ?? readError(error));
+    }
   }
 
   const snapshot: RepoSnapshot = {
