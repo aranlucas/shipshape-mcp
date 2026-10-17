@@ -11,6 +11,9 @@ bounded, and testable without executing repository code.
    installations, including their accessible private repositories. Catalog
    edits use the separate owner-gated catalog write path.
 5. Run `pnpm check` and `git diff --check` before opening a pull request.
+6. After adding a practice to `catalog-seed/`, run `pnpm catalog:diff` and
+   publish the missing folder to the catalog repository; production checks
+   only the catalog.
 
 Pull requests should explain the evidence a rule consumes, its result states,
 and how a maintainer can remediate a failure. Avoid generic GitHub CRUD tools;
