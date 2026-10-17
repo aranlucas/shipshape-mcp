@@ -595,23 +595,28 @@ describe("dashboard API", () => {
     });
   });
 
-  it("rejects a mutating request without a JSON content type", async () => {
-    const response = await request("/app/api/practices/husky", {
-      method: "PUT",
-      headers: { origin: ORIGIN, "content-type": "text/plain" },
-      body: validYaml,
-    });
-    expect(response.status).toBe(400);
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: expect.any(String),
-    });
-  });
+  it.each(["text/plain", ""])(
+    "accepts valid JSON without a JSON content type (%s)",
+    async (contentType) => {
+      const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+      const response = await request("/app/api/refresh", {
+        method: "POST",
+        headers: { origin: ORIGIN, "content-type": contentType },
+        body: JSON.stringify({ repo: "aranlucas/alpha" }),
+      });
 
-  it("returns 404 when deleting an unknown practice", async () => {
+      expect(response.status).toBe(202);
+      expect(RefreshResponseSchema.parse(await parseJson(response))).toEqual({ queued: 1 });
+      expect(sendBatch).toHaveBeenCalledWith([
+        { body: { repo: "aranlucas/alpha", installationId: 1, reason: "manual" } },
+      ]);
+    },
+  );
+
+  it("allows DELETE without a body or content type and returns 404 for an unknown practice", async () => {
     const response = await request("/app/api/practices/unknown", {
       method: "DELETE",
       headers: { origin: ORIGIN },
-      body: "{}",
     });
     expect(response.status).toBe(404);
     expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({

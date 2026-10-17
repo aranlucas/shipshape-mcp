@@ -86,13 +86,6 @@ function sameOrigin(request: Request, env: AppEnv): boolean {
   return request.headers.get("Origin") === expected && (site === null || site === "same-origin");
 }
 
-function isJsonRequest(request: Request): boolean {
-  return (
-    request.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase() ===
-    "application/json"
-  );
-}
-
 async function readJson(request: Request): Promise<JsonObject> {
   try {
     return z.record(z.string(), z.json()).parse(JSON.parse(await request.text()));
@@ -257,14 +250,11 @@ api.notFound(() => errorResponse("Not found", 404));
 api.use("*", async (c, next) => {
   const request = c.req.raw;
 
-  if (request.method === "POST" || request.method === "PUT" || request.method === "DELETE") {
-    if (!sameOrigin(request, c.env)) {
-      return errorResponse("Cross-origin request refused.", 403);
-    }
-
-    if (!isJsonRequest(request)) {
-      return errorResponse("JSON body required", 400);
-    }
+  if (
+    (request.method === "POST" || request.method === "PUT" || request.method === "DELETE") &&
+    !sameOrigin(request, c.env)
+  ) {
+    return errorResponse("Cross-origin request refused.", 403);
   }
 
   await next();
