@@ -1,5 +1,6 @@
 /* oxlint-disable anti-slop/require-readable-spacing */
 
+import { Hono } from "hono";
 import { z } from "zod";
 
 import type {
@@ -51,7 +52,9 @@ const RefreshRepositorySchema = z
   }, "Enter a valid repository as owner/name");
 const RefreshSchema = z.object({ repo: RefreshRepositorySchema.optional() }).strict();
 
-type ApiContext = ExecutionContext;
+interface ApiEnv {
+  Bindings: AppEnv;
+}
 type ApiIssue = NonNullable<ApiErrorResponse["issues"]>[number];
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
@@ -246,83 +249,78 @@ function safeFailure(error: Error): Response {
   return errorResponse("Dashboard API unavailable", 500);
 }
 
+const api = new Hono<ApiEnv>().basePath("/app/api");
+
+api.onError(safeFailure);
+api.notFound(() => errorResponse("Not found", 404));
+
+api.use("*", async (c, next) => {
+  const request = c.req.raw;
+
+  if (request.method !== "GET") {
+    if (!sameOrigin(request, c.env)) {
+      return errorResponse("Cross-origin request refused.", 403);
+    }
+
+    if (!isJsonRequest(request)) {
+      return errorResponse("JSON body required", 400);
+    }
+
+    // Hono normally serves HEAD through GET; the dashboard API only supports explicit methods.
+    if (request.method === "HEAD") {
+      return c.notFound();
+    }
+  }
+
+  await next();
+});
+
+api.get("/overview", async (c) => {
+  await requeueIfBuiltInsChanged(c.env);
+
+  return json(await buildOverview(c.env));
+});
+
+api.get("/repos/:owner/:name", async (c) => {
+  const repo = await getRepository(c.env.DB, `${c.req.param("owner")}/${c.req.param("name")}`);
+
+  if (!repo) {
+    return errorResponse("Repository not found", 404);
+  }
+
+  return json(await buildRepoDetail(c.env, repo));
+});
+
+api.get("/practices/:practiceId", async (c) => {
+  const practiceId = IdSchema.parse(c.req.param("practiceId"));
+
+  return json(await buildPracticeDetail(c.env, practiceId));
+});
+
+api.put("/practices/:practiceId", (c) =>
+  handleSave(c.env, c.req.raw, IdSchema.parse(c.req.param("practiceId"))),
+);
+
+api.delete("/practices/:practiceId", (c) =>
+  handleDelete(c.env, IdSchema.parse(c.req.param("practiceId"))),
+);
+
+api.post("/practices/:practiceId/reset", (c) =>
+  handleReset(c.env, IdSchema.parse(c.req.param("practiceId"))),
+);
+
+api.post("/refresh", (c) => handleRefresh(c.env, c.req.raw));
+
 export async function apiHandler(
   request: Request,
   env: AppEnv,
   _session: WebSession,
-  _ctx: ApiContext,
+  ctx: ExecutionContext,
 ): Promise<Response> {
   try {
-    const url = new URL(request.url);
-    const parts = url.pathname.split("/").filter(Boolean);
-    const endpoint = parts.slice(2);
-
-    if (request.method !== "GET") {
-      if (!sameOrigin(request, env)) {
-        return errorResponse("Cross-origin request refused.", 403);
-      }
-
-      if (!isJsonRequest(request)) {
-        return errorResponse("JSON body required", 400);
-      }
-    }
-
-    if (request.method === "GET" && endpoint.length === 1 && endpoint[0] === "overview") {
-      await requeueIfBuiltInsChanged(env);
-
-      return json(await buildOverview(env));
-    }
-
-    if (request.method === "GET" && endpoint[0] === "repos" && endpoint.length === 3) {
-      const owner = decodeURIComponent(endpoint[1] ?? "");
-      const name = decodeURIComponent(endpoint[2] ?? "");
-      const repo = await getRepository(env.DB, `${owner}/${name}`);
-
-      if (!repo) {
-        return errorResponse("Repository not found", 404);
-      }
-
-      return json(await buildRepoDetail(env, repo));
-    }
-
-    if (request.method === "GET" && endpoint[0] === "practices" && endpoint.length === 2) {
-      const practiceId = endpoint[1] ?? "";
-      IdSchema.parse(practiceId);
-
-      return json(await buildPracticeDetail(env, practiceId));
-    }
-
-    if (
-      (request.method === "PUT" || request.method === "DELETE") &&
-      endpoint[0] === "practices" &&
-      endpoint.length === 2
-    ) {
-      const practiceId = endpoint[1] ?? "";
-      IdSchema.parse(practiceId);
-
-      return request.method === "PUT"
-        ? await handleSave(env, request, practiceId)
-        : await handleDelete(env, practiceId);
-    }
-
-    if (
-      request.method === "POST" &&
-      endpoint[0] === "practices" &&
-      endpoint.length === 3 &&
-      endpoint[2] === "reset"
-    ) {
-      const practiceId = endpoint[1] ?? "";
-      IdSchema.parse(practiceId);
-
-      return await handleReset(env, practiceId);
-    }
-
-    if (request.method === "POST" && endpoint.length === 1 && endpoint[0] === "refresh") {
-      return await handleRefresh(env, request);
-    }
-
-    return errorResponse("Not found", 404);
+    return await api.fetch(request, env, ctx);
   } catch (error) {
+    // Hono's onError handles Error instances; keep non-Error throws behind the same safe response.
     return safeFailure(error instanceof Error ? error : new Error("Dashboard API unavailable"));
   }
 }
