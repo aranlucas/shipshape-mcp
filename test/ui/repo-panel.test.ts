@@ -1,12 +1,17 @@
 // @vitest-environment happy-dom
-import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import {
+  focusManager,
+  onlineManager,
+  QueryClientProvider,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { createElement, render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OverviewResponse, RepoDetailResponse, RepoSummary } from "@/api/contract";
 import { api, ApiError } from "@/ui/api";
 import { App } from "@/ui/app";
-import { createQueryClient } from "@/ui/queries";
+import { createQueryClient, overviewQuery, repoQuery } from "@/ui/queries";
 import { navigate } from "@/ui/router";
 
 function repository(name: string): RepoSummary {
@@ -111,6 +116,8 @@ beforeEach(() => {
 afterEach(async () => {
   await act(() => render(null, container));
   client.clear();
+  focusManager.setFocused(undefined);
+  onlineManager.setOnline(true);
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -142,6 +149,95 @@ async function poll() {
 }
 
 describe("repository panel during overview polling", () => {
+  it("refreshes only the selected repository while preserving the view and other cached results", async () => {
+    const nextDetail = deferred<RepoDetailResponse>();
+    const initial = overview(0);
+    initial.results[other.fullName] = { lint: cell };
+
+    const overviewRequest = vi.spyOn(api, "overview").mockResolvedValue(initial);
+    const otherDetail = detail(other, "Other check");
+    client.setQueryData(repoQuery(other.owner, other.name).queryKey, otherDetail);
+
+    const repoRequest = vi
+      .spyOn(api, "repo")
+      .mockResolvedValueOnce(detail())
+      .mockReturnValue(nextDetail.promise);
+
+    const check = vi.spyOn(api, "refresh");
+    await mount();
+    expect(container.querySelector(".masthead")?.textContent).not.toContain("Refresh");
+
+    const section = container.querySelector<HTMLDetailsElement>(".panel-section details");
+    const filter = container.querySelector<HTMLInputElement>("input[type='search']");
+
+    const refresh = [...container.querySelectorAll<HTMLButtonElement>(".panel button")].find(
+      (button) => button.textContent === "Refresh",
+    );
+
+    if (!section || !filter || !refresh) {
+      throw new Error("Missing dashboard controls");
+    }
+
+    section.open = true;
+    await act(() => {
+      filter.value = "vienna";
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+      refresh.click();
+    });
+    await flushQueries();
+    expect(overviewRequest).toHaveBeenCalledTimes(1);
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+    expect(repoRequest).toHaveBeenLastCalledWith(
+      vienna.owner,
+      vienna.name,
+      expect.any(AbortSignal),
+    );
+    expect(refresh.textContent).toBe("Refreshing…");
+    expect(refresh.disabled).toBe(true);
+    expect(container.textContent).toContain("Original check");
+    expect(section.open).toBe(true);
+    expect(filter.value).toBe("vienna");
+    expect(check).not.toHaveBeenCalled();
+
+    await act(() => {
+      nextDetail.resolve(detail(vienna, "Updated check", "2026-10-15T13:00:00Z"));
+    });
+    await flushQueries();
+    expect(container.textContent).toContain("Updated check");
+    expect(container.querySelector(".panel-section details")).toBe(section);
+    expect(section.open).toBe(true);
+    expect(filter.value).toBe("vienna");
+    expect(refresh.textContent).toBe("Refresh");
+    expect(refresh.disabled).toBe(false);
+    expect(client.getQueryData<OverviewResponse>(overviewQuery.queryKey)?.results).toEqual({
+      [vienna.fullName]: { lint: { ...cell, checkedAt: "2026-10-15T13:00:00Z" } },
+      [other.fullName]: { lint: cell },
+    });
+    expect(client.getQueryData(repoQuery(other.owner, other.name).queryKey)).toBe(otherDetail);
+    await act(() => navigate("/app/repos/aranlucas/other"));
+    await flushQueries();
+    expect(container.textContent).toContain("Other check");
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps stale idle results until refresh across focus, reconnect, and panel navigation", async () => {
+    const overviewRequest = vi.spyOn(api, "overview").mockResolvedValue(overview(0));
+    const repoRequest = vi.spyOn(api, "repo").mockResolvedValue(detail());
+    await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+    await act(() => navigate("/app"));
+    await act(() => navigate("/app/repos/aranlucas/vienna-travel"));
+    await flushQueries();
+    expect(overviewRequest).toHaveBeenCalledTimes(1);
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("does not keep polling details that are newer than the overview", async () => {
     const current = detail(vienna, "Latest check", "2026-10-15T13:00:00Z");
     vi.spyOn(api, "overview").mockResolvedValue(overview(0));

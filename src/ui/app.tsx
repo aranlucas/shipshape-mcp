@@ -56,17 +56,19 @@ function Masthead({ login, overview, onRefresh, refreshing, section }: MastheadP
           Practices
         </a>
       </nav>
-      <div class="sweep" role="status">
-        {overview &&
-          (pending > 0 ? (
-            <span class="sweep-running">Checking… {plural(pending, "evaluation")} remaining</span>
-          ) : (
-            <span>
-              {overview.sweep.lastCompletedAt
-                ? `Checked ${timeAgo(overview.sweep.lastCompletedAt)}`
-                : "Not checked yet"}
-            </span>
-          ))}
+      <div class="sweep">
+        <span role="status">
+          {overview &&
+            (pending > 0 ? (
+              <span class="sweep-running">Checking… {plural(pending, "evaluation")} remaining</span>
+            ) : (
+              <span>
+                {overview.sweep.lastCompletedAt
+                  ? `Checked ${timeAgo(overview.sweep.lastCompletedAt)}`
+                  : "Not checked yet"}
+              </span>
+            ))}
+        </span>
         <button
           type="button"
           class="button button-quiet button-small"
