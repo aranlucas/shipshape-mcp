@@ -21,6 +21,9 @@ export function createQueryClient(): QueryClient {
           error.status >= 500,
         retryDelay: (attempt) => Math.min(POLL_MS * 2 ** attempt, 30_000),
         staleTime: 30_000,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
       },
     },
   });

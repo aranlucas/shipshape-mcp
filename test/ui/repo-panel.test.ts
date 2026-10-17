@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
-import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import {
+  focusManager,
+  onlineManager,
+  QueryClientProvider,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { createElement, render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -111,6 +116,8 @@ beforeEach(() => {
 afterEach(async () => {
   await act(() => render(null, container));
   client.clear();
+  focusManager.setFocused(undefined);
+  onlineManager.setOnline(true);
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -142,6 +149,81 @@ async function poll() {
 }
 
 describe("repository panel during overview polling", () => {
+  it("refreshes stored results and open details explicitly while preserving the view", async () => {
+    const nextOverview = deferred<OverviewResponse>();
+    const nextDetail = deferred<RepoDetailResponse>();
+
+    const overviewRequest = vi
+      .spyOn(api, "overview")
+      .mockResolvedValueOnce(overview(0))
+      .mockReturnValue(nextOverview.promise);
+
+    const repoRequest = vi
+      .spyOn(api, "repo")
+      .mockResolvedValueOnce(detail())
+      .mockReturnValue(nextDetail.promise);
+
+    const check = vi.spyOn(api, "refresh");
+    await mount();
+
+    const section = container.querySelector<HTMLDetailsElement>(".panel-section details");
+    const filter = container.querySelector<HTMLInputElement>("input[type='search']");
+
+    const refresh = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Refresh",
+    );
+
+    if (!section || !filter || !refresh) {
+      throw new Error("Missing dashboard controls");
+    }
+
+    section.open = true;
+    await act(() => {
+      filter.value = "vienna";
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+      refresh.click();
+    });
+    await flushQueries();
+    expect(overviewRequest).toHaveBeenCalledTimes(2);
+    expect(repoRequest).toHaveBeenCalledTimes(2);
+    expect(refresh.textContent).toBe("Refreshing…");
+    expect(refresh.disabled).toBe(true);
+    expect(container.textContent).toContain("Original check");
+    expect(section.open).toBe(true);
+    expect(filter.value).toBe("vienna");
+    expect(check).not.toHaveBeenCalled();
+
+    await act(() => {
+      nextOverview.resolve(overview(0, "2026-10-15T13:00:00Z"));
+      nextDetail.resolve(detail(vienna, "Updated check", "2026-10-15T13:00:00Z"));
+    });
+    await flushQueries();
+    expect(container.textContent).toContain("Updated check");
+    expect(container.querySelector(".panel-section details")).toBe(section);
+    expect(section.open).toBe(true);
+    expect(filter.value).toBe("vienna");
+    expect(refresh.textContent).toBe("Refresh");
+    expect(refresh.disabled).toBe(false);
+  });
+
+  it("keeps stale idle results until refresh across focus, reconnect, and panel navigation", async () => {
+    const overviewRequest = vi.spyOn(api, "overview").mockResolvedValue(overview(0));
+    const repoRequest = vi.spyOn(api, "repo").mockResolvedValue(detail());
+    await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+    await act(() => navigate("/app"));
+    await act(() => navigate("/app/repos/aranlucas/vienna-travel"));
+    await flushQueries();
+    expect(overviewRequest).toHaveBeenCalledTimes(1);
+    expect(repoRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("does not keep polling details that are newer than the overview", async () => {
     const current = detail(vienna, "Latest check", "2026-10-15T13:00:00Z");
     vi.spyOn(api, "overview").mockResolvedValue(overview(0));

@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "preact/hooks";
 import type { OverviewResponse } from "../api/contract";
 import { ApiError } from "./api";
 import { QueryStatus } from "./components/query-status";
 import { plural, timeAgo } from "./format";
 import { refreshMutationOptions } from "./mutations";
-import { overviewQuery } from "./queries";
+import { overviewQuery, queryKeys } from "./queries";
 import { linkHandler, paths, useRoute, type Route } from "./router";
 import { startTask } from "./tasks";
 import { Overview } from "./views/overview";
@@ -25,6 +25,8 @@ interface MastheadProps {
   overview: OverviewResponse | null;
   onRefresh: () => void;
   refreshing: boolean;
+  onReload: () => void;
+  reloading: boolean;
   section: "repositories" | "practices";
 }
 
@@ -32,7 +34,15 @@ interface AppProps {
   login: string;
 }
 
-function Masthead({ login, overview, onRefresh, refreshing, section }: MastheadProps) {
+function Masthead({
+  login,
+  overview,
+  onRefresh,
+  refreshing,
+  onReload,
+  reloading,
+  section,
+}: MastheadProps) {
   const pending = overview?.sweep.pending ?? 0;
 
   return (
@@ -56,17 +66,28 @@ function Masthead({ login, overview, onRefresh, refreshing, section }: MastheadP
           Practices
         </a>
       </nav>
-      <div class="sweep" role="status">
-        {overview &&
-          (pending > 0 ? (
-            <span class="sweep-running">Checking… {plural(pending, "evaluation")} remaining</span>
-          ) : (
-            <span>
-              {overview.sweep.lastCompletedAt
-                ? `Checked ${timeAgo(overview.sweep.lastCompletedAt)}`
-                : "Not checked yet"}
-            </span>
-          ))}
+      <div class="sweep">
+        <span role="status">
+          {overview &&
+            (pending > 0 ? (
+              <span class="sweep-running">Checking… {plural(pending, "evaluation")} remaining</span>
+            ) : (
+              <span>
+                {overview.sweep.lastCompletedAt
+                  ? `Checked ${timeAgo(overview.sweep.lastCompletedAt)}`
+                  : "Not checked yet"}
+              </span>
+            ))}
+        </span>
+        <button
+          type="button"
+          class="button button-quiet button-small"
+          disabled={reloading}
+          onClick={onReload}
+          title="Load the latest stored results"
+        >
+          {reloading ? "Refreshing…" : "Refresh"}
+        </button>
         <button
           type="button"
           class="button button-quiet button-small"
@@ -93,6 +114,12 @@ export function App({ login }: AppProps) {
   const client = useQueryClient();
   const query = useQuery(overviewQuery);
   const overview = query.data ?? null;
+
+  const reloading =
+    useIsFetching({
+      predicate: (entry) =>
+        entry.queryKey[0] === queryKeys.overview[0] || entry.queryKey[0] === queryKeys.repos[0],
+    }) > 0;
 
   const refreshMutation = useMutation(refreshMutationOptions(client));
 
@@ -123,6 +150,15 @@ export function App({ login }: AppProps) {
         overview={overview}
         onRefresh={() => refreshMutation.mutate()}
         refreshing={refreshMutation.isPending}
+        onReload={() =>
+          startTask(
+            Promise.all([
+              client.invalidateQueries({ queryKey: queryKeys.overview }),
+              client.invalidateQueries({ queryKey: queryKeys.repos }),
+            ]),
+          )
+        }
+        reloading={reloading}
         section={section}
       />
       <main id="main" class={`page page-${route.view}`}>
