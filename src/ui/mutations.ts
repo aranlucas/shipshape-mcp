@@ -47,3 +47,11 @@ export function deletePracticeMutationOptions(client: QueryClient) {
     },
   });
 }
+
+/** Removes the catalog copy of a built-in: undoes an edit or turns it back on. */
+export function resetPracticeMutationOptions(client: QueryClient) {
+  return mutationOptions({
+    mutationFn: (id: string) => api.resetPractice(id),
+    onSuccess: () => invalidateCatalog(client),
+  });
+}

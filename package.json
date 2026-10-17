@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "build": "pnpm ui:build && cf build",
-    "catalog:diff": "node scripts/catalog-diff.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
     "deploy": "node scripts/deploy.ts",
     "deploy:ci": "node scripts/deploy.ts --prebuilt",

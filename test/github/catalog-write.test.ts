@@ -83,7 +83,13 @@ function testEnv(): AppEnv {
   };
 }
 
-function gitDataFetch(options: { includeNested?: boolean; truncated?: boolean } = {}) {
+interface GitDataOptions {
+  includeNested?: boolean;
+  includeDisabled?: boolean;
+  truncated?: boolean;
+}
+
+function gitDataFetch(options: GitDataOptions = {}) {
   const requests: Array<{ method: string; path: string; body: unknown }> = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
@@ -132,6 +138,16 @@ function gitDataFetch(options: { includeNested?: boolean; truncated?: boolean } 
               type: "blob",
               sha: "old-file",
             },
+            ...(options.includeDisabled
+              ? [
+                  {
+                    path: "practices/husky/disabled",
+                    mode: "100644",
+                    type: "blob",
+                    sha: "old-marker",
+                  },
+                ]
+              : []),
             ...(options.includeNested
               ? [
                   {
@@ -297,6 +313,47 @@ describe("catalog write allowlist and Git Data commits", () => {
       ({ method, path }) => method === "PATCH" && path.endsWith("/git/refs/heads/main"),
     );
     expect(ref?.body).toMatchObject({ force: false });
+  }, 15_000);
+
+  it("turns off a built-in by replacing its folder with a disabled marker", async () => {
+    const appEnv = testEnv();
+    const { fetchMock, requests } = gitDataFetch({ includeDisabled: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await commitCatalogChange(appEnv, { practiceId: "husky", delete: true, disable: true });
+
+    const tree = requests.find(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
+    );
+    const entries =
+      (tree?.body as { tree?: Array<{ path: string; sha: string | null }> }).tree ?? [];
+    expect(entries.map(({ path, sha }) => ({ path, sha }))).toEqual([
+      { path: "practices/husky/practice.yml", sha: null },
+      { path: "practices/husky/instructions.md", sha: null },
+      { path: "practices/husky/files/pre-commit", sha: null },
+      { path: "practices/husky/disabled", sha: expect.stringMatching(/^blob-/u) },
+    ]);
+    const commit = requests.find(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/commits"),
+    );
+    expect(commit?.body).toMatchObject({
+      message: "practice(husky): turn off built-in from dashboard",
+    });
+  }, 15_000);
+
+  it("removes a disabled marker when the practice is saved", async () => {
+    const appEnv = testEnv();
+    const { fetchMock, requests } = gitDataFetch({ includeDisabled: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await commitCatalogChange(appEnv, { practiceId: "husky", yaml: "version: 1\nid: husky\n" });
+
+    const tree = requests.find(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
+    );
+    expect((tree?.body as { tree?: unknown[] }).tree).toContainEqual(
+      expect.objectContaining({ path: "practices/husky/disabled", sha: null }),
+    );
   }, 15_000);
 
   it("preserves omitted files through the base tree", async () => {

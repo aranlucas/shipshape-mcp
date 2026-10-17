@@ -168,33 +168,33 @@ database this imports the App's installed repositories, loads the catalog,
 and queues their first checks. The production queue consumer must be deployed
 for those checks to complete; a Preview alone cannot process them.
 
-## 5. Create and seed the private catalog repository
+## 5. Create the private catalog repository
 
-Create the private repository and push the contents of `catalog-seed/` under a
-top-level `practices/` directory. These commands are documentation only; do
-not run them against a real account without reviewing the target first:
+Shipshape's built-in practices (`catalog-seed/practices/`) ship inside the
+Worker. The catalog repository holds only your changes, so it can start with
+nothing but an initial commit:
 
 ```sh
-gh repo create aranlucas/practices --private
-git clone git@github.com:aranlucas/practices.git /tmp/aranlucas-practices
-rsync -a catalog-seed/ /tmp/aranlucas-practices/
-cd /tmp/aranlucas-practices
-git add practices
-git commit -m "seed: add personal practices"
-git push origin main
+gh repo create aranlucas/practices --private --add-readme
 ```
 
-The catalog layout is `practices/<id>/practice.yml`, with optional
-`instructions.md` and `files/` content. The dashboard can later edit or retire
-practices through the API; each write is validated and committed only to this
-allowlisted catalog repository.
+Install the GitHub App on it. These commands are documentation only; do not
+run them against a real account without reviewing the target first.
 
-Seeding is a one-time copy. A practice added to `catalog-seed/` later is not
-checked anywhere until it is also committed to the catalog repository. Run
-`pnpm catalog:diff` to list seed practices missing from the catalog (it exits
-non-zero when any are missing), catalog-only practices, and files that differ.
-It clones `CATALOG_REPO` with `gh`, so it needs a `gh auth login` session that
-can read the private catalog.
+The catalog layout is `practices/<id>/practice.yml`, with optional
+`instructions.md` and `files/` content. The effective catalog is the built-ins
+overlaid by this repository:
+
+- a folder whose id matches a built-in overrides it;
+- a `practices/<id>/disabled` file turns that built-in off;
+- any other folder adds a custom practice.
+
+The dashboard writes these for you: saving a practice commits its folder,
+**Turn off** writes the marker, and **Reset to built-in** or **Turn back on**
+removes the folder. Each write is validated and committed only to this
+allowlisted catalog repository. A copy identical to its built-in still stops
+built-in updates from reaching that practice; the Practices page flags it so
+you can reset it.
 
 ## 6. Local development
 

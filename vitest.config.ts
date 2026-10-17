@@ -1,4 +1,5 @@
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { TEST_PRIVATE_KEY_PEM } from "./test/helpers/app-key.ts";
 
@@ -38,6 +39,16 @@ export default defineConfig({
             },
           }),
         ],
+        resolve: {
+          alias: [
+            {
+              find: /^\.\/built-in-sources$/u,
+              replacement: fileURLToPath(
+                new URL("./test/helpers/no-built-in-sources.ts", import.meta.url),
+              ),
+            },
+          ],
+        },
         test: {
           name: "workers",
           include: ["test/workers/**/*.test.ts"],

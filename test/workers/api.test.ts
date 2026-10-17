@@ -1,11 +1,12 @@
 /* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unknown-returns, oxforge/no-inline-types, anti-slop/no-known-value-widening, typescript/no-unsafe-assignment, typescript/no-base-to-string, eslint/no-shadow */
 
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppEnv } from "@/env";
 import worker from "@/index";
 import { createSession, SESSION_COOKIE_NAME } from "@/web/session";
+import { BUILT_IN_SOURCES } from "@test/helpers/no-built-in-sources";
 import { parsePractice } from "@/practices/schema";
 import {
   listRepositories,
@@ -342,6 +343,7 @@ describe("dashboard API", () => {
       repo: "aranlucas/practices",
       sha: catalogSha,
       loadedAt: "2026-10-15T12:00:00.000Z",
+      disabled: [],
     });
     expect(body.practices.map(({ id }) => id)).toEqual(["broken", "husky"]);
     expect(body.practices.find(({ id }) => id === "broken")).toMatchObject({
@@ -367,7 +369,12 @@ describe("dashboard API", () => {
     const response = await request("/app/api/overview");
     expect(response.status).toBe(200);
     const body = OverviewResponseSchema.parse(await parseJson(response));
-    expect(body.catalog).toEqual({ repo: "aranlucas/practices", sha: null, loadedAt: null });
+    expect(body.catalog).toEqual({
+      repo: "aranlucas/practices",
+      sha: null,
+      loadedAt: null,
+      disabled: [],
+    });
     expect(body.practices).toEqual([]);
     expect(body.repos).toEqual([]);
     expect(body.results).toEqual({});
@@ -699,4 +706,144 @@ describe("dashboard API", () => {
       error: expect.any(String),
     });
   });
+});
+
+type RecordedRequest = { method: string; path: string; body: unknown };
+
+function treeEntries(requests: RecordedRequest[]) {
+  const tree = requests.find(
+    ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
+  );
+  const body = tree?.body as { tree?: Array<{ path: string; sha: string | null }> } | undefined;
+
+  return (body?.tree ?? []).map(({ path, sha }) => ({ path, sha }));
+}
+
+function commitMessage(requests: RecordedRequest[]) {
+  const commit = requests.find(
+    ({ method, path }) => method === "POST" && path.endsWith("/git/commits"),
+  );
+
+  return (commit?.body as { message?: string } | undefined)?.message;
+}
+
+describe("built-in practices", () => {
+  const lintYaml = validYaml.replace("id: husky", "id: lint").replace("Husky hooks", "Lint");
+
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    await seed();
+    await appEnv.OAUTH_KV.delete("app:installation-token:1");
+    // husky matches the catalog's copy exactly; lint exists only as a built-in.
+    Object.assign(BUILT_IN_SOURCES, {
+      "practices/husky/practice.yml": validYaml,
+      "practices/husky/instructions.md": "Install the hook.",
+      "practices/husky/files/pre-commit": "#!/bin/sh\n",
+      "practices/lint/practice.yml": lintYaml,
+    });
+  });
+
+  afterEach(() => {
+    for (const key of Object.keys(BUILT_IN_SOURCES)) {
+      delete BUILT_IN_SOURCES[key];
+    }
+  });
+
+  it("layers the catalog repository over built-ins", async () => {
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+
+    const body = OverviewResponseSchema.parse(await parseJson(await request("/app/api/overview")));
+
+    expect(
+      body.practices.map(({ id, origin, matchesBuiltIn }) => ({ id, origin, matchesBuiltIn })),
+    ).toEqual([
+      { id: "broken", origin: "custom", matchesBuiltIn: false },
+      { id: "husky", origin: "override", matchesBuiltIn: true },
+      { id: "lint", origin: "built-in", matchesBuiltIn: false },
+    ]);
+    expect(body.catalog.sha).toMatch(new RegExp(`^${catalogSha}\\+[0-9a-f]{8}$`, "u"));
+  });
+
+  it("requeues every repository once when a deploy changes the built-ins", async () => {
+    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+
+    await request("/app/api/overview");
+    await request("/app/api/overview");
+
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+    expect(sendBatch.mock.calls[0]?.[0]).toEqual(
+      (await listRepositories(appEnv.DB)).map((repo) => ({
+        body: { repo: repo.fullName, installationId: repo.installationId, reason: "catalog" },
+      })),
+    );
+  });
+
+  it.each([
+    ["an override", "husky"],
+    ["a built-in with no catalog folder", "lint"],
+  ])("turns off %s with a disabled marker instead of deleting it", async (_case, id) => {
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const { fetchMock, requests } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await request(`/app/api/practices/${id}`, {
+      method: "DELETE",
+      headers: { origin: ORIGIN },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(200);
+    expect(treeEntries(requests)).toContainEqual({
+      path: `practices/${id}/disabled`,
+      sha: expect.stringMatching(/^blob-/u),
+    });
+    expect(commitMessage(requests)).toBe(`practice(${id}): turn off built-in from dashboard`);
+  });
+
+  it("deletes a custom practice outright", async () => {
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const { fetchMock, requests } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await request("/app/api/practices/broken", {
+      method: "DELETE",
+      headers: { origin: ORIGIN },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(200);
+    expect(commitMessage(requests)).toBe("practice(broken): delete from dashboard");
+  });
+
+  it("resets an override by deleting its catalog folder without a marker", async () => {
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const { fetchMock, requests } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await request("/app/api/practices/husky/reset", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(200);
+    expect(treeEntries(requests)).toEqual([
+      { path: "practices/husky/practice.yml", sha: null },
+      { path: "practices/husky/instructions.md", sha: null },
+      { path: "practices/husky/files/pre-commit", sha: null },
+    ]);
+  });
+
+  it.each(["broken", "lint"])(
+    "refuses to reset %s, which has no catalog copy of a built-in",
+    async (id) => {
+      const response = await request(`/app/api/practices/${id}/reset`, {
+        method: "POST",
+        headers: { origin: ORIGIN },
+        body: "{}",
+      });
+
+      expect(response.status).toBe(404);
+    },
+  );
 });

@@ -131,8 +131,8 @@ describe("practice editor queries and mutations", () => {
 
     vi.spyOn(api, "deletePractice").mockReturnValue(removed);
     await mount();
-    await clickButton("Delete practice");
-    await clickButton("Delete practice");
+    await clickButton("Turn off");
+    await clickButton("Turn off");
     await act(() => navigate("/app"));
 
     await act(async () => {
@@ -241,13 +241,27 @@ describe("practice editor queries and mutations", () => {
       .mockResolvedValue({ catalogSha: "c".repeat(40) });
 
     await mount();
-    await clickButton("Delete practice");
+    await clickButton("Turn off");
     expect(remove).not.toHaveBeenCalled();
-    await clickButton("Delete practice");
+    await clickButton("Turn off");
     expect(remove).toHaveBeenCalledWith(PRACTICE_ID);
     expect(window.location.pathname).toBe("/app/practices");
     expect(client.getQueryData(practiceQuery(PRACTICE_ID).queryKey)).toBeUndefined();
     expect(api.overview).toHaveBeenCalledTimes(2);
     expect(api.practice).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets an edited built-in after confirmation and reloads its definition", async () => {
+    const reset = vi.spyOn(api, "resetPractice").mockResolvedValue({ catalogSha: "d".repeat(40) });
+
+    await mount();
+    await clickButton("Reset to built-in");
+    expect(reset).not.toHaveBeenCalled();
+    await clickButton("Reset to built-in");
+    await flushQueries();
+
+    expect(reset).toHaveBeenCalledWith(PRACTICE_ID);
+    expect(window.location.pathname).toBe(`/app/practices/${PRACTICE_ID}`);
+    expect(api.practice).toHaveBeenCalledTimes(2);
   });
 });

@@ -35,6 +35,8 @@ const practice = {
   kind: "files",
   valid: true,
   error: null,
+  origin: "built-in",
+  matchesBuiltIn: false,
 } satisfies OverviewResponse["practices"][number];
 
 const cell = {
@@ -46,7 +48,7 @@ const cell = {
 
 function overview(pending = 1, checkedAt = cell.checkedAt): OverviewResponse {
   return {
-    catalog: { repo: "aranlucas/practices", sha: "catalog-v1", loadedAt: null },
+    catalog: { repo: "aranlucas/practices", sha: "catalog-v1", loadedAt: null, disabled: [] },
     practices: [practice],
     repos: [vienna, other],
     results: { [vienna.fullName]: { lint: { ...cell, checkedAt } } },

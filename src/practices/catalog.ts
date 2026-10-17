@@ -1,8 +1,9 @@
-import type { PracticeSummary } from "../api/contract";
+import type { PracticeOrigin, PracticeSummary } from "../api/contract";
 import type { AppEnv } from "../env";
 import { installationClient } from "../github/app";
 import { octokitGet } from "../github/client";
 import { z } from "zod";
+import { bundledBuiltIns, type BuiltInSet } from "./built-in";
 import { parsePractice, type ParsedPractice } from "./schema";
 import { getRepository, readCatalogRow, writeCatalog } from "./store";
 
@@ -26,12 +27,88 @@ export interface CatalogPractice {
   instructions: string | null;
   files: Record<string, string>;
   parsed: ParsedPractice;
+  /** Absent on catalog-repository practices that don't shadow a built-in. */
+  origin?: PracticeOrigin;
+  /** An override whose files are identical to the built-in it shadows. */
+  matchesBuiltIn?: boolean;
 }
 
 export interface Catalog {
   repo: string;
+  /** Version of the practice set; results recorded against another version are stale. */
   sha: string;
   practices: CatalogPractice[];
+}
+
+/** What the catalog repository contributes; stored in D1 as loaded. */
+export interface CatalogLayer extends Catalog {
+  /** Built-in practice ids the repository turns off with a `disabled` marker. */
+  disabled: string[];
+}
+
+/** Built-in practices overlaid by the catalog repository. */
+export interface EffectiveCatalog extends Catalog {
+  /** Catalog repository commit the set was composed from. */
+  commit: string;
+  /** Built-in practices the catalog repository turns off. */
+  disabled: CatalogPractice[];
+}
+
+function sameDefinition(left: CatalogPractice, right: CatalogPractice): boolean {
+  const files = (practice: CatalogPractice) =>
+    JSON.stringify(Object.entries(practice.files).toSorted(([a], [b]) => a.localeCompare(b)));
+
+  return (
+    left.yaml === right.yaml &&
+    left.instructions === right.instructions &&
+    files(left) === files(right)
+  );
+}
+
+/**
+ * Built-ins first, then the catalog repository: a folder with the same id
+ * overrides the built-in, a `disabled` marker turns it off, and any other
+ * folder adds a custom practice. Without built-ins the version is the commit.
+ */
+export function composeCatalog(
+  layer: CatalogLayer,
+  builtIns: BuiltInSet = bundledBuiltIns(),
+): EffectiveCatalog {
+  const own = new Map(layer.practices.map((practice) => [practice.id, practice]));
+  const turnedOff = new Set(layer.disabled);
+  const builtInIds = new Set(builtIns.practices.map((practice) => practice.id));
+  const practices: CatalogPractice[] = [];
+  const disabled: CatalogPractice[] = [];
+
+  for (const builtIn of builtIns.practices) {
+    const override = own.get(builtIn.id);
+
+    if (turnedOff.has(builtIn.id)) {
+      disabled.push(builtIn);
+    } else if (override) {
+      practices.push({
+        ...override,
+        origin: "override",
+        matchesBuiltIn: sameDefinition(override, builtIn),
+      });
+    } else {
+      practices.push({ ...builtIn, origin: "built-in" });
+    }
+  }
+
+  for (const practice of layer.practices) {
+    if (!builtInIds.has(practice.id)) {
+      practices.push({ ...practice, origin: "custom" });
+    }
+  }
+
+  return {
+    repo: layer.repo,
+    sha: builtIns.practices.length > 0 ? `${layer.sha}+${builtIns.version}` : layer.sha,
+    commit: layer.sha,
+    practices: practices.toSorted((left, right) => left.id.localeCompare(right.id)),
+    disabled,
+  };
 }
 
 interface TreeEntry {
@@ -62,6 +139,8 @@ function summaryForPractice(practice: CatalogPractice): PracticeSummary {
       kind: practice.parsed.practice.kind,
       valid: true,
       error: null,
+      origin: practice.origin ?? "custom",
+      matchesBuiltIn: practice.matchesBuiltIn ?? false,
     };
   }
 
@@ -74,6 +153,8 @@ function summaryForPractice(practice: CatalogPractice): PracticeSummary {
     kind: "files",
     valid: false,
     error: `${issue?.path ?? ""}: ${issue?.message ?? "invalid practice"}`,
+    origin: practice.origin ?? "custom",
+    matchesBuiltIn: practice.matchesBuiltIn ?? false,
   };
 }
 
@@ -81,7 +162,7 @@ export function practiceSummary(practice: CatalogPractice): PracticeSummary {
   return summaryForPractice(practice);
 }
 
-export async function loadCatalog(env: AppEnv): Promise<Catalog> {
+export async function loadCatalog(env: AppEnv): Promise<EffectiveCatalog> {
   const repoName = env.CATALOG_REPO;
   const repository = await getRepository(env.DB, repoName);
 
@@ -132,7 +213,7 @@ export async function loadCatalog(env: AppEnv): Promise<Catalog> {
   const relevant = tree.data.tree.filter(
     (entry): entry is TreeEntry =>
       entry.type === "blob" &&
-      /^practices\/[^/]+\/(?:practice\.yml|instructions\.md|files\/.*)$/u.test(entry.path),
+      /^practices\/[^/]+\/(?:practice\.yml|instructions\.md|disabled|files\/.*)$/u.test(entry.path),
   );
 
   if (relevant.length > MAX_BLOBS) {
@@ -175,13 +256,19 @@ export async function loadCatalog(env: AppEnv): Promise<Catalog> {
     contents.set(path, content);
   }
 
-  const folders = new Set(
-    relevant
-      .filter((entry) => /^(?:practices\/[^/]+)\/practice\.yml$/u.test(entry.path))
-      .map((entry) => entry.path.split("/")[1]),
+  const folderOf = (pattern: RegExp) =>
+    new Set(
+      relevant.filter((entry) => pattern.test(entry.path)).map((entry) => entry.path.split("/")[1]),
+    );
+
+  // A `disabled` marker turns the folder's built-in off, whatever else the folder holds.
+  const disabled = folderOf(/^practices\/[^/]+\/disabled$/u);
+
+  const folders = [...folderOf(/^practices\/[^/]+\/practice\.yml$/u)].filter(
+    (folder) => !disabled.has(folder),
   );
 
-  const practices = [...folders].map((folder): CatalogPractice => {
+  const practices = folders.map((folder): CatalogPractice => {
     const prefix = `practices/${folder}/`;
     const yaml = contents.get(`${prefix}practice.yml`) ?? "";
     const files: Record<string, string> = {};
@@ -203,13 +290,20 @@ export async function loadCatalog(env: AppEnv): Promise<Catalog> {
   });
 
   practices.sort((left, right) => left.id.localeCompare(right.id));
-  const catalog = { repo: repoName, sha: commit.data.sha, practices };
-  await writeCatalog(env.DB, catalog, new Date().toISOString());
 
-  return catalog;
+  const layer: CatalogLayer = {
+    repo: repoName,
+    sha: commit.data.sha,
+    practices,
+    disabled: [...disabled].toSorted(),
+  };
+
+  await writeCatalog(env.DB, layer, new Date().toISOString());
+
+  return composeCatalog(layer);
 }
 
-export async function readStoredCatalog(db: D1Database): Promise<Catalog | null> {
+export async function readStoredCatalog(db: D1Database): Promise<EffectiveCatalog | null> {
   const row = await readCatalogRow(db);
 
   if (!row?.sha) {
@@ -219,14 +313,19 @@ export async function readStoredCatalog(db: D1Database): Promise<Catalog | null>
   // SAFETY: the catalog row is written only by writeCatalog using CatalogPractice values.
   const practices = JSON.parse(row.practices_json) as CatalogPractice[];
 
+  // SAFETY: disabled_json is written only by writeCatalog from a string array.
+  const disabled = JSON.parse(row.disabled_json) as string[];
+
   // Validation is derived from the running schema, not the version that loaded the row.
   // Keep the original YAML and catalog SHA as evidence; never rewrite the catalog here.
-  return {
+  // Built-ins come from this deploy, so a release that changes them takes effect at once.
+  return composeCatalog({
     repo: row.repo,
     sha: row.sha,
     practices: practices.map((practice) => ({
       ...practice,
       parsed: parsePractice(practice.yaml, practice.folder),
     })),
-  };
+    disabled,
+  });
 }

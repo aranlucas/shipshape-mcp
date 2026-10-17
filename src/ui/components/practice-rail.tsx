@@ -24,11 +24,11 @@ export function PracticeRail({ overview, groups, focused, onFocus, onHover }: Pr
       <header class="rail-head">
         <h2 id="rail-title">{plural(total, "practice")}</h2>
         <p>
-          From{" "}
+          Built in, with your changes from{" "}
           <a href={paths.practices} onClick={linkHandler(paths.practices)}>
             {overview.catalog.repo}
-          </a>
-          , loaded {timeAgo(overview.catalog.loadedAt)}.
+          </a>{" "}
+          loaded {timeAgo(overview.catalog.loadedAt)}.
         </p>
       </header>
 

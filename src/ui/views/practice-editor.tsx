@@ -11,7 +11,12 @@ import { StateMark } from "../components/state-mark";
 import { QueryStatus } from "../components/query-status";
 import { STATE_WORDS } from "../format";
 import { cellState, practiceCounts } from "../model";
-import { deletePracticeMutationOptions, savePracticeMutationOptions } from "../mutations";
+import {
+  deletePracticeMutationOptions,
+  resetPracticeMutationOptions,
+  savePracticeMutationOptions,
+} from "../mutations";
+import { originNote } from "../origin";
 import { linkHandler, navigate, paths } from "../router";
 import { practiceQuery } from "../queries";
 import { startTask } from "../tasks";
@@ -115,14 +120,15 @@ function PracticeForm({ overview, id, detail }: FormProps) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(detail));
   const [tab, setTab] = useState<Tab>({ kind: "yaml" });
   const [result, setResult] = useState<SaveResult | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirming, setConfirming] = useState<"remove" | "reset" | null>(null);
   const [newPath, setNewPath] = useState("");
   const feedback = useRef<HTMLDivElement>(null);
 
   const saveMutation = useMutation(savePracticeMutationOptions(client));
   const deleteMutation = useMutation(deletePracticeMutationOptions(client));
+  const resetMutation = useMutation(resetPracticeMutationOptions(client));
 
-  const saving = saveMutation.isPending || deleteMutation.isPending;
+  const saving = saveMutation.isPending || deleteMutation.isPending || resetMutation.isPending;
 
   useEffect(() => {
     if (result) {
@@ -189,11 +195,34 @@ function PracticeForm({ overview, id, detail }: FormProps) {
       onError: (cause) =>
         setResult({
           ok: false,
-          error: cause instanceof ApiError ? cause.message : "The practice couldn't be deleted.",
+          error: cause instanceof ApiError ? cause.message : "The practice couldn't be removed.",
           issues: [],
         }),
     });
   }
+
+  function reset() {
+    if (!id) {
+      return;
+    }
+
+    resetMutation.mutate(id, {
+      onSuccess: () => {
+        // The mutation refetched the practice; start the draft from the built-in.
+        setDraft(draftFrom(client.getQueryData(practiceQuery(id).queryKey) ?? null));
+        setConfirming(null);
+        setResult(null);
+      },
+      onError: (cause) =>
+        setResult({
+          ok: false,
+          error: cause instanceof ApiError ? cause.message : "The practice couldn't be reset.",
+          issues: [],
+        }),
+    });
+  }
+
+  const builtIn = summary !== null && summary.origin !== "custom";
 
   const tabValue =
     tab.kind === "yaml"
@@ -260,6 +289,9 @@ function PracticeForm({ overview, id, detail }: FormProps) {
                 ? `This practice is invalid, so it is not checked: ${summary.error ?? "unknown error"}`
                 : summary?.summary}
           </p>
+          {summary && id !== null && (
+            <p class="origin-note">{originNote(summary, overview.catalog.repo)}</p>
+          )}
         </div>
       </header>
 
@@ -404,33 +436,56 @@ function PracticeForm({ overview, id, detail }: FormProps) {
               </button>
             )}
             {id !== null &&
-              (confirmDelete ? (
-                <span class="confirm" role="group" aria-label="Confirm delete">
-                  Delete {id} from the catalog?
+              (confirming ? (
+                <span
+                  class="confirm"
+                  role="group"
+                  aria-label={confirming === "reset" ? "Confirm reset" : "Confirm removal"}
+                >
+                  {confirming === "reset"
+                    ? "Discard your edits and use the built-in version?"
+                    : builtIn
+                      ? `Turn off ${id}? You can turn it back on from Practices.`
+                      : `Delete ${id} from the catalog?`}
                   <button
                     type="button"
                     class="button button-danger button-small"
                     disabled={saving}
-                    onClick={remove}
+                    onClick={confirming === "reset" ? reset : remove}
                   >
-                    Delete practice
+                    {confirming === "reset"
+                      ? "Reset to built-in"
+                      : builtIn
+                        ? "Turn off"
+                        : "Delete practice"}
                   </button>
                   <button
                     type="button"
                     class="button button-quiet button-small"
-                    onClick={() => setConfirmDelete(false)}
+                    onClick={() => setConfirming(null)}
                   >
                     Keep it
                   </button>
                 </span>
               ) : (
-                <button
-                  type="button"
-                  class="button button-quiet push-end"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  Delete practice
-                </button>
+                <span class="secondary-actions push-end">
+                  {summary?.origin === "override" && (
+                    <button
+                      type="button"
+                      class="button button-quiet"
+                      onClick={() => setConfirming("reset")}
+                    >
+                      Reset to built-in
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    class="button button-quiet"
+                    onClick={() => setConfirming("remove")}
+                  >
+                    {builtIn ? "Turn off" : "Delete practice"}
+                  </button>
+                </span>
               ))}
           </div>
         </form>

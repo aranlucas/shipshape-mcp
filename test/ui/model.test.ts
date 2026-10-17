@@ -24,6 +24,8 @@ function practice(id: string, kind: "files" | "settings", valid = true): Practic
     kind,
     valid,
     error: valid ? null : "checks.0.type: Invalid option",
+    origin: "custom",
+    matchesBuiltIn: false,
   };
 }
 
@@ -55,7 +57,7 @@ const PRACTICES = [
 
 function overview(results: OverviewResponse["results"], repos: RepoSummary[]): OverviewResponse {
   return {
-    catalog: { repo: "aranlucas/practices", sha: null, loadedAt: null },
+    catalog: { repo: "aranlucas/practices", sha: null, loadedAt: null, disabled: [] },
     practices: PRACTICES,
     repos,
     results,

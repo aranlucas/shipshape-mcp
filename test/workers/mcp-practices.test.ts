@@ -165,6 +165,7 @@ describe("practice MCP tools", () => {
         repo: "aranlucas/practices",
         sha: catalogSha,
         loadedAt: "2026-10-15T12:00:00.000Z",
+        disabled: [],
       });
     } finally {
       await client.close();

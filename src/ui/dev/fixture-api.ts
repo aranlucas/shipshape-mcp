@@ -76,6 +76,10 @@ export function handleFixtureRequest(method: string, url: string, body: string):
         seed.yaml = request.yaml;
         seed.instructions = request.instructions ?? null;
         seed.files = request.files ?? seed.files;
+
+        if (seed.summary.origin !== "custom") {
+          seed.summary = { ...seed.summary, origin: "override", matchesBuiltIn: false };
+        }
       }
 
       store.catalogSha = crypto.randomUUID().replaceAll("-", "").padEnd(40, "0").slice(0, 40);
@@ -90,10 +94,34 @@ export function handleFixtureRequest(method: string, url: string, body: string):
         return error(404, "Practice not found");
       }
 
-      store.practices.splice(index, 1);
+      const [removed] = store.practices.splice(index, 1);
+
+      // A built-in is turned off rather than deleted, so it can be turned back on.
+      if (removed && removed.summary.origin !== "custom") {
+        store.disabled.push({
+          ...removed,
+          summary: { ...removed.summary, origin: "built-in", matchesBuiltIn: false },
+        });
+      }
 
       return { status: 200, body: { catalogSha: store.catalogSha } };
     }
+  }
+
+  if (method === "POST" && parts[0] === "practices" && parts[2] === "reset") {
+    const id = parts[1];
+    const disabledIndex = store.disabled.findIndex((item) => item.summary.id === id);
+    const seed = store.practices.find((item) => item.summary.id === id);
+
+    if (disabledIndex !== -1) {
+      store.practices.push(...store.disabled.splice(disabledIndex, 1));
+    } else if (seed?.summary.origin === "override") {
+      seed.summary = { ...seed.summary, origin: "built-in", matchesBuiltIn: false };
+    } else {
+      return error(404, "No catalog copy of this built-in practice to remove");
+    }
+
+    return { status: 200, body: { catalogSha: store.catalogSha } };
   }
 
   if (method === "POST" && parts[0] === "refresh") {

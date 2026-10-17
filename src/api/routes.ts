@@ -13,7 +13,7 @@ import { syncInventory } from "../inventory/sync";
 import { callbackUrl } from "../oauth";
 import { CatalogWriteRefusedError, commitCatalogChange } from "../github/catalog-write";
 import { RepositoryCoordinatesSchema } from "../github/schemas";
-import { enqueueRepositories } from "../queue";
+import { enqueueRepositories, requeueIfBuiltInsChanged } from "../queue";
 import {
   loadCatalog,
   readStoredCatalog,
@@ -154,9 +154,36 @@ async function handleSave(env: AppEnv, request: Request, practiceId: string): Pr
 
 async function handleDelete(env: AppEnv, practiceId: string): Promise<Response> {
   const catalog = await readStoredCatalog(env.DB);
+  const practice = catalog ? isKnownPractice(catalog, practiceId) : undefined;
 
-  if (!catalog || !isKnownPractice(catalog, practiceId)) {
+  if (!practice) {
     throw new ResponseError("Practice not found", 404);
+  }
+
+  // A built-in would reappear if its folder were only deleted, so leave a marker.
+  const catalogSha = await commitCatalogChange(env, {
+    practiceId,
+    delete: true,
+    disable: (practice.origin ?? "custom") !== "custom",
+  });
+  await reloadCatalogAndRequeue(env);
+
+  return json({ catalogSha }, 200);
+}
+
+/** Removes the catalog folder of a built-in: undoes an override or turns it back on. */
+async function handleReset(env: AppEnv, practiceId: string): Promise<Response> {
+  const catalog = await readStoredCatalog(env.DB);
+
+  const resettable =
+    catalog !== null &&
+    (catalog.practices.some(
+      (practice) => practice.id === practiceId && practice.origin === "override",
+    ) ||
+      catalog.disabled.some((practice) => practice.id === practiceId));
+
+  if (!resettable) {
+    throw new ResponseError("No catalog copy of this built-in practice to remove", 404);
   }
 
   const catalogSha = await commitCatalogChange(env, { practiceId, delete: true });
@@ -241,6 +268,8 @@ export async function apiHandler(
     }
 
     if (request.method === "GET" && endpoint.length === 1 && endpoint[0] === "overview") {
+      await requeueIfBuiltInsChanged(env);
+
       return json(await buildOverview(env));
     }
 
@@ -274,6 +303,18 @@ export async function apiHandler(
       return request.method === "PUT"
         ? await handleSave(env, request, practiceId)
         : await handleDelete(env, practiceId);
+    }
+
+    if (
+      request.method === "POST" &&
+      endpoint[0] === "practices" &&
+      endpoint.length === 3 &&
+      endpoint[2] === "reset"
+    ) {
+      const practiceId = endpoint[1] ?? "";
+      IdSchema.parse(practiceId);
+
+      return await handleReset(env, practiceId);
     }
 
     if (request.method === "POST" && endpoint.length === 1 && endpoint[0] === "refresh") {
