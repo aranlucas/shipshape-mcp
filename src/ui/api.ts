@@ -95,7 +95,9 @@ export const api = {
   savePractice: (id: string, body: SavePracticeRequest) =>
     request<CatalogWriteResponse>(`/app/api/practices/${segment(id)}`, "PUT", body),
   deletePractice: (id: string) =>
-    request<CatalogWriteResponse>(`/app/api/practices/${segment(id)}`, "DELETE"),
+    request<CatalogWriteResponse>(`/app/api/practices/${segment(id)}`, "DELETE", {}),
+  resetPractice: (id: string) =>
+    request<CatalogWriteResponse>(`/app/api/practices/${segment(id)}/reset`, "POST", {}),
   refresh: (repo?: string) =>
     request<RefreshResponse>("/app/api/refresh", "POST", repo ? { repo } : {}),
 };

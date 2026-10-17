@@ -2,13 +2,16 @@
 
 import type { AppEnv, EvaluationMessage } from "./env";
 import pLimit from "p-limit";
+import { bundledBuiltIns } from "./practices/built-in";
 import { readStoredCatalog } from "./practices/catalog";
 import { evaluateRepository } from "./practices/evaluate";
 import {
+  claimBuiltInVersion,
   completePendingMessage,
   decrementPending,
   getRepository,
   incrementPending,
+  listRepositories,
   readResults,
   setResultsRetrying,
   type StoredRepository,
@@ -172,4 +175,18 @@ async function handleMessage(message: Message<EvaluationMessage>, env: AppEnv): 
 
     message.retry({ delaySeconds: 60 });
   }
+}
+
+/**
+ * A deploy that changes built-in practices changes the catalog version, which
+ * hides every stored result. Requeue once, from whichever caller notices first.
+ */
+export async function requeueIfBuiltInsChanged(env: AppEnv): Promise<void> {
+  const builtIns = bundledBuiltIns();
+
+  if (builtIns.practices.length === 0 || !(await claimBuiltInVersion(env.DB, builtIns.version))) {
+    return;
+  }
+
+  await enqueueRepositories(env, await listRepositories(env.DB), "catalog");
 }

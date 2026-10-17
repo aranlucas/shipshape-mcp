@@ -97,6 +97,23 @@ auto-merge rule checks file existence; its pass does not establish safe or
 successful merge behavior. Exact file comparisons intentionally report
 template differences, including repository-specific additions.
 
+### Built-in practices and the catalog layer
+
+`catalog-seed/practices/` is bundled into the Worker at build time
+(`src/practices/built-in-sources.ts`) and parsed as the built-in practices. The
+catalog repository is stored in D1 as loaded (its commit, practice folders, and
+`disabled` markers) and composed with the bundled set on every read by
+`composeCatalog`: a same-id folder overrides a built-in, a marker turns it off,
+and other folders are custom practices.
+
+The catalog SHA that stored results carry is `<commit>+<built-in version>`, where
+the built-in version hashes the bundled files. A deploy that changes any built-in
+therefore makes every stored result stale at once. The first dashboard overview,
+MCP request, or daily sweep after such a deploy claims the new version in D1
+(`claimBuiltInVersion`) and requeues every repository exactly once. Apply
+`0005_built_in_practices.sql` before deploying; the standard deploy script
+applies migrations automatically.
+
 ### Refreshing stored results
 
 The owner dashboard's Refresh action revalidates each repository's current

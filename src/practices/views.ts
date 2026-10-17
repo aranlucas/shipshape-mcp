@@ -59,6 +59,11 @@ export async function buildOverview(env: AppEnv): Promise<OverviewResponse> {
       repo: catalog?.repo ?? env.CATALOG_REPO,
       sha: catalog?.sha ?? null,
       loadedAt: catalog ? (row?.loaded_at ?? null) : null,
+      disabled: (catalog?.disabled ?? []).map((practice) => {
+        const summary = practiceSummary(practice);
+
+        return { id: summary.id, title: summary.title, summary: summary.summary };
+      }),
     },
     practices: (catalog?.practices ?? [])
       .toSorted((left, right) => left.id.localeCompare(right.id))

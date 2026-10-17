@@ -12,7 +12,7 @@ import type { AppEnv } from "./env";
 import { GitHubOwnerInputSchema } from "./github/schemas";
 import { loadCatalog } from "./practices/catalog";
 import { listRepositories, readCatalogRow, type StoredRepository } from "./practices/store";
-import { enqueueRepositories, handleQueue } from "./queue";
+import { enqueueRepositories, handleQueue, requeueIfBuiltInsChanged } from "./queue";
 import { handleScheduled, inventoryForTrigger } from "./scheduled";
 import { createPracticesServer } from "./mcp";
 import { callbackUrl, type OAuthEnv } from "./oauth";
@@ -36,11 +36,11 @@ const protectedHandler = {
 
     // SAFETY: OAuthProvider passes the Worker bindings through to the protected API handler.
     // oxlint-disable-next-line anti-slop/no-chained-type-assertions
-    return createMcpHandler(() => createPracticesServer(env as unknown as AppEnv), mcpOptions)(
-      request,
-      env,
-      ctx,
-    );
+    const appEnv = env as unknown as AppEnv;
+
+    ctx.waitUntil(requeueIfBuiltInsChanged(appEnv));
+
+    return createMcpHandler(() => createPracticesServer(appEnv), mcpOptions)(request, env, ctx);
   },
 } satisfies ProtectedHandler;
 
@@ -184,7 +184,7 @@ async function handleWebhookWork(
       const catalog = await loadCatalog(env);
 
       // Dashboard saves load and enqueue their own commit before GitHub delivers this push.
-      if (catalog.sha !== previousSha) {
+      if (catalog.commit !== previousSha) {
         await enqueueRepositories(env, await listRepositories(env.DB), "catalog");
       }
       return;

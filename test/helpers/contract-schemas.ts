@@ -12,6 +12,8 @@ const practiceSummary = z
     kind: z.enum(["files", "settings"]),
     valid: z.boolean(),
     error: z.string().nullable(),
+    origin: z.enum(["built-in", "override", "custom"]),
+    matchesBuiltIn: z.boolean(),
   })
   .strict();
 
@@ -55,7 +57,14 @@ const checkResult = z
 export const OverviewResponseSchema = z
   .object({
     catalog: z
-      .object({ repo: z.string(), sha: z.string().nullable(), loadedAt: z.string().nullable() })
+      .object({
+        repo: z.string(),
+        sha: z.string().nullable(),
+        loadedAt: z.string().nullable(),
+        disabled: z.array(
+          z.object({ id: z.string(), title: z.string(), summary: z.string() }).strict(),
+        ),
+      })
       .strict(),
     practices: z.array(practiceSummary),
     repos: z.array(repoSummary),

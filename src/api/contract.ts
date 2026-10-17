@@ -5,6 +5,12 @@
 
 export type PracticeState = "pass" | "fail" | "unknown" | "not_applicable";
 
+/**
+ * built-in: ships with Shipshape (catalog-seed/). override: the catalog
+ * repository's copy replaces the built-in. custom: only in the catalog repository.
+ */
+export type PracticeOrigin = "built-in" | "override" | "custom";
+
 export interface PracticeSummary {
   id: string;
   title: string;
@@ -12,6 +18,8 @@ export interface PracticeSummary {
   kind: "files" | "settings";
   valid: boolean;
   error: string | null; // validation error, if invalid
+  origin: PracticeOrigin;
+  matchesBuiltIn: boolean; // an override identical to its built-in, which stops it receiving updates
 }
 
 export interface RepoSummary {
@@ -45,9 +53,20 @@ export interface CheckResult {
   detail: string | null;
 }
 
+export interface DisabledPractice {
+  id: string;
+  title: string;
+  summary: string;
+}
+
 // GET /app/api/overview
 export interface OverviewResponse {
-  catalog: { repo: string; sha: string | null; loadedAt: string | null };
+  catalog: {
+    repo: string;
+    sha: string | null;
+    loadedAt: string | null;
+    disabled: DisabledPractice[]; // built-in practices the catalog repository turns off
+  };
   practices: PracticeSummary[];
   repos: RepoSummary[];
   results: Record<string, Record<string, CellResult>>; // [fullName][practiceId]
@@ -80,6 +99,9 @@ export interface PracticeDetailResponse {
 // PUT /app/api/practices/:id   body: { yaml, instructions?, files? }
 // → 200 { catalogSha } | 400 { error, issues?: Array<{path: string; message: string}> }
 // DELETE /app/api/practices/:id → 200 { catalogSha }
+//   custom practice: removes its folder. Built-in: replaces its folder with a `disabled` marker.
+// POST /app/api/practices/:id/reset → 200 { catalogSha }
+//   removes the catalog folder of a built-in, undoing an override or turning it back on.
 // POST /app/api/refresh  body: { repo?: "owner/name" } → 202 { queued: number }
 
 export interface SavePracticeRequest {

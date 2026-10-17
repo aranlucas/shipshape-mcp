@@ -85,7 +85,16 @@ function practice(
   extra: Partial<Pick<PracticeSeed, "instructions" | "files">> = {},
 ): PracticeSeed {
   return {
-    summary: { id, title, summary, kind, valid: true, error: null },
+    summary: {
+      id,
+      title,
+      summary,
+      kind,
+      valid: true,
+      error: null,
+      origin: "built-in",
+      matchesBuiltIn: false,
+    },
     checks,
     forNode: kind === "files",
     yaml,
@@ -485,6 +494,8 @@ const BROKEN: PracticeSummary = {
   kind: "files",
   valid: false,
   error: 'checks.0.type: Invalid option: expected one of "file-exists"|"file-matches"|…',
+  origin: "custom",
+  matchesBuiltIn: false,
 };
 
 function hash(text: string): number {
@@ -647,8 +658,16 @@ function evaluateAll(): Map<string, Map<string, Evaluated>> {
   return results;
 }
 
+// Overrides as they exist in production: some edited, one still identical to the built-in.
+const FIXTURE_ORIGINS = new Map<string, Pick<PracticeSummary, "origin" | "matchesBuiltIn">>([
+  ["dependabot-automerge", { origin: "override", matchesBuiltIn: false }],
+  ["husky-lint-staged", { origin: "override", matchesBuiltIn: false }],
+  ["pinned-actions", { origin: "override", matchesBuiltIn: true }],
+]);
+
 export interface FixtureStore {
   practices: PracticeSeed[];
+  disabled: PracticeSeed[];
   broken: PracticeSummary;
   repos: RepoSummary[];
   results: Map<string, Map<string, Evaluated>>;
@@ -658,7 +677,11 @@ export interface FixtureStore {
 
 export function createStore(): FixtureStore {
   return {
-    practices: PRACTICES.map((seed) => ({ ...seed })),
+    practices: PRACTICES.map((seed) => ({
+      ...seed,
+      summary: { ...seed.summary, ...FIXTURE_ORIGINS.get(seed.summary.id) },
+    })),
+    disabled: [],
     broken: BROKEN,
     repos: REPOS,
     results: evaluateAll(),
@@ -675,7 +698,16 @@ export function overview(store: FixtureStore): OverviewResponse {
   }
 
   return {
-    catalog: { repo: "aranlucas/practices", sha: store.catalogSha, loadedAt: CHECKED_AT },
+    catalog: {
+      repo: "aranlucas/practices",
+      sha: store.catalogSha,
+      loadedAt: CHECKED_AT,
+      disabled: store.disabled.map(({ summary }) => ({
+        id: summary.id,
+        title: summary.title,
+        summary: summary.summary,
+      })),
+    },
     practices: [...store.practices.map((seed) => seed.summary), store.broken].toSorted((a, b) =>
       a.id.localeCompare(b.id),
     ),

@@ -37,6 +37,8 @@ export class CatalogWriteRefusedError extends Error {
 export interface CatalogChange {
   practiceId: string;
   delete?: boolean;
+  /** With delete: leave a `disabled` marker so the built-in practice stays off. */
+  disable?: boolean;
   yaml?: string;
   instructions?: string | null;
   files?: Array<{ path: string; content: string }>;
@@ -178,9 +180,27 @@ export async function commitCatalogChange(env: AppEnv, change: CatalogChange): P
   const entries: TreeEntry[] = [];
   const blobs: BlobContent[] = [];
 
+  const marker = `${prefix}disabled`;
+
   if (change.delete) {
-    entries.push(...currentBlobs.map(deletionEntry));
+    // The marker blob below replaces any existing one; a tree can't list a path twice.
+    entries.push(
+      ...currentBlobs
+        .filter((entry) => !(change.disable && entry.path === marker))
+        .map(deletionEntry),
+    );
+
+    if (change.disable) {
+      blobs.push({
+        path: marker,
+        content:
+          "Turned off in Shipshape. Delete this folder to turn the built-in practice back on.\n",
+      });
+    }
   } else {
+    // Saving a practice turns a disabled built-in back on with the saved definition.
+    entries.push(...currentBlobs.filter((entry) => entry.path === marker).map(deletionEntry));
+
     if (change.yaml !== undefined) {
       blobs.push({ path: `${prefix}practice.yml`, content: change.yaml });
     }
@@ -235,9 +255,11 @@ export async function commitCatalogChange(env: AppEnv, change: CatalogChange): P
     { ...coordinates, base_tree: baseTreeSha, tree: entries },
     GitHubShaSchema,
   );
-  const message = change.delete
-    ? `practice(${change.practiceId}): delete from dashboard`
-    : `practice(${change.practiceId}): update from dashboard`;
+  const message = change.disable
+    ? `practice(${change.practiceId}): turn off built-in from dashboard`
+    : change.delete
+      ? `practice(${change.practiceId}): delete from dashboard`
+      : `practice(${change.practiceId}): update from dashboard`;
   const createdCommit = await writeRequest(
     env,
     client,

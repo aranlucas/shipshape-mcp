@@ -188,12 +188,14 @@ export interface StoredCatalogRow {
   sha: string | null;
   loaded_at: string | null;
   practices_json: string;
+  disabled_json: string;
 }
 
 interface CatalogWrite {
   repo: string;
   sha: string;
   practices: unknown[];
+  disabled?: string[];
 }
 
 export async function writeCatalog(
@@ -203,22 +205,45 @@ export async function writeCatalog(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO catalog (id, repo, sha, loaded_at, practices_json)
-       VALUES (1, ?, ?, ?, ?)
+      `INSERT INTO catalog (id, repo, sha, loaded_at, practices_json, disabled_json)
+       VALUES (1, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          repo = excluded.repo,
          sha = excluded.sha,
          loaded_at = excluded.loaded_at,
-         practices_json = excluded.practices_json`,
+         practices_json = excluded.practices_json,
+         disabled_json = excluded.disabled_json`,
     )
-    .bind(catalog.repo, catalog.sha, loadedAt, JSON.stringify(catalog.practices))
+    .bind(
+      catalog.repo,
+      catalog.sha,
+      loadedAt,
+      JSON.stringify(catalog.practices),
+      JSON.stringify(catalog.disabled ?? []),
+    )
     .run();
 }
 
 export function readCatalogRow(db: D1Database): Promise<StoredCatalogRow | null> {
   return db
-    .prepare("SELECT repo, sha, loaded_at, practices_json FROM catalog WHERE id = 1")
+    .prepare("SELECT repo, sha, loaded_at, practices_json, disabled_json FROM catalog WHERE id = 1")
     .first<StoredCatalogRow>();
+}
+
+/**
+ * Records the bundled practice set the stored results are requeued for.
+ * Returns true only for the one caller that observes a new version, so a
+ * deploy requeues once however many requests notice it.
+ */
+export async function claimBuiltInVersion(db: D1Database, version: string): Promise<boolean> {
+  const result = await db
+    .prepare(
+      "UPDATE catalog SET built_in_version = ? WHERE id = 1 AND sha IS NOT NULL AND built_in_version IS NOT ?",
+    )
+    .bind(version, version)
+    .run();
+
+  return result.meta.changes === 1;
 }
 
 export interface StoredResult {

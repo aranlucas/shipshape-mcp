@@ -985,7 +985,7 @@ textarea::placeholder {
   list-style: none;
 }
 
-.practice-list li {
+.practice-list > li {
   padding: 1.1rem 0;
   border-bottom: 1px solid var(--rule);
 }
@@ -994,6 +994,40 @@ textarea::placeholder {
   font-size: var(--step-1);
   font-weight: 650;
   text-decoration: none;
+}
+
+.practice-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+
+.origin {
+  color: var(--sounding);
+  font-size: var(--step--1);
+}
+
+.origin-override {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.origin-note {
+  max-width: 62ch;
+  margin-top: 0.35rem;
+  color: var(--sounding);
+  font-size: var(--step--1);
+}
+
+.practice-list .is-off .practice-link {
+  color: var(--sounding);
+}
+
+.secondary-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
 }
 
 .practice-link:hover {

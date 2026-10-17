@@ -210,9 +210,10 @@ describe("practice catalog", () => {
     expect(loaded).toMatchObject({
       repo: saved.repo,
       sha,
+      // Practices come back sorted by id, the same order loadCatalog stores.
       practices: [
+        { id: "broken", parsed: { ok: false } },
         { yaml: presenceYaml, instructions: "Keep these instructions.", parsed: { ok: true } },
-        { parsed: { ok: false } },
       ],
     });
     expect(await readCatalogRow(env.DB)).toEqual(before);
