@@ -583,18 +583,6 @@ describe("dashboard API", () => {
     );
   });
 
-  it("rejects a mutating request from another origin", async () => {
-    const response = await request("/app/api/practices/husky", {
-      method: "PUT",
-      headers: { origin: "https://evil.example" },
-      body: JSON.stringify({ yaml: validYaml }),
-    });
-    expect(response.status).toBe(403);
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: expect.any(String),
-    });
-  });
-
   it.each(["text/plain", ""])(
     "accepts valid JSON without a JSON content type (%s)",
     async (contentType) => {
@@ -663,7 +651,6 @@ describe("dashboard API", () => {
     const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
     const response = await request("/app/api/refresh", {
       method: "POST",
-      headers: { origin: ORIGIN },
       body: JSON.stringify({ repo: "aranlucas/alpha" }),
     });
     expect(response.status).toBe(202);
@@ -737,24 +724,6 @@ describe("dashboard API", () => {
     expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
       error: "Invalid request",
       issues: expect.any(Array),
-    });
-  });
-
-  it.each([
-    ["PUT", "/app/api/practices/husky"],
-    ["DELETE", "/app/api/practices/husky"],
-    ["POST", "/app/api/refresh"],
-  ])("rejects cross-site %s requests to %s", async (method, path) => {
-    const response = await request(path, {
-      method,
-      headers: { origin: ORIGIN, "sec-fetch-site": "cross-site" },
-      body: "{}",
-    });
-
-    expect(response.status).toBe(403);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
-      error: "Cross-origin request refused.",
     });
   });
 

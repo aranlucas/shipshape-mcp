@@ -11,7 +11,6 @@ import type {
 } from "./contract";
 import type { AppEnv } from "../env";
 import { syncInventory } from "../inventory/sync";
-import { callbackUrl } from "../oauth";
 import { CatalogWriteRefusedError, commitCatalogChange } from "../github/catalog-write";
 import { RepositoryCoordinatesSchema } from "../github/schemas";
 import { enqueueRepositories, requeueIfBuiltInsChanged } from "../queue";
@@ -77,13 +76,6 @@ function errorResponse(error: string, status: number, issues?: ApiIssue[]) {
   const body: ApiErrorResponse = issues === undefined ? { error } : { error, issues };
 
   return json(body, status);
-}
-
-function sameOrigin(request: Request, env: AppEnv): boolean {
-  const expected = callbackUrl(request, env, "/").origin;
-  const site = request.headers.get("Sec-Fetch-Site");
-
-  return request.headers.get("Origin") === expected && (site === null || site === "same-origin");
 }
 
 async function readJson(request: Request): Promise<JsonObject> {
@@ -246,19 +238,6 @@ const api = new Hono<ApiEnv>().basePath("/app/api");
 
 api.onError(safeFailure);
 api.notFound(() => errorResponse("Not found", 404));
-
-api.use("*", async (c, next) => {
-  const request = c.req.raw;
-
-  if (
-    (request.method === "POST" || request.method === "PUT" || request.method === "DELETE") &&
-    !sameOrigin(request, c.env)
-  ) {
-    return errorResponse("Cross-origin request refused.", 403);
-  }
-
-  await next();
-});
 
 api.get("/overview", async (c) => {
   await requeueIfBuiltInsChanged(c.env);
