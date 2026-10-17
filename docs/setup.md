@@ -154,7 +154,9 @@ must use production mode; Preview output is refused. `pnpm dry-run` builds and
 checks the same artifact without applying migrations or uploading anything.
 
 Workers Builds uses `pnpm run build` followed by `pnpm run deploy`; keep its
-deploy command on the package script so it receives the migration gate.
+deploy command on the package script so it receives the migration gate. When
+`WORKERS_CI=1`, the deploy script reuses the preceding build instead of building
+again. Other CI systems can use `pnpm run deploy:ci` after their build step.
 Direct `cf deploy` calls bypass that gate. The build token needs D1 edit access
 for the bound database as well as Worker deployment access. Forward a named
 CLI auth profile with `--profile <name>` when needed; both migration and upload

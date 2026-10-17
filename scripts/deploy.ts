@@ -26,7 +26,8 @@ function run(command: string, args: string[]): void {
   }
 }
 
-if (!values.prebuilt) {
+// Workers Builds already ran the configured build command before deployment.
+if (!values.prebuilt && process.env.WORKERS_CI !== "1") {
   run("pnpm", ["build"]);
 }
 

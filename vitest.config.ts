@@ -1,6 +1,6 @@
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
-import { TEST_PRIVATE_KEY_PEM } from "./test/helpers/app-key";
+import { TEST_PRIVATE_KEY_PEM } from "./test/helpers/app-key.ts";
 
 const testMigrations = await readD1Migrations("./migrations");
 
