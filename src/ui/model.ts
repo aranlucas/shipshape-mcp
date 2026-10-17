@@ -115,3 +115,20 @@ export function practiceCounts(overview: OverviewResponse, practiceId: string) {
 
   return counts;
 }
+
+/** The valid practices a repository is behind on, or that Shipshape couldn't check. */
+export function repoGaps(overview: OverviewResponse, repo: string) {
+  const valid = overview.practices.filter((item) => item.valid);
+
+  return {
+    behind: valid.filter((item) => cellState(overview, repo, item.id) === "fail"),
+    unknown: valid.filter((item) => cellState(overview, repo, item.id) === "unknown"),
+  };
+}
+
+const SETTLED = new Set<CellState>(["pass", "not_applicable"]);
+
+/** Whether a repository still has something to do, or confirm, for one practice. */
+export function needsAttention(overview: OverviewResponse, repo: string, practiceId: string) {
+  return !SETTLED.has(cellState(overview, repo, practiceId));
+}
