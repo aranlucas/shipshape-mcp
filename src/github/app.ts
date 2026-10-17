@@ -82,25 +82,32 @@ export async function installationToken(env: AppEnv, installationId: number): Pr
 
   const jwt = await createAppJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
 
-  const response = await fetch(
-    `https://api.github.com/app/installations/${installationId}/access_tokens`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "shipshape-mcp",
-        "X-GitHub-Api-Version": env.GITHUB_API_VERSION ?? GITHUB_API_VERSION,
+  let response: Response;
+
+  try {
+    response = await fetch(
+      `https://api.github.com/app/installations/${installationId}/access_tokens`,
+      {
+        method: "POST",
+        signal: AbortSignal.timeout(8_000),
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "shipshape-mcp",
+          "X-GitHub-Api-Version": env.GITHUB_API_VERSION ?? GITHUB_API_VERSION,
+        },
       },
-    },
-  );
+    );
+  } catch {
+    throw new InstallationTokenRequestError(502);
+  }
 
   if (response.status === 404) {
     throw new InstallationUnavailableError(installationId);
   }
 
   if (!response.ok) {
-    throw new InstallationTokenRequestError(response.status);
+    throw new InstallationTokenRequestError(response.status, response.headers);
   }
 
   const parsed = tokenSchema.parse(await response.json());

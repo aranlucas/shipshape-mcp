@@ -19,6 +19,7 @@ function createTestEnv(kv: TestKv, apiVersion?: string): AppEnv {
     OAUTH_KV: kv as AppEnv["OAUTH_KV"],
     OAUTH_PROVIDER: {} as AppEnv["OAUTH_PROVIDER"],
     DB: {} as D1Database,
+    WEBHOOKS: {} as Queue<never>,
     EVALUATIONS: {} as Queue<never>,
     GITHUB_APP_ID: "1",
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,

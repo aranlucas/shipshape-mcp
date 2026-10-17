@@ -1,5 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing */
-
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -34,6 +32,7 @@ const IdSchema = z
   .string()
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
   .max(64);
+
 const SavePracticeSchema = z
   .object({
     yaml: z.string(),
@@ -41,6 +40,7 @@ const SavePracticeSchema = z
     files: z.array(z.object({ path: z.string(), content: z.string() }).strict()).optional(),
   })
   .strict();
+
 const RefreshRepositorySchema = z
   .string()
   .regex(/^[^/]+\/[^/]+$/u, "Enter a repository as owner/name")
@@ -49,14 +49,19 @@ const RefreshRepositorySchema = z
 
     return RepositoryCoordinatesSchema.safeParse({ owner, repo }).success;
   }, "Enter a valid repository as owner/name");
+
 const RefreshSchema = z.object({ repo: RefreshRepositorySchema.optional() }).strict();
 
 interface ApiEnv {
   Bindings: AppEnv;
 }
+
 type ApiIssue = NonNullable<ApiErrorResponse["issues"]>[number];
+
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 type JsonObject = { [key: string]: JsonValue };
+
 type ApiResponseBody =
   | ApiErrorResponse
   | OverviewResponse
@@ -135,6 +140,7 @@ async function handleSave(env: AppEnv, request: Request, practiceId: string): Pr
     instructions: body.instructions,
     files: body.files,
   });
+
   await reloadCatalogAndRequeue(env);
 
   return json({ catalogSha }, 200);
@@ -154,6 +160,7 @@ async function handleDelete(env: AppEnv, practiceId: string): Promise<Response> 
     delete: true,
     disable: (practice.origin ?? "custom") !== "custom",
   });
+
   await reloadCatalogAndRequeue(env);
 
   return json({ catalogSha }, 200);
@@ -182,6 +189,7 @@ async function handleReset(env: AppEnv, practiceId: string): Promise<Response> {
 
 async function handleRefresh(env: AppEnv, request: Request): Promise<Response> {
   const body = RefreshSchema.parse(await readJson(request));
+
   let repos =
     body.repo !== undefined
       ? [await getRepository(env.DB, body.repo)].filter(
@@ -191,12 +199,14 @@ async function handleRefresh(env: AppEnv, request: Request): Promise<Response> {
 
   if (body.repo === undefined && repos.length === 0) {
     repos = await syncInventory(env);
+
     if (repos.length === 0) {
       throw new ResponseError(
         "No repositories are accessible through the GitHub App. Check its installations.",
         409,
       );
     }
+
     await loadCatalog(env);
   }
 
@@ -237,6 +247,7 @@ function safeFailure(error: Error): Response {
 const api = new Hono<ApiEnv>().basePath("/app/api");
 
 api.onError(safeFailure);
+
 api.notFound(() => errorResponse("Not found", 404));
 
 api.get("/overview", async (c) => {
@@ -281,6 +292,10 @@ export async function apiHandler(
   _session: WebSession,
   ctx: ExecutionContext,
 ): Promise<Response> {
+  if (env.PREVIEW_READ_ONLY === "true" && request.method !== "GET" && request.method !== "HEAD") {
+    return errorResponse("Preview is read-only", 403);
+  }
+
   try {
     return await api.fetch(request, env, ctx);
   } catch (error) {

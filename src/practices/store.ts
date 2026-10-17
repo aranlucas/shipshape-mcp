@@ -1,7 +1,13 @@
-/* oxlint-disable eslint/no-await-in-loop */
-
 import type { CellResult, CheckResult, RepoSummary } from "../api/contract";
 import type { Catalog } from "./catalog";
+import {
+  evaluationGuardSql,
+  evaluationGuardValues,
+  jobGuard,
+  leaseValues,
+  type EvaluationGuard,
+  type JobLease,
+} from "../jobs/guard";
 
 const REPOSITORY_UPSERT_CHUNK_SIZE = 500;
 
@@ -86,8 +92,8 @@ export async function upsertRepositories(
     return;
   }
 
-  for (const chunk of jsonChunks(repos, REPOSITORY_UPSERT_CHUNK_SIZE)) {
-    await db.batch([
+  await db.batch(
+    jsonChunks(repos, REPOSITORY_UPSERT_CHUNK_SIZE).map((chunk) =>
       db
         .prepare(
           `WITH input AS (
@@ -127,8 +133,8 @@ export async function upsertRepositories(
              synced_at = excluded.synced_at`,
         )
         .bind(syncedAt, chunk),
-    ]);
-  }
+    ),
+  );
 }
 
 export async function deleteRepositoriesNotIn(
@@ -230,22 +236,6 @@ export function readCatalogRow(db: D1Database): Promise<StoredCatalogRow | null>
     .first<StoredCatalogRow>();
 }
 
-/**
- * Records the bundled practice set the stored results are requeued for.
- * Returns true only for the one caller that observes a new version, so a
- * deploy requeues once however many requests notice it.
- */
-export async function claimBuiltInVersion(db: D1Database, version: string): Promise<boolean> {
-  const result = await db
-    .prepare(
-      "UPDATE catalog SET built_in_version = ? WHERE id = 1 AND sha IS NOT NULL AND built_in_version IS NOT ?",
-    )
-    .bind(version, version)
-    .run();
-
-  return result.meta.changes === 1;
-}
-
 export interface StoredResult {
   repo: string;
   practiceId: string;
@@ -273,6 +263,7 @@ async function writeResultInputs(
   db: D1Database,
   inputs: ResultInput[],
   preserveCheckedAt: boolean,
+  guard?: EvaluationGuard,
 ): Promise<void> {
   const checkedAtUpdate = preserveCheckedAt ? "results.checked_at" : "excluded.checked_at";
   const statements: D1PreparedStatement[] = [];
@@ -301,7 +292,7 @@ async function writeResultInputs(
            SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
                   head_sha, catalog_sha, checked_at, evaluation_key
            FROM input
-           WHERE true
+           WHERE ${evaluationGuardSql(guard)}
            ON CONFLICT(repo_full_name, practice_id) DO UPDATE SET
              state = excluded.state,
              failing = excluded.failing,
@@ -313,7 +304,7 @@ async function writeResultInputs(
              retrying = 0,
              checked_at = ${checkedAtUpdate}`,
         )
-        .bind(chunk),
+        .bind(chunk, ...evaluationGuardValues(guard)),
     );
   }
 
@@ -336,7 +327,21 @@ interface ResultRow {
   evaluation_key: string | null;
 }
 
-function resultFromRow(row: ResultRow): StoredResult {
+type ResultSummaryRow = Pick<
+  ResultRow,
+  | "repo_full_name"
+  | "practice_id"
+  | "state"
+  | "failing"
+  | "unknown"
+  | "checked_at"
+  | "retrying"
+  | "catalog_sha"
+>;
+
+export type StoredResultSummary = Pick<StoredResult, "repo" | "practiceId" | "cell" | "catalogSha">;
+
+function cellFromRow(row: ResultSummaryRow): CellResult {
   const cell: CellResult = {
     state: row.state,
     checkedAt: row.checked_at,
@@ -348,10 +353,14 @@ function resultFromRow(row: ResultRow): StoredResult {
     cell.retrying = true;
   }
 
+  return cell;
+}
+
+function resultFromRow(row: ResultRow): StoredResult {
   return {
     repo: row.repo_full_name,
     practiceId: row.practice_id,
-    cell,
+    cell: cellFromRow(row),
     // SAFETY: checks_json is written only by writeResults and markUnknown as a CheckResult array.
     checks: JSON.parse(row.checks_json) as CheckResult[],
     headSha: row.head_sha,
@@ -360,7 +369,11 @@ function resultFromRow(row: ResultRow): StoredResult {
   };
 }
 
-export async function writeResults(db: D1Database, rows: StoredResult[]): Promise<void> {
+export async function writeResults(
+  db: D1Database,
+  rows: StoredResult[],
+  guard?: EvaluationGuard,
+): Promise<void> {
   if (rows.length === 0) {
     return;
   }
@@ -380,6 +393,7 @@ export async function writeResults(db: D1Database, rows: StoredResult[]): Promis
       evaluationKey: row.evaluationKey ?? null,
     })),
     false,
+    guard,
   );
 }
 
@@ -404,6 +418,21 @@ export async function readResults(db: D1Database, repo?: string): Promise<Stored
   return result.results.map(resultFromRow);
 }
 
+/** Overview/counts never transfer or parse detailed check evidence. */
+export async function readResultSummaries(db: D1Database): Promise<StoredResultSummary[]> {
+  const { results } = await db
+    .prepare(`SELECT repo_full_name, practice_id, state, failing,
+    unknown, catalog_sha, checked_at, retrying FROM results ORDER BY repo_full_name, practice_id`)
+    .all<ResultSummaryRow>();
+
+  return results.map((row) => ({
+    repo: row.repo_full_name,
+    practiceId: row.practice_id,
+    cell: cellFromRow(row),
+    catalogSha: row.catalog_sha,
+  }));
+}
+
 const unknownCheck = (detail: string): CheckResult => ({
   type: "evaluation",
   label: "Evaluation availability",
@@ -419,6 +448,7 @@ export async function markUnknown(
   repo: string,
   catalog: Catalog,
   detail: string,
+  guard?: EvaluationGuard,
 ): Promise<void> {
   if (catalog.practices.length === 0) {
     return;
@@ -441,6 +471,7 @@ export async function markUnknown(
       evaluationKey: null,
     })),
     true,
+    guard,
   );
 }
 
@@ -448,9 +479,13 @@ export async function deleteResultsNotIn(
   db: D1Database,
   repo: string,
   practiceIds: string[],
+  guard?: EvaluationGuard,
 ): Promise<void> {
   if (practiceIds.length === 0) {
-    await db.prepare("DELETE FROM results WHERE repo_full_name = ?").bind(repo).run();
+    await db
+      .prepare(`DELETE FROM results WHERE repo_full_name = ? AND ${evaluationGuardSql(guard)}`)
+      .bind(repo, ...evaluationGuardValues(guard))
+      .run();
 
     return;
   }
@@ -459,9 +494,9 @@ export async function deleteResultsNotIn(
     .prepare(
       `DELETE FROM results
        WHERE repo_full_name = ?
-         AND practice_id NOT IN (SELECT value FROM json_each(?))`,
+         AND practice_id NOT IN (SELECT value FROM json_each(?)) AND ${evaluationGuardSql(guard)}`,
     )
-    .bind(repo, JSON.stringify(practiceIds))
+    .bind(repo, JSON.stringify(practiceIds), ...evaluationGuardValues(guard))
     .run();
 }
 
@@ -470,49 +505,13 @@ export async function setResultsRetrying(
   repo: string,
   practiceIds: string[],
   retrying: boolean,
+  lease?: JobLease,
 ): Promise<void> {
   await db
     .prepare(
       `UPDATE results SET retrying = ?
-       WHERE repo_full_name = ? AND practice_id IN (SELECT value FROM json_each(?))`,
+       WHERE repo_full_name = ? AND practice_id IN (SELECT value FROM json_each(?)) AND ${lease ? jobGuard() : "true"}`,
     )
-    .bind(retrying ? 1 : 0, repo, JSON.stringify(practiceIds))
+    .bind(retrying ? 1 : 0, repo, JSON.stringify(practiceIds), ...(lease ? leaseValues(lease) : []))
     .run();
 }
-
-export async function incrementPending(db: D1Database, count: number): Promise<void> {
-  if (count <= 0) {
-    return;
-  }
-
-  await db.prepare("UPDATE sweep SET pending = pending + ? WHERE id = 1").bind(count).run();
-}
-
-export async function decrementPending(db: D1Database, count: number): Promise<void> {
-  if (count <= 0) {
-    return;
-  }
-
-  await db.prepare("UPDATE sweep SET pending = MAX(0, pending - ?) WHERE id = 1").bind(count).run();
-}
-
-export async function completePendingMessage(db: D1Database): Promise<void> {
-  const completedAt = new Date().toISOString();
-
-  await db
-    .prepare(
-      `UPDATE sweep
-       SET pending = CASE WHEN pending > 0 THEN pending - 1 ELSE 0 END,
-           last_completed_at = CASE
-             WHEN pending > 0 AND pending - 1 = 0 THEN ?
-             ELSE last_completed_at
-           END
-       WHERE id = 1`,
-    )
-    .bind(completedAt)
-    .run();
-}
-
-export const incrementSweepPending = incrementPending;
-
-export const completeSweepMessage = completePendingMessage;

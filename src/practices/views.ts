@@ -11,6 +11,7 @@ import {
   listRepositories,
   readCatalogRow,
   readResults,
+  readResultSummaries,
   type StoredRepository,
   type StoredResult,
 } from "./store";
@@ -41,7 +42,7 @@ export async function buildOverview(env: AppEnv): Promise<OverviewResponse> {
     readStoredCatalog(env.DB),
     readCatalogRow(env.DB),
     listRepositories(env.DB),
-    readResults(env.DB),
+    readResultSummaries(env.DB),
     env.DB.prepare("SELECT last_completed_at, pending FROM sweep WHERE id = 1").first<SweepRow>(),
   ]);
 
@@ -129,7 +130,10 @@ export async function buildPracticeDetail(
     throw new PracticeNotFoundError();
   }
 
-  const [repos, results] = await Promise.all([listRepositories(env.DB), readResults(env.DB)]);
+  const [repos, results] = await Promise.all([
+    listRepositories(env.DB),
+    readResultSummaries(env.DB),
+  ]);
 
   const counts: PracticeDetailResponse["counts"] = {
     pass: 0,
