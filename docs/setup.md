@@ -189,6 +189,13 @@ The catalog layout is `practices/<id>/practice.yml`, with optional
 practices through the API; each write is validated and committed only to this
 allowlisted catalog repository.
 
+Seeding is a one-time copy. A practice added to `catalog-seed/` later is not
+checked anywhere until it is also committed to the catalog repository. Run
+`pnpm catalog:diff` to list seed practices missing from the catalog (it exits
+non-zero when any are missing), catalog-only practices, and files that differ.
+It clones `CATALOG_REPO` with `gh`, so it needs a `gh auth login` session that
+can read the private catalog.
+
 ## 6. Local development
 
 Copy the example file and fill it with development-only values:

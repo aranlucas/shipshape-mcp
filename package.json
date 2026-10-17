@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "pnpm ui:build && cf build",
-    "check": "pnpm types && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
+    "catalog:diff": "node scripts/catalog-diff.ts",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
     "deploy": "node scripts/deploy.ts",
     "deploy:ci": "node scripts/deploy.ts --prebuilt",
     "dev": "portless run vite",
@@ -16,7 +17,7 @@
     "lint": "oxlint",
     "preview": "pnpm ui:build && cf previews deploy --mode preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "cf workers types && tsc --noEmit",
     "types": "cf workers types",
     "lint:fix": "oxlint --fix",
     "prepare": "husky",
