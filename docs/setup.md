@@ -155,9 +155,13 @@ prebuilt production dry run, which rejects invalid or Preview output before any
 database writes. `pnpm db:migrate` runs `cf d1 migrations apply` directly. Its
 database UUID lives in `package.json` under `config.d1DatabaseId`; pnpm exposes
 it to the command, and `cloudflare.config.ts` imports the same value for `DB`.
-`pnpm run deploy` is the standard `cf deploy` command
-for an existing production artifact; it does not build or migrate. Deployment
-options such as `--secrets-file`, `--tag`, and `--message` go directly to `cf`.
+`pnpm run deploy` runs `cf deploy --prebuilt --mode production` for an existing
+production artifact; it does not build or migrate. Before uploading it asks
+`cf d1 migrations list` whether production has unapplied migrations and refuses
+to deploy if it does, because new code against an old schema fails every
+request. Dry runs skip that check and stay offline. Deployment options such as
+`--secrets-file`, `--tag`, and `--message` go directly to `cf`; `--profile` is
+also passed to the check.
 
 `pnpm dry-run` builds and validates without applying migrations or uploading.
 For an existing build, use `pnpm run deploy --dry-run`. Use these commands for
@@ -170,7 +174,8 @@ dashboard setting so production builds continue to apply migrations. Other CI
 systems use the same build-then-release sequence. Build reuse is explicit and
 does not depend on `WORKERS_CI`.
 
-Direct `cf deploy` and `pnpm run deploy` calls bypass the migration gate. The
+Direct `cf deploy` calls bypass both the migration step and the pending check.
+`pnpm run deploy` never migrates, but stops when migrations are pending. The
 build token needs D1 edit access for the bound database as well as Worker
 deployment access. Both commands inherit the active CLI profile or environment
 credentials. For an explicit named profile, build first, then run

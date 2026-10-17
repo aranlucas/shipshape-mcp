@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,10 +21,14 @@ const upload = ["cf", "deploy", "--prebuilt", "--mode", "production"];
 
 const preflight = [...upload, "--dry-run"];
 
+const pendingCheck = ["cf", "d1", "migrations", "list", databaseId, "--dir", "migrations"];
+
 interface DeployOptions {
   script?: string;
   args?: string[];
   fail?: string;
+  /** JSON printed by `cf d1 migrations list`, as the real CLI does. */
+  pending?: string;
 }
 
 function deploy(options: DeployOptions = {}) {
@@ -34,6 +38,7 @@ function deploy(options: DeployOptions = {}) {
   const log = join(directory, "commands.jsonl");
   mkdirSync(bin);
   writeFileSync(log, "");
+  symlinkSync(join(root, "scripts"), join(directory, "scripts"));
 
   const fakeCli = `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
@@ -41,8 +46,9 @@ import { basename } from "node:path";
 const name = basename(process.argv[1]);
 const args = [name, ...process.argv.slice(2)];
 appendFileSync(process.env.COMMAND_LOG, JSON.stringify(args) + "\\n");
-const stage = name === "build" ? "build" : args[1] === "deploy" && args.includes("--dry-run") ? "preflight" : args[1];
+const stage = name === "build" ? "build" : args[1] === "deploy" && args.includes("--dry-run") ? "preflight" : args[3] === "list" ? "list" : args[1];
 if (stage === process.env.FAIL_COMMAND) process.exit(42);
+if (stage === "list") process.stdout.write(process.env.PENDING_MIGRATIONS || "[]");
 `;
 
   for (const name of ["cf", "build"]) {
@@ -69,6 +75,7 @@ if (stage === process.env.FAIL_COMMAND) process.exit(42);
       PATH: `${bin}:${process.env.PATH ?? ""}`,
       COMMAND_LOG: log,
       FAIL_COMMAND: options.fail,
+      PENDING_MIGRATIONS: options.pending,
     },
     encoding: "utf8",
   });
@@ -92,13 +99,13 @@ describe("production release", () => {
   it("builds, validates, migrates the configured database, then deploys", () => {
     const result = deploy();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([["build"], preflight, migrate, upload]);
+    expect(result.commands).toEqual([["build"], preflight, migrate, pendingCheck, upload]);
   });
 
   it("reuses CI artifacts while migrating before upload", () => {
     const result = deploy({ script: "release:ci" });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([preflight, migrate, upload]);
+    expect(result.commands).toEqual([preflight, migrate, pendingCheck, upload]);
   });
 
   it("stops before migration when the build fails", () => {
@@ -116,7 +123,7 @@ describe("production release", () => {
   it("propagates upload failures", () => {
     const result = deploy({ script: "release:ci", fail: "deploy" });
     expect(result.status).toBe(42);
-    expect(result.commands).toEqual([preflight, migrate, upload]);
+    expect(result.commands).toEqual([preflight, migrate, pendingCheck, upload]);
   });
 
   it("stops before database writes or upload when Cloudflare rejects the artifact", () => {
@@ -130,7 +137,25 @@ describe("ordinary Cloudflare commands", () => {
   it("deploys the existing artifact without building or migrating", () => {
     const result = deploy({ script: "deploy" });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([upload]);
+    expect(result.commands).toEqual([pendingCheck, upload]);
+  });
+
+  it("refuses to upload while production has unapplied migrations", () => {
+    const result = deploy({
+      script: "deploy",
+      pending: '[\n  {\n    "Name": "0005_built_in_practices.sql"\n  }\n]',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.commands).toEqual([pendingCheck]);
+    expect(result.stderr).toContain("0005_built_in_practices.sql");
+    expect(result.stderr).toContain("pnpm release:ci");
+  });
+
+  it("refuses to upload when the pending check itself fails", () => {
+    const result = deploy({ script: "deploy", fail: "list" });
+    expect(result.status).toBe(42);
+    expect(result.commands).toEqual([pendingCheck]);
   });
 
   it.each(["dry-run", "deploy"])("never migrates during a %s dry run", (script) => {
@@ -146,7 +171,19 @@ describe("ordinary Cloudflare commands", () => {
     const args = ["--profile", "production", "--secrets-file", "app-secrets.json", "--tag", "v1"];
     const result = deploy({ script: "deploy", args });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([[...upload, ...args]]);
+    expect(result.commands).toEqual([
+      [...pendingCheck, "--profile", "production"],
+      [...upload, ...args],
+    ]);
+  });
+
+  it("checks pending migrations with an inline --profile= value", () => {
+    const result = deploy({ script: "deploy", args: ["--profile=production"] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.commands).toEqual([
+      [...pendingCheck, "--profile=production"],
+      [...upload, "--profile=production"],
+    ]);
   });
 
   it("can migrate with an explicit auth profile", () => {

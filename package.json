@@ -8,7 +8,7 @@
     "build": "pnpm ui:build && cf build",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
     "db:migrate": "cf d1 migrations apply \"$npm_package_config_d1DatabaseId\" --dir migrations",
-    "deploy": "cf deploy --prebuilt --mode production",
+    "deploy": "node scripts/guarded-deploy.ts",
     "dev": "portless run vite",
     "dry-run": "pnpm build && pnpm run deploy --dry-run",
     "format": "oxfmt --config oxfmt.config.ts",
