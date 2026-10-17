@@ -17,78 +17,61 @@ const databaseId = "11111111-1111-4111-8111-111111111111";
 
 const migrate = ["cf", "d1", "migrations", "apply", databaseId, "--dir", "migrations"];
 
+const upload = ["cf", "deploy", "--prebuilt", "--mode", "production"];
+
+const preflight = [...upload, "--dry-run"];
+
 interface DeployOptions {
   script?: string;
   args?: string[];
   fail?: string;
-  preview?: boolean;
-  missingDatabase?: boolean;
-  workersCi?: string;
-  ci?: string;
-  missingOutput?: boolean;
 }
 
 function deploy(options: DeployOptions = {}) {
   const directory = mkdtempSync(join(tmpdir(), "shipshape-deploy-"));
   directories.push(directory);
   const bin = join(directory, "bin");
-  const output = join(directory, ".cloudflare/output/v0");
   const log = join(directory, "commands.jsonl");
   mkdirSync(bin);
-  mkdirSync(join(output, "workers/default"), { recursive: true });
   writeFileSync(log, "");
-  writeFileSync(
-    join(output, "config.json"),
-    JSON.stringify({
-      buildContext: {
-        mode: options.preview ? "preview" : "production",
-        isPreview: !!options.preview,
-      },
-    }),
-  );
-  writeFileSync(
-    join(output, "workers/default/worker.config.json"),
-    JSON.stringify({
-      env: { DB: options.missingDatabase ? { type: "d1" } : { type: "d1", id: databaseId } },
-    }),
-  );
-
-  if (options.missingOutput) {
-    rmSync(output, { recursive: true });
-  }
 
   const fakeCli = `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 import { basename } from "node:path";
-const args = [basename(process.argv[1]), ...process.argv.slice(2)];
+const name = basename(process.argv[1]);
+const args = [name, ...process.argv.slice(2)];
 appendFileSync(process.env.COMMAND_LOG, JSON.stringify(args) + "\\n");
-if (args[1] === process.env.FAIL_COMMAND) process.exit(42);
+const stage = name === "build" ? "build" : args[1] === "deploy" && args.includes("--dry-run") ? "preflight" : args[1];
+if (stage === process.env.FAIL_COMMAND) process.exit(42);
 `;
 
-  for (const name of ["cf", "pnpm"]) {
+  for (const name of ["cf", "build"]) {
     writeFileSync(join(bin, name), fakeCli, { mode: 0o755 });
   }
 
-  const [command = "", ...args] = (manifest.scripts[options.script ?? "deploy"] ?? "").split(" ");
-
-  // Run the real package entrypoint with fake CLIs and no Cloudflare credentials.
-  const result = spawnSync(
-    command === "node" ? process.execPath : command,
-    command === "node"
-      ? [resolve(root, args[0] ?? ""), ...args.slice(1), ...(options.args ?? [])]
-      : [...args, ...(options.args ?? [])],
-    {
-      cwd: directory,
-      env: {
-        PATH: `${bin}:${process.env.PATH ?? ""}`,
-        COMMAND_LOG: log,
-        FAIL_COMMAND: options.fail,
-        WORKERS_CI: options.workersCi,
-        CI: options.ci,
+  // Exercise real pnpm script chaining; only build/upload CLIs are replaced.
+  writeFileSync(
+    join(directory, "package.json"),
+    JSON.stringify({
+      private: true,
+      config: { d1DatabaseId: databaseId },
+      scripts: {
+        ...manifest.scripts,
+        build: "build",
       },
-      encoding: "utf8",
-    },
+    }),
   );
+  writeFileSync(join(directory, "pnpm-workspace.yaml"), "verifyDepsBeforeRun: false\n");
+
+  const result = spawnSync("pnpm", ["run", options.script ?? "release", ...(options.args ?? [])], {
+    cwd: directory,
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      COMMAND_LOG: log,
+      FAIL_COMMAND: options.fail,
+    },
+    encoding: "utf8",
+  });
 
   const commands = readFileSync(log, "utf8")
     .trim()
@@ -105,103 +88,70 @@ afterEach(() => {
   }
 });
 
-describe("production deployment", () => {
-  it("builds, migrates the database from the build output, then deploys", () => {
+describe("production release", () => {
+  it("builds, validates, migrates the configured database, then deploys", () => {
     const result = deploy();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([["pnpm", "build"], migrate, ["cf", "deploy", "--prebuilt"]]);
+    expect(result.commands).toEqual([["build"], preflight, migrate, upload]);
   });
 
-  it("also migrates before deploying prebuilt CI artifacts", () => {
-    const result = deploy({ script: "deploy:ci" });
+  it("reuses CI artifacts while migrating before upload", () => {
+    const result = deploy({ script: "release:ci" });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([migrate, ["cf", "deploy", "--prebuilt"]]);
-  });
-
-  it("reuses the preceding Workers Builds artifact and still migrates before upload", () => {
-    const result = deploy({ workersCi: "1" });
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([migrate, ["cf", "deploy", "--prebuilt"]]);
-  });
-
-  it.each([{ workersCi: "0" }, { ci: "true" }])("builds outside Workers Builds: %j", (options) => {
-    const result = deploy(options);
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([["pnpm", "build"], migrate, ["cf", "deploy", "--prebuilt"]]);
-  });
-
-  it("refuses to migrate or upload when Workers Builds output is missing", () => {
-    const result = deploy({ workersCi: "1", missingOutput: true });
-    expect(result.status).not.toBe(0);
-    expect(result.commands).toEqual([]);
-  });
-
-  it("stops before upload when migration fails in Workers Builds", () => {
-    const result = deploy({ workersCi: "1", fail: "d1" });
-    expect(result.status).toBe(42);
-    expect(result.commands).toEqual([migrate]);
+    expect(result.commands).toEqual([preflight, migrate, upload]);
   });
 
   it("stops before migration when the build fails", () => {
     const result = deploy({ fail: "build" });
     expect(result.status).toBe(42);
-    expect(result.commands).toEqual([["pnpm", "build"]]);
+    expect(result.commands).toEqual([["build"]]);
   });
 
   it("stops before upload when migration fails", () => {
-    const result = deploy({ fail: "d1" });
+    const result = deploy({ script: "release:ci", fail: "d1" });
     expect(result.status).toBe(42);
-    expect(result.commands).toEqual([["pnpm", "build"], migrate]);
+    expect(result.commands).toEqual([preflight, migrate]);
   });
 
   it("propagates upload failures", () => {
-    const result = deploy({ script: "deploy:ci", fail: "deploy" });
+    const result = deploy({ script: "release:ci", fail: "deploy" });
     expect(result.status).toBe(42);
-    expect(result.commands).toEqual([migrate, ["cf", "deploy", "--prebuilt"]]);
+    expect(result.commands).toEqual([preflight, migrate, upload]);
   });
 
-  it("rejects target overrides before running any commands", () => {
-    const result = deploy({ args: ["--worker", "another-worker"] });
-    expect(result.status).not.toBe(0);
-    expect(result.commands).toEqual([]);
+  it("stops before database writes or upload when Cloudflare rejects the artifact", () => {
+    const result = deploy({ script: "release:ci", fail: "preflight" });
+    expect(result.status).toBe(42);
+    expect(result.commands).toEqual([preflight]);
+  });
+});
+
+describe("ordinary Cloudflare commands", () => {
+  it("deploys the existing artifact without building or migrating", () => {
+    const result = deploy({ script: "deploy" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.commands).toEqual([upload]);
   });
 
   it.each(["dry-run", "deploy"])("never migrates during a %s dry run", (script) => {
     const result = deploy({ script, args: script === "deploy" ? ["--dry-run"] : [] });
     expect(result.status, result.stderr).toBe(0);
     expect(result.commands).toEqual([
-      ["pnpm", "build"],
-      ["cf", "deploy", "--prebuilt", "--dry-run"],
+      ...(script === "dry-run" ? [["build"]] : []),
+      [...upload, "--dry-run"],
     ]);
   });
 
-  it("uses the same auth profile for migration and deployment and forwards secrets", () => {
-    const result = deploy({
-      args: ["--profile", "production", "--secrets-file", "app-secrets.json"],
-    });
-
+  it("leaves deployment options to the Cloudflare CLI", () => {
+    const args = ["--profile", "production", "--secrets-file", "app-secrets.json", "--tag", "v1"];
+    const result = deploy({ script: "deploy", args });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.commands).toEqual([
-      ["pnpm", "build"],
-      [...migrate, "--profile", "production"],
-      [
-        "cf",
-        "deploy",
-        "--prebuilt",
-        "--profile",
-        "production",
-        "--secrets-file",
-        "app-secrets.json",
-      ],
-    ]);
+    expect(result.commands).toEqual([[...upload, ...args]]);
   });
 
-  it.each([{ preview: true }, { missingDatabase: true }])(
-    "refuses unsafe build output: %j",
-    (options) => {
-      const result = deploy({ script: "deploy:ci", ...options });
-      expect(result.status).not.toBe(0);
-      expect(result.commands).toEqual([]);
-    },
-  );
+  it("can migrate with an explicit auth profile", () => {
+    const result = deploy({ script: "db:migrate", args: ["--profile", "production"] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.commands).toEqual([[...migrate, "--profile", "production"]]);
+  });
 });

@@ -111,6 +111,13 @@ pnpm ui:dev   # http://localhost:5200/app/
 static assets; `pnpm build`, `pnpm dry-run`, and `pnpm preview` run it first.
 Run it once before `pnpm dev` so the Worker can serve the dashboard shell.
 
+Use `pnpm release` to build, apply D1 migrations, and deploy production. Workers
+Builds runs `pnpm build` followed by `pnpm release:ci` to reuse the artifact.
+`pnpm run deploy` uploads an existing build without applying migrations;
+`pnpm dry-run` builds and validates without database writes or upload. See the
+[deployment setup](docs/setup.md#4-configure-deployed-secrets-and-text-bindings)
+for the Workers Builds commands and deployment options.
+
 See [`SECURITY.md`](SECURITY.md) for the security boundary and reporting
 instructions.
 
