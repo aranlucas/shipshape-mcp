@@ -120,6 +120,26 @@ on their next evaluation. Apply `0003_evaluation_key.sql` before deploying this
 code; the standard deploy script applies migrations automatically. The read-only
 MCP tools do not trigger refreshes.
 
+### Sharing GitHub inputs between practices
+
+Practices in one evaluation share a single repository snapshot. Separate practice
+deliveries and later evaluations also share a D1 cache of complete Git trees and
+successfully decoded file contents. Entries are scoped by installation,
+repository, commit SHA, and resource path, so a new commit fetches its own data.
+Catalog or evaluator changes can recompute results using the same immutable
+inputs without downloading them again.
+
+The default-branch head, repository settings, and branch protection are read live.
+Forced evaluations, including installation events, bypass cached inputs. Failed
+reads, truncated trees, and oversized files are not cached; an unavailable or
+malformed cache falls back to GitHub. Each cached JSON payload is limited to
+512 KiB, entries expire after seven days, and the daily sweep removes expired
+entries. Existing snapshot read budgets still apply.
+
+Apply `0004_github_snapshot_cache.sql` before deploying these changes; the standard
+deploy script applies it automatically. Concurrent evaluations that encounter a
+cold cache may both fetch the same input before either has stored it.
+
 ## Runtime flow
 
 GitHub push and installation events, dashboard refreshes, and the daily sweep

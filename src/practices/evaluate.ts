@@ -6,6 +6,7 @@ import type { AppEnv } from "../env";
 import type { CheckResult } from "../api/contract";
 import { installationClient } from "../github/app";
 import { octokitGet, type GitHubOctokit } from "../github/client";
+import { GitHubSnapshotCache } from "../github/snapshot-cache";
 import { loadCatalog, readStoredCatalog, type Catalog, type CatalogPractice } from "./catalog";
 import { applies } from "./applies";
 import { evaluationKey } from "./evaluation-key";
@@ -231,7 +232,10 @@ export async function evaluateRepository(
   const validPractices = practices.flatMap((practice) =>
     practice.parsed.ok ? [practice.parsed.practice] : [],
   );
-  const snapshot = await takeSnapshot(client, repo, validPractices, preloadedHead);
+  const cache = preloadedHead.sha
+    ? new GitHubSnapshotCache(env.DB, repo, preloadedHead.sha, options.force)
+    : undefined;
+  const snapshot = await takeSnapshot(client, repo, validPractices, preloadedHead, cache);
   const rows = practices.map((practice) => ({
     ...evaluatePractice(fullName, practice, snapshot, catalog.sha),
     evaluationKey: key,

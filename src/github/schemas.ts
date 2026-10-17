@@ -208,3 +208,18 @@ export type GitHubRepository = z.infer<typeof GitHubRepositorySchema>;
 export type GitHubBranch = z.infer<typeof GitHubBranchSchema>;
 
 export type GitHubBranchProtection = z.infer<typeof GitHubBranchProtectionSchema>;
+
+export const GitHubTreeSchema = z.object({
+  truncated: z.boolean(),
+  tree: z
+    .array(
+      z.object({
+        path: z.string().max(1024),
+        type: z.string(),
+        mode: z.string(),
+        sha: z.string().regex(/^[a-f0-9]{40}$/u),
+        size: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .max(100_000),
+});

@@ -145,6 +145,7 @@ interface GitHubMockOptions {
   tokenStatus?: number;
   headStatus?: number;
   treeStatus?: number;
+  treeTruncated?: boolean;
   treePaths?: string[];
   settings?: Record<string, unknown>;
   head?: string;
@@ -207,7 +208,7 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
 
         return Promise.resolve(
           jsonResponse({
-            truncated: false,
+            truncated: options.treeTruncated ?? false,
             tree: (options.treePaths ?? ["README.md"]).map((path) => ({
               path,
               mode: "100644",
@@ -265,6 +266,7 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
 beforeEach(async () => {
   await env.OAUTH_KV.delete("app:installation-token:42");
   await appEnv.DB.batch([
+    appEnv.DB.prepare("DELETE FROM github_snapshot_cache"),
     appEnv.DB.prepare("DELETE FROM results"),
     appEnv.DB.prepare("DELETE FROM catalog"),
     appEnv.DB.prepare("DELETE FROM repositories"),
@@ -277,6 +279,75 @@ afterEach(() => {
 });
 
 describe("evaluateRepository", () => {
+  it("shares immutable GitHub inputs between separate practice evaluations", async () => {
+    await seed(
+      catalog([
+        validPractice("first", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+        validPractice("second", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+          { type: "file-contains", path: "config.txt", text: "content" },
+        ]),
+      ]),
+    );
+    const calls = mockGitHub({ treePaths: ["README.md", "config.txt"] });
+    await evaluateRepository(appEnv, repoName, { practiceId: "first" });
+    calls.length = 0;
+
+    await evaluateRepository(appEnv, repoName, { practiceId: "second" });
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/repos/octo/demo/commits/main",
+      "/repos/octo/demo/contents/config.txt",
+    ]);
+    expect((await readResults(appEnv.DB, repoName)).every((row) => row.cell.state === "pass")).toBe(
+      true,
+    );
+  });
+
+  it("does not reuse a truncated tree when another practice needs a complete inventory", async () => {
+    await seed(
+      catalog([
+        validPractice("first", "files", [
+          { type: "file-exists", path: "README.md", absent: false },
+        ]),
+        validPractice("second", "files", [
+          { type: "file-exists", path: "other.txt", absent: false },
+        ]),
+      ]),
+    );
+    mockGitHub({ treePaths: ["README.md"], treeTruncated: true });
+    await evaluateRepository(appEnv, repoName, { practiceId: "first" });
+    const calls = mockGitHub({ treePaths: ["README.md", "other.txt"] });
+
+    await evaluateRepository(appEnv, repoName, { practiceId: "second" });
+
+    expect(calls.some((call) => call.path.includes("/git/trees/"))).toBe(true);
+    expect(
+      (await readResults(appEnv.DB, repoName)).find((row) => row.practiceId === "second")?.cell
+        .state,
+    ).toBe("pass");
+  });
+
+  it("fetches new file content after the repository head changes", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "original" },
+        ]),
+      ]),
+    );
+    mockGitHub({ fileContent: "original" });
+    await evaluateRepository(appEnv, repoName);
+    const calls = mockGitHub({ head: "c".repeat(40), fileContent: "changed" });
+
+    await evaluateRepository(appEnv, repoName);
+
+    expect(calls.some((call) => call.path === "/repos/octo/demo/contents/README.md")).toBe(true);
+    expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("fail");
+  });
+
   it("revalidates a cached dependency definition and replaces its old invalid result", async () => {
     const practice = validPractice("dependency-presence", "files", [
       { type: "dependency", file: "package.json", name: "example-package" },
@@ -554,7 +625,7 @@ describe("evaluateRepository", () => {
 
       await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
 
-      expect(calls.some((call) => call.path.includes("/git/trees/"))).toBe(true);
+      expect(calls.map((call) => call.path)).toEqual(["/repos/octo/demo/commits/main"]);
       expect((await readResults(appEnv.DB, repoName))[0]?.evaluationKey).toEqual(
         expect.any(String),
       );
@@ -634,9 +705,7 @@ describe("evaluateRepository", () => {
 
     await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
 
-    expect(
-      calls.filter((call) => call.path.includes("/contents/")).map((call) => call.path),
-    ).toEqual(["/repos/octo/demo/contents/other.txt"]);
+    expect(calls.map((call) => call.path)).toEqual(["/repos/octo/demo/commits/main"]);
     expect((await readResults(appEnv.DB, repoName)).every((row) => row.headSha === headSha)).toBe(
       true,
     );

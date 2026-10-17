@@ -121,6 +121,7 @@ function queueSpies() {
 
 async function clearData(): Promise<void> {
   await appEnv.DB.batch([
+    appEnv.DB.prepare("DELETE FROM github_snapshot_cache"),
     appEnv.DB.prepare("DELETE FROM results"),
     appEnv.DB.prepare("DELETE FROM catalog"),
     appEnv.DB.prepare("DELETE FROM repositories"),

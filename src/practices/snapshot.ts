@@ -4,8 +4,13 @@ import pLimit from "p-limit";
 import { CI_WORKFLOW_PATH } from "./ci-required-checks";
 import { LINT_CONFIG_NAMES, joinPath, parseConfig, parentPath, resolvePath } from "./lint-config";
 import { z } from "zod";
-import { GitHubBranchProtectionSchema, GitHubBranchSchema } from "../github/schemas";
+import {
+  GitHubBranchProtectionSchema,
+  GitHubBranchSchema,
+  GitHubTreeSchema,
+} from "../github/schemas";
 import { MAX_ALLOWED_CONCURRENCY, octokitGet, type GitHubOctokit } from "../github/client";
+import type { GitHubSnapshotCache } from "../github/snapshot-cache";
 import { protectionState, type BranchProtectionFact } from "./protection";
 import { LINT_STAGED_CONFIG_NAMES } from "./lint-staged";
 import type { Check, Practice } from "./schema";
@@ -23,21 +28,7 @@ const WORKFLOW_MARKER = ".github/workflows/*";
 const PACKAGE_MARKER = "**/package.json";
 const MAX_FILE_READS = 64;
 const MAX_FILE_BYTES = 512 * 1024;
-
-const TreeSchema = z.object({
-  truncated: z.boolean(),
-  tree: z
-    .array(
-      z.object({
-        path: z.string().max(1024),
-        type: z.string(),
-        mode: z.string(),
-        sha: SHA,
-        size: z.number().int().nonnegative().optional(),
-      }),
-    )
-    .max(100_000),
-});
+const CachedFileSchema = z.string().max(MAX_FILE_BYTES);
 
 function decode(content: string): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(
@@ -224,6 +215,7 @@ export async function takeSnapshot(
   repo: StoredRepository,
   practices: Practice[],
   preloadedHead?: PreloadedHead,
+  cache?: GitHubSnapshotCache,
 ): Promise<RepoSnapshot> {
   const needed = filesNeeded(practices);
   const needsSettings = practices.some((practice) =>
@@ -274,19 +266,27 @@ export async function takeSnapshot(
     treeError = headError ?? "Repository head could not be read.";
   } else if (needsTree) {
     try {
-      const treeResponse = await octokitGet(
-        client,
-        "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
-        { owner: repo.owner, repo: repo.name, tree_sha: headSha, recursive: "1" },
-        TreeSchema,
-      );
+      const cached = await cache?.get("tree", GitHubTreeSchema);
+      const data =
+        cached ??
+        (
+          await octokitGet(
+            client,
+            "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
+            { owner: repo.owner, repo: repo.name, tree_sha: headSha, recursive: "1" },
+            GitHubTreeSchema,
+          )
+        ).data;
+      if (!cached && !data.truncated) {
+        await cache?.put("tree", data);
+      }
       tree = {
         paths: new Set(
-          treeResponse.data.tree
+          data.tree
             .filter((entry) => entry.type === "blob" && entry.mode !== "120000")
             .map((entry) => entry.path),
         ),
-        truncated: treeResponse.data.truncated,
+        truncated: data.truncated,
       };
     } catch (error) {
       const status = errorStatus(error);
@@ -354,19 +354,26 @@ export async function takeSnapshot(
           }
 
           try {
-            const response = await octokitGet(
-              client,
-              "GET /repos/{owner}/{repo}/contents/{path}",
-              { owner: repo.owner, repo: repo.name, path, ref: headSha ?? undefined },
-              ContentsFileSchema,
-            );
+            const resource = `contents/${path}`;
+            let content = await cache?.get(resource, CachedFileSchema);
+            if (content === undefined) {
+              const response = await octokitGet(
+                client,
+                "GET /repos/{owner}/{repo}/contents/{path}",
+                { owner: repo.owner, repo: repo.name, path, ref: headSha ?? undefined },
+                ContentsFileSchema,
+              );
 
-            if (response.data.size > MAX_FILE_BYTES) {
-              snapshot.files.set(path, { error: "File larger than 512 KB" });
-              return;
+              if (response.data.size > MAX_FILE_BYTES) {
+                snapshot.files.set(path, { error: "File larger than 512 KB" });
+                return;
+              }
+
+              content = decode(response.data.content);
+              if (headSha !== null) {
+                await cache?.put(resource, content);
+              }
             }
-
-            const content = decode(response.data.content);
             snapshot.files.set(path, content);
             if (followsLint && /\.jsonc?$/.test(path) && !path.endsWith("package.json")) {
               const extensions =
