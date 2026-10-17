@@ -228,6 +228,7 @@ export interface StoredResult {
   checks: CheckResult[];
   headSha: string | null;
   catalogSha: string | null;
+  evaluationKey?: string | null;
 }
 
 interface ResultInput {
@@ -240,6 +241,7 @@ interface ResultInput {
   headSha: string | null;
   catalogSha: string | null;
   checkedAt: string | null;
+  evaluationKey: string | null;
 }
 
 async function writeResultInputs(
@@ -264,14 +266,15 @@ async function writeResultInputs(
                json_extract(value, '$.checks') AS checks_json,
                json_extract(value, '$.headSha') AS head_sha,
                json_extract(value, '$.catalogSha') AS catalog_sha,
-               json_extract(value, '$.checkedAt') AS checked_at
+               json_extract(value, '$.checkedAt') AS checked_at,
+               json_extract(value, '$.evaluationKey') AS evaluation_key
              FROM json_each(?)
            )
            INSERT INTO results
              (repo_full_name, practice_id, state, failing, unknown, checks_json,
-              head_sha, catalog_sha, checked_at)
+              head_sha, catalog_sha, checked_at, evaluation_key)
            SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
-                  head_sha, catalog_sha, checked_at
+                  head_sha, catalog_sha, checked_at, evaluation_key
            FROM input
            WHERE true
            ON CONFLICT(repo_full_name, practice_id) DO UPDATE SET
@@ -281,6 +284,7 @@ async function writeResultInputs(
              checks_json = excluded.checks_json,
              head_sha = excluded.head_sha,
              catalog_sha = excluded.catalog_sha,
+             evaluation_key = excluded.evaluation_key,
              retrying = 0,
              checked_at = ${checkedAtUpdate}`,
         )
@@ -304,6 +308,7 @@ interface ResultRow {
   catalog_sha: string | null;
   checked_at: string | null;
   retrying: number;
+  evaluation_key: string | null;
 }
 
 function resultFromRow(row: ResultRow): StoredResult {
@@ -326,6 +331,7 @@ function resultFromRow(row: ResultRow): StoredResult {
     checks: JSON.parse(row.checks_json) as CheckResult[],
     headSha: row.head_sha,
     catalogSha: row.catalog_sha,
+    evaluationKey: row.evaluation_key,
   };
 }
 
@@ -346,6 +352,7 @@ export async function writeResults(db: D1Database, rows: StoredResult[]): Promis
       headSha: row.headSha,
       catalogSha: row.catalogSha,
       checkedAt: row.cell.checkedAt,
+      evaluationKey: row.evaluationKey ?? null,
     })),
     false,
   );
@@ -356,7 +363,7 @@ export async function readResults(db: D1Database, repo?: string): Promise<Stored
     ? await db
         .prepare(
           `SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
-                  head_sha, catalog_sha, checked_at, retrying
+                  head_sha, catalog_sha, checked_at, retrying, evaluation_key
            FROM results WHERE repo_full_name = ? ORDER BY practice_id`,
         )
         .bind(repo)
@@ -364,30 +371,12 @@ export async function readResults(db: D1Database, repo?: string): Promise<Stored
     : await db
         .prepare(
           `SELECT repo_full_name, practice_id, state, failing, unknown, checks_json,
-                  head_sha, catalog_sha, checked_at, retrying
+                  head_sha, catalog_sha, checked_at, retrying, evaluation_key
            FROM results ORDER BY repo_full_name, practice_id`,
         )
         .all<ResultRow>();
 
   return result.results.map(resultFromRow);
-}
-
-interface LastEvaluation {
-  headSha: string | null;
-  catalogSha: string | null;
-}
-
-export async function lastEvaluation(db: D1Database, repo: string): Promise<LastEvaluation | null> {
-  const row = await db
-    .prepare(
-      `SELECT head_sha, catalog_sha
-       FROM results WHERE repo_full_name = ?
-       ORDER BY checked_at DESC LIMIT 1`,
-    )
-    .bind(repo)
-    .first<Pick<ResultRow, "head_sha" | "catalog_sha">>();
-
-  return row ? { headSha: row.head_sha, catalogSha: row.catalog_sha } : null;
 }
 
 const unknownCheck = (detail: string): CheckResult => ({
@@ -424,6 +413,7 @@ export async function markUnknown(
       headSha: null,
       catalogSha: catalog.sha,
       checkedAt: null,
+      evaluationKey: null,
     })),
     true,
   );

@@ -121,6 +121,7 @@ function queueSpies() {
 
 async function clearData(): Promise<void> {
   await appEnv.DB.batch([
+    appEnv.DB.prepare("DELETE FROM github_snapshot_cache"),
     appEnv.DB.prepare("DELETE FROM results"),
     appEnv.DB.prepare("DELETE FROM catalog"),
     appEnv.DB.prepare("DELETE FROM repositories"),
@@ -149,6 +150,43 @@ describe("evaluation queue Worker seam", () => {
     await clearData();
     vi.restoreAllMocks();
   });
+
+  it.each(["manual", "push", "sweep", "catalog"] as const)(
+    "revalidates a repeated %s refresh without downloading unchanged files",
+    async (reason) => {
+      const repo = repository("octo/demo", 1);
+      const definition = practice("readme");
+      if (!definition.parsed.ok) {
+        throw new Error("Invalid fixture");
+      }
+      definition.parsed.practice.checks = [
+        { type: "file-contains", path: "README.md", text: "readme" },
+      ];
+      definition.yaml = JSON.stringify(definition.parsed.practice);
+      await upsertRepositories(appEnv.DB, [repo], new Date().toISOString());
+      await writeCatalog(
+        appEnv.DB,
+        { ...catalog(), practices: [definition] },
+        new Date().toISOString(),
+      );
+      mockGitHub();
+      const body: EvaluationMessage = { repo: repo.fullName, installationId: 1, reason };
+      await runQueue([body]);
+      const previous = await store.readResults(appEnv.DB, repo.fullName);
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockClear();
+
+      const { result } = await runQueue([body]);
+
+      expect(result.explicitAcks).toEqual(["message-1"]);
+      const reads = fetchMock.mock.calls
+        .map(([input, init]) => new Request(input, init))
+        .filter((request) => request.method === "GET")
+        .map((request) => new URL(request.url).pathname);
+      expect(reads).toEqual(["/repos/octo/demo/commits/main"]);
+      expect(await store.readResults(appEnv.DB, repo.fullName)).toEqual(previous);
+    },
+  );
 
   it("evaluates and acknowledges both messages in a batch", async () => {
     const repos = [repository("octo/one", 1), repository("octo/two", 2)];
@@ -567,7 +605,7 @@ describe("evaluation queue Worker seam", () => {
     ).toMatchObject({ pending: 0 });
   });
 
-  it("forces installation and sweep evaluations even when their SHA is unchanged", async () => {
+  it("forces installation evaluations and revalidates other triggers using cached results", async () => {
     await upsertRepositories(
       appEnv.DB,
       ["push", "installation", "sweep", "manual", "catalog"].map((reason) =>
@@ -592,9 +630,9 @@ describe("evaluation queue Worker seam", () => {
     expect(evaluation.mock.calls.map(([, , options]) => options)).toEqual([
       { force: false },
       { force: true },
-      { force: true },
-      { force: true },
-      { force: true },
+      { force: false },
+      { force: false },
+      { force: false },
     ]);
   });
 });

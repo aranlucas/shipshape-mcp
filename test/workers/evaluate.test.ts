@@ -145,6 +145,7 @@ interface GitHubMockOptions {
   tokenStatus?: number;
   headStatus?: number;
   treeStatus?: number;
+  treeTruncated?: boolean;
   treePaths?: string[];
   settings?: Record<string, unknown>;
   head?: string;
@@ -207,7 +208,7 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
 
         return Promise.resolve(
           jsonResponse({
-            truncated: false,
+            truncated: options.treeTruncated ?? false,
             tree: (options.treePaths ?? ["README.md"]).map((path) => ({
               path,
               mode: "100644",
@@ -265,6 +266,7 @@ function mockGitHub(options: GitHubMockOptions = {}): FetchCall[] {
 beforeEach(async () => {
   await env.OAUTH_KV.delete("app:installation-token:42");
   await appEnv.DB.batch([
+    appEnv.DB.prepare("DELETE FROM github_snapshot_cache"),
     appEnv.DB.prepare("DELETE FROM results"),
     appEnv.DB.prepare("DELETE FROM catalog"),
     appEnv.DB.prepare("DELETE FROM repositories"),
@@ -277,6 +279,75 @@ afterEach(() => {
 });
 
 describe("evaluateRepository", () => {
+  it("shares immutable GitHub inputs between separate practice evaluations", async () => {
+    await seed(
+      catalog([
+        validPractice("first", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+        validPractice("second", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+          { type: "file-contains", path: "config.txt", text: "content" },
+        ]),
+      ]),
+    );
+    const calls = mockGitHub({ treePaths: ["README.md", "config.txt"] });
+    await evaluateRepository(appEnv, repoName, { practiceId: "first" });
+    calls.length = 0;
+
+    await evaluateRepository(appEnv, repoName, { practiceId: "second" });
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/repos/octo/demo/commits/main",
+      "/repos/octo/demo/contents/config.txt",
+    ]);
+    expect((await readResults(appEnv.DB, repoName)).every((row) => row.cell.state === "pass")).toBe(
+      true,
+    );
+  });
+
+  it("does not reuse a truncated tree when another practice needs a complete inventory", async () => {
+    await seed(
+      catalog([
+        validPractice("first", "files", [
+          { type: "file-exists", path: "README.md", absent: false },
+        ]),
+        validPractice("second", "files", [
+          { type: "file-exists", path: "other.txt", absent: false },
+        ]),
+      ]),
+    );
+    mockGitHub({ treePaths: ["README.md"], treeTruncated: true });
+    await evaluateRepository(appEnv, repoName, { practiceId: "first" });
+    const calls = mockGitHub({ treePaths: ["README.md", "other.txt"] });
+
+    await evaluateRepository(appEnv, repoName, { practiceId: "second" });
+
+    expect(calls.some((call) => call.path.includes("/git/trees/"))).toBe(true);
+    expect(
+      (await readResults(appEnv.DB, repoName)).find((row) => row.practiceId === "second")?.cell
+        .state,
+    ).toBe("pass");
+  });
+
+  it("fetches new file content after the repository head changes", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "original" },
+        ]),
+      ]),
+    );
+    mockGitHub({ fileContent: "original" });
+    await evaluateRepository(appEnv, repoName);
+    const calls = mockGitHub({ head: "c".repeat(40), fileContent: "changed" });
+
+    await evaluateRepository(appEnv, repoName);
+
+    expect(calls.some((call) => call.path === "/repos/octo/demo/contents/README.md")).toBe(true);
+    expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("fail");
+  });
+
   it("revalidates a cached dependency definition and replaces its old invalid result", async () => {
     const practice = validPractice("dependency-presence", "files", [
       { type: "dependency", file: "package.json", name: "example-package" },
@@ -482,6 +553,197 @@ describe("evaluateRepository", () => {
     expect(calls.some((call) => call.path === "/repos/octo/demo")).toBe(true);
     expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("fail");
   });
+
+  it("preserves cached file results while rechecking mutable settings", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+        validPractice("squash", "settings", [
+          { type: "setting", key: "allow_squash_merge", equals: true },
+        ]),
+      ]),
+    );
+    const calls = mockGitHub();
+    await evaluateRepository(appEnv, repoName);
+    const previous = (await readResults(appEnv.DB, repoName)).find(
+      (row) => row.practiceId === "readme",
+    );
+    calls.length = 0;
+
+    await evaluateRepository(appEnv, repoName);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "/repos/octo/demo/commits/main",
+      "/repos/octo/demo",
+    ]);
+    expect(
+      (await readResults(appEnv.DB, repoName)).find((row) => row.practiceId === "readme"),
+    ).toEqual(previous);
+  });
+
+  it("rechecks a missing practice even when another result matches the current head and catalog", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-exists", path: "README.md", absent: false },
+        ]),
+        validPractice("missing", "files", [
+          { type: "file-exists", path: "missing.txt", absent: false },
+        ]),
+      ]),
+    );
+    mockGitHub();
+    await evaluateRepository(appEnv, repoName);
+    await deleteResultsNotIn(appEnv.DB, repoName, ["readme"]);
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    expect(
+      (await readResults(appEnv.DB, repoName)).find((row) => row.practiceId === "missing")?.cell
+        .state,
+    ).toBe("fail");
+  });
+
+  it.each([null, "older-evaluator"])(
+    "recomputes results with an obsolete evaluation key (%s)",
+    async (key) => {
+      await seed(
+        catalog([
+          validPractice("readme", "files", [
+            { type: "file-exists", path: "README.md", absent: false },
+          ]),
+        ]),
+      );
+      const calls = mockGitHub();
+      await evaluateRepository(appEnv, repoName);
+      await appEnv.DB.prepare("UPDATE results SET evaluation_key = ? WHERE repo_full_name = ?")
+        .bind(key, repoName)
+        .run();
+      calls.length = 0;
+
+      await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+      expect(calls.map((call) => call.path)).toEqual(["/repos/octo/demo/commits/main"]);
+      expect((await readResults(appEnv.DB, repoName))[0]?.evaluationKey).toEqual(
+        expect.any(String),
+      );
+    },
+  );
+
+  it.each([{ archived: true }, { fork: true }, { private: true }, { language: "Rust" }])(
+    "invalidates file results when repository applicability changes (%j)",
+    async (change) => {
+      const practice = validPractice(
+        "readme",
+        "files",
+        [{ type: "file-exists", path: "README.md", absent: false }],
+        { visibility: "public", languages: ["TypeScript"] },
+      );
+      await seed(catalog([practice]));
+      mockGitHub();
+      await evaluateRepository(appEnv, repoName);
+      await upsertRepositories(appEnv.DB, [{ ...repository, ...change }], new Date().toISOString());
+
+      await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+      expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("not_applicable");
+    },
+  );
+
+  it("rechecks only unknown file practices while preserving healthy cached evidence", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+        validPractice("other", "files", [
+          { type: "file-contains", path: "other.txt", text: "content" },
+        ]),
+      ]),
+    );
+    mockGitHub({
+      treePaths: ["README.md", "other.txt"],
+      failedRead: { path: "/repos/octo/demo/contents/other.txt", status: 403 },
+    });
+    await evaluateRepository(appEnv, repoName);
+    const healthy = (await readResults(appEnv.DB, repoName)).find(
+      (row) => row.practiceId === "readme",
+    );
+    const calls = mockGitHub({ treePaths: ["README.md", "other.txt"] });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    expect(
+      calls.filter((call) => call.path.includes("/contents/")).map((call) => call.path),
+    ).toEqual(["/repos/octo/demo/contents/other.txt"]);
+    const rows = await readResults(appEnv.DB, repoName);
+    expect(rows.find((row) => row.practiceId === "readme")).toEqual(healthy);
+    expect(rows.find((row) => row.practiceId === "other")?.cell.state).toBe("pass");
+  });
+
+  it("rechecks an older practice result even when a newer practice matches the head", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+        validPractice("other", "files", [
+          { type: "file-contains", path: "other.txt", text: "content" },
+        ]),
+      ]),
+    );
+    mockGitHub({ treePaths: ["README.md", "other.txt"] });
+    await evaluateRepository(appEnv, repoName);
+    await appEnv.DB.prepare(
+      "UPDATE results SET head_sha = ?, checked_at = ? WHERE practice_id = 'other'",
+    )
+      .bind("c".repeat(40), oldCheckedAt)
+      .run();
+    const calls = mockGitHub({ treePaths: ["README.md", "other.txt"] });
+
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+    expect(calls.map((call) => call.path)).toEqual(["/repos/octo/demo/commits/main"]);
+    expect((await readResults(appEnv.DB, repoName)).every((row) => row.headSha === headSha)).toBe(
+      true,
+    );
+  });
+
+  it.each(["head", "catalog", "branch"] as const)(
+    "invalidates cached files when the %s changes",
+    async (change) => {
+      const value = catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+      ]);
+      await seed(value);
+      mockGitHub();
+      await evaluateRepository(appEnv, repoName);
+      if (change === "catalog") {
+        await writeCatalog(appEnv.DB, { ...value, sha: nextCatalogSha }, new Date().toISOString());
+      }
+      if (change === "branch") {
+        await upsertRepositories(
+          appEnv.DB,
+          [{ ...repository, defaultBranch: "develop" }],
+          new Date().toISOString(),
+        );
+      }
+      const calls = mockGitHub({ head: change === "head" ? "c".repeat(40) : headSha });
+
+      await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
+
+      expect(calls[0]?.path).toBe(
+        `/repos/octo/demo/commits/${change === "branch" ? "develop" : "main"}`,
+      );
+      const row = (await readResults(appEnv.DB, repoName))[0];
+      expect(row?.cell.state).toBe(change === "branch" ? "unknown" : "pass");
+      expect(row?.catalogSha).toBe(change === "catalog" ? nextCatalogSha : catalogSha);
+    },
+  );
 
   it("rechecks CI protection changes without a new commit or catalog revision", async () => {
     await seed(catalog([validPractice("ci", "files", [{ type: "ci-required-checks" }])]));

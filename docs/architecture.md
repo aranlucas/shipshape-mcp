@@ -99,10 +99,46 @@ template differences, including repository-specific additions.
 
 ### Refreshing stored results
 
-Deploying an evaluator change does not replace stored results. Use the owner
-dashboard's Refresh action to enqueue fresh evaluations, then confirm that
-`repo_practices` reports a declared Oxforge range as pass for the existing
-presence-only dependency check. The read-only MCP tools do not trigger refreshes.
+The owner dashboard's Refresh action revalidates each repository's current
+default-branch head. Manual refreshes, pushes, catalog events, and daily sweeps
+reuse healthy file-practice results when their head SHA, catalog SHA, and
+evaluation key match. Cached evidence and its original `checkedAt` are preserved;
+the sweep completion time records completion of the revalidation.
+
+Reuse is decided per practice. Missing, unknown, retrying, and incomplete results
+are recomputed without rewriting other healthy results. Practices containing
+settings, branch-protection, or CI required-check checks are always evaluated
+because these settings can change without a commit. Snapshots for settings-only
+and protection-only practices skip the repository tree unless applicability
+requires files. Installation events still force evaluation to verify permissions.
+
+The evaluation key includes repository metadata used by applicability and an
+evaluator version. Bump `EVALUATOR_VERSION` in
+`src/practices/evaluation-key.ts` whenever evaluator semantics change, then use
+Refresh to replace stored evidence. Existing rows without the key are recomputed
+on their next evaluation. Apply `0003_evaluation_key.sql` before deploying this
+code; the standard deploy script applies migrations automatically. The read-only
+MCP tools do not trigger refreshes.
+
+### Sharing GitHub inputs between practices
+
+Practices in one evaluation share a single repository snapshot. Separate practice
+deliveries and later evaluations also share a D1 cache of complete Git trees and
+successfully decoded file contents. Entries are scoped by installation,
+repository, commit SHA, and resource path, so a new commit fetches its own data.
+Catalog or evaluator changes can recompute results using the same immutable
+inputs without downloading them again.
+
+The default-branch head, repository settings, and branch protection are read live.
+Forced evaluations, including installation events, bypass cached inputs. Failed
+reads, truncated trees, and oversized files are not cached; an unavailable or
+malformed cache falls back to GitHub. Each cached JSON payload is limited to
+512 KiB, entries expire after seven days, and the daily sweep removes expired
+entries. Existing snapshot read budgets still apply.
+
+Apply `0004_github_snapshot_cache.sql` before deploying these changes; the standard
+deploy script applies it automatically. Concurrent evaluations that encounter a
+cold cache may both fetch the same input before either has stored it.
 
 ## Runtime flow
 
