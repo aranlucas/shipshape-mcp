@@ -56,6 +56,13 @@ nested packages, to declare a test script that runs Vitest (for example,
 executing scripts. Unreadable files, incomplete inventories, and indirect or
 complex commands require review and remain unknown.
 
+The `pr-workflow-efficiency` check requires PR workflows to cancel superseded
+runs using stable concurrency groups, handle ready-for-review and draft
+transitions, and skip draft work at every job. Path-filter cleanup, reusable
+workflow internals, and complex expressions remain unknown for review. The seed
+includes remediation instructions; deploy evaluator support before adopting it
+in the separate live catalog.
+
 The `required-package-scripts` check also requires non-empty `lint`, `format`,
 and `build` scripts in every tracked `package.json`. Missing entries and obvious
 placeholders fail. It checks declarations without running commands; unreadable

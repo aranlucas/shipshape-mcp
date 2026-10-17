@@ -128,7 +128,7 @@ export function filesNeeded(practices: Practice[]): string[] {
         paths.add(path);
       }
 
-      if (check.type === "workflow") {
+      if (check.type === "workflow" || check.type === "pr-workflow-efficiency") {
         paths.add(WORKFLOW_MARKER);
       }
     }

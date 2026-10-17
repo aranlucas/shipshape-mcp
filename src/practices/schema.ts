@@ -109,6 +109,7 @@ const CheckDefinitionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cloudflare-cf-cli") }).strict(),
   z.object({ type: z.literal("ci-required-checks") }).strict(),
   z.object({ type: z.literal("ci-test-script") }).strict(),
+  z.object({ type: z.literal("pr-workflow-efficiency") }).strict(),
   z.object({ type: z.literal("preferred-package-manager") }).strict(),
   z.object({ type: z.literal("pnpm-setup") }).strict(),
   z.object({ type: z.literal("vitest-test-script") }).strict(),
@@ -202,6 +203,7 @@ export const CheckSchema = CheckDefinitionSchema.transform((check) => {
     case "required-package-scripts":
     case "ci-required-checks":
     case "ci-test-script":
+    case "pr-workflow-efficiency":
     case "preferred-package-manager":
     case "pnpm-setup":
     case "dependabot-grouped":
@@ -346,6 +348,8 @@ export function checkLabel(check: Check): string {
       return "ci.yml jobs are required status checks on the default branch";
     case "ci-test-script":
       return "ci.yml runs the declared package test script";
+    case "pr-workflow-efficiency":
+      return "PR checks cancel superseded runs and skip draft jobs";
     case "preferred-package-manager":
       return "Use pnpm or Bun instead of npm";
     case "pnpm-setup":

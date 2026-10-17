@@ -5,6 +5,7 @@ const FILE_CHECKS = new Set([
   "cloudflare-cf-cli",
   "ci-required-checks",
   "ci-test-script",
+  "pr-workflow-efficiency",
   "required-package-scripts",
   "file-exists",
   "file-matches",
