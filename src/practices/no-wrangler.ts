@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConfigObjectSchema, type ConfigDocument, type ConfigValue } from "./config-value";
 import type { CheckOutcome } from "./checks/result";
 import { readConfigFile } from "./repository-files";
-import { invokesShellCommand } from "./shell-command";
+import { hidesCommandSubstitution, invokesShellCommand } from "./shell-command";
 import type { RepoSnapshot } from "./snapshot";
 
 const DEPENDENCY_SECTIONS = [
@@ -33,7 +33,7 @@ function inspectCommand(source: string): CheckOutcome {
   if (
     invokesShellCommand(source, WRANGLER_ALIAS) ||
     invokesShellCommand(source, INDIRECT_SHELL) ||
-    /\$\(|`/u.test(source)
+    hidesCommandSubstitution(source)
   ) {
     return {
       state: "unknown",
