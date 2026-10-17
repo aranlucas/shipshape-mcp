@@ -4,11 +4,7 @@ import * as entrypoint from "./src/index" with { type: "cf-worker" };
 import { deploymentResources } from "./src/deployment-resources.ts";
 
 export default defineConfig(({ mode }) => {
-  const resources = deploymentResources(
-    mode ?? "production",
-    manifest.config.d1DatabaseId,
-    process.env,
-  );
+  const resources = deploymentResources(mode ?? "production", manifest.config, process.env);
 
   return {
     worker: {

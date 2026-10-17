@@ -43,8 +43,8 @@ jobs:
           - name: Test
             run: pnpm test
 
-          - name: Deploy dry run
-            run: pnpm dry-run
+          - name: Preview build and production deploy dry run
+            run: pnpm build:preview && pnpm dry-run
 
       - name: Check patch hygiene
         run: git diff --check
