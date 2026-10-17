@@ -583,35 +583,28 @@ describe("dashboard API", () => {
     );
   });
 
-  it("rejects a mutating request from another origin", async () => {
-    const response = await request("/app/api/practices/husky", {
-      method: "PUT",
-      headers: { origin: "https://evil.example" },
-      body: JSON.stringify({ yaml: validYaml }),
-    });
-    expect(response.status).toBe(403);
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: expect.any(String),
-    });
-  });
+  it.each(["text/plain", ""])(
+    "accepts valid JSON without a JSON content type (%s)",
+    async (contentType) => {
+      const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+      const response = await request("/app/api/refresh", {
+        method: "POST",
+        headers: { origin: ORIGIN, "content-type": contentType },
+        body: JSON.stringify({ repo: "aranlucas/alpha" }),
+      });
 
-  it("rejects a mutating request without a JSON content type", async () => {
-    const response = await request("/app/api/practices/husky", {
-      method: "PUT",
-      headers: { origin: ORIGIN, "content-type": "text/plain" },
-      body: validYaml,
-    });
-    expect(response.status).toBe(400);
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: expect.any(String),
-    });
-  });
+      expect(response.status).toBe(202);
+      expect(RefreshResponseSchema.parse(await parseJson(response))).toEqual({ queued: 1 });
+      expect(sendBatch).toHaveBeenCalledWith([
+        { body: { repo: "aranlucas/alpha", installationId: 1, reason: "manual" } },
+      ]);
+    },
+  );
 
-  it("returns 404 when deleting an unknown practice", async () => {
+  it("allows DELETE without a body or content type and returns 404 for an unknown practice", async () => {
     const response = await request("/app/api/practices/unknown", {
       method: "DELETE",
       headers: { origin: ORIGIN },
-      body: "{}",
     });
     expect(response.status).toBe(404);
     expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
@@ -658,7 +651,6 @@ describe("dashboard API", () => {
     const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
     const response = await request("/app/api/refresh", {
       method: "POST",
-      headers: { origin: ORIGIN },
       body: JSON.stringify({ repo: "aranlucas/alpha" }),
     });
     expect(response.status).toBe(202);
@@ -735,24 +727,6 @@ describe("dashboard API", () => {
     });
   });
 
-  it.each([
-    ["PUT", "/app/api/practices/husky"],
-    ["DELETE", "/app/api/practices/husky"],
-    ["POST", "/app/api/refresh"],
-  ])("rejects cross-site %s requests to %s", async (method, path) => {
-    const response = await request(path, {
-      method,
-      headers: { origin: ORIGIN, "sec-fetch-site": "cross-site" },
-      body: "{}",
-    });
-
-    expect(response.status).toBe(403);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
-      error: "Cross-origin request refused.",
-    });
-  });
-
   it.each(["{", "[]", "null"])("rejects an invalid JSON object body (%s)", async (body) => {
     const response = await request("/app/api/refresh", {
       method: "POST",
@@ -767,28 +741,25 @@ describe("dashboard API", () => {
     });
   });
 
-  it("keeps unsupported methods behind the request guards and returns a JSON 404", async () => {
-    const denied = await request("/app/api/overview", { method: "PATCH" });
-    expect(denied.status).toBe(403);
+  it.each(["PATCH", "OPTIONS"])(
+    "returns a JSON 404 for unsupported %s requests",
+    async (method) => {
+      const response = await request("/app/api/overview", { method });
 
-    const response = await request("/app/api/overview", {
-      method: "PATCH",
-      headers: { origin: ORIGIN, "content-type": "application/json" },
-    });
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
+        error: "Not found",
+      });
+    },
+  );
 
-    expect(response.status).toBe(404);
+  it("serves HEAD requests through GET without requiring write headers", async () => {
+    const response = await request("/app/api/overview", { method: "HEAD" });
+
+    expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({ error: "Not found" });
-  });
-
-  it("does not implicitly serve GET routes for HEAD requests", async () => {
-    const response = await request("/app/api/overview", {
-      method: "HEAD",
-      headers: { origin: ORIGIN, "content-type": "application/json" },
-    });
-
-    expect(response.status).toBe(404);
-    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
   });
 
   it("returns a safe JSON response for unexpected handler failures", async () => {
