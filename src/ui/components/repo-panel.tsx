@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "preact/hooks";
 import type {
   CheckResult,
@@ -10,7 +10,7 @@ import { ApiError } from "../api";
 import { evidenceLink } from "../evidence";
 import { STATE_WORDS, plural, timeAgo } from "../format";
 import { linkHandler, navigate, paths } from "../router";
-import { POLL_MS, repoNeedsUpdate, repoQuery } from "../queries";
+import { POLL_MS, queryKeys, repoNeedsUpdate, repoQuery } from "../queries";
 import { startTask } from "../tasks";
 import { StateMark } from "./state-mark";
 import { QueryStatus } from "./query-status";
@@ -206,6 +206,7 @@ function PracticeEntry({ entry, repo }: PracticeEntryProps) {
 }
 
 export function RepoPanel({ owner, name, overview, onRefresh, refreshing }: RepoPanelProps) {
+  const client = useQueryClient();
   const fullName = `${owner}/${name}`;
   const summary = overview.repos.find((item) => item.fullName === fullName);
 
@@ -218,6 +219,34 @@ export function RepoPanel({ owner, name, overview, onRefresh, refreshing }: Repo
   });
 
   const detail = query.data ?? null;
+
+  async function reload() {
+    const response = await query.refetch();
+
+    if (!response.isSuccess) {
+      return;
+    }
+
+    const latest = response.data;
+    client.setQueryData<OverviewResponse>(queryKeys.overview, (current) => {
+      if (!current || current.catalog.sha !== latest.catalog.sha) {
+        return current;
+      }
+
+      return {
+        ...current,
+        repos: current.repos.map((item) =>
+          item.fullName === latest.repo.fullName ? latest.repo : item,
+        ),
+        results: {
+          ...current.results,
+          [latest.repo.fullName]: Object.fromEntries(
+            latest.practices.map((entry) => [entry.practice.id, entry.result]),
+          ),
+        },
+      };
+    });
+  }
 
   const error = query.error
     ? query.error instanceof ApiError
@@ -294,6 +323,15 @@ export function RepoPanel({ owner, name, overview, onRefresh, refreshing }: Repo
               Open on GitHub
             </a>
           )}
+          <button
+            type="button"
+            class="button button-quiet"
+            disabled={query.isFetching}
+            onClick={() => startTask(reload())}
+            title="Load the latest stored results for this repository"
+          >
+            {query.isFetching ? "Refreshing…" : "Refresh"}
+          </button>
           <button
             type="button"
             class="button button-quiet"

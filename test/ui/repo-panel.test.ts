@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OverviewResponse, RepoDetailResponse, RepoSummary } from "@/api/contract";
 import { api, ApiError } from "@/ui/api";
 import { App } from "@/ui/app";
-import { createQueryClient } from "@/ui/queries";
+import { createQueryClient, overviewQuery, repoQuery } from "@/ui/queries";
 import { navigate } from "@/ui/router";
 
 function repository(name: string): RepoSummary {
@@ -149,14 +149,14 @@ async function poll() {
 }
 
 describe("repository panel during overview polling", () => {
-  it("refreshes stored results and open details explicitly while preserving the view", async () => {
-    const nextOverview = deferred<OverviewResponse>();
+  it("refreshes only the selected repository while preserving the view and other cached results", async () => {
     const nextDetail = deferred<RepoDetailResponse>();
+    const initial = overview(0);
+    initial.results[other.fullName] = { lint: cell };
 
-    const overviewRequest = vi
-      .spyOn(api, "overview")
-      .mockResolvedValueOnce(overview(0))
-      .mockReturnValue(nextOverview.promise);
+    const overviewRequest = vi.spyOn(api, "overview").mockResolvedValue(initial);
+    const otherDetail = detail(other, "Other check");
+    client.setQueryData(repoQuery(other.owner, other.name).queryKey, otherDetail);
 
     const repoRequest = vi
       .spyOn(api, "repo")
@@ -165,11 +165,12 @@ describe("repository panel during overview polling", () => {
 
     const check = vi.spyOn(api, "refresh");
     await mount();
+    expect(container.querySelector(".masthead")?.textContent).not.toContain("Refresh");
 
     const section = container.querySelector<HTMLDetailsElement>(".panel-section details");
     const filter = container.querySelector<HTMLInputElement>("input[type='search']");
 
-    const refresh = [...container.querySelectorAll("button")].find(
+    const refresh = [...container.querySelectorAll<HTMLButtonElement>(".panel button")].find(
       (button) => button.textContent === "Refresh",
     );
 
@@ -184,8 +185,13 @@ describe("repository panel during overview polling", () => {
       refresh.click();
     });
     await flushQueries();
-    expect(overviewRequest).toHaveBeenCalledTimes(2);
+    expect(overviewRequest).toHaveBeenCalledTimes(1);
     expect(repoRequest).toHaveBeenCalledTimes(2);
+    expect(repoRequest).toHaveBeenLastCalledWith(
+      vienna.owner,
+      vienna.name,
+      expect.any(AbortSignal),
+    );
     expect(refresh.textContent).toBe("Refreshing…");
     expect(refresh.disabled).toBe(true);
     expect(container.textContent).toContain("Original check");
@@ -194,7 +200,6 @@ describe("repository panel during overview polling", () => {
     expect(check).not.toHaveBeenCalled();
 
     await act(() => {
-      nextOverview.resolve(overview(0, "2026-10-15T13:00:00Z"));
       nextDetail.resolve(detail(vienna, "Updated check", "2026-10-15T13:00:00Z"));
     });
     await flushQueries();
@@ -204,6 +209,15 @@ describe("repository panel during overview polling", () => {
     expect(filter.value).toBe("vienna");
     expect(refresh.textContent).toBe("Refresh");
     expect(refresh.disabled).toBe(false);
+    expect(client.getQueryData<OverviewResponse>(overviewQuery.queryKey)?.results).toEqual({
+      [vienna.fullName]: { lint: { ...cell, checkedAt: "2026-10-15T13:00:00Z" } },
+      [other.fullName]: { lint: cell },
+    });
+    expect(client.getQueryData(repoQuery(other.owner, other.name).queryKey)).toBe(otherDetail);
+    await act(() => navigate("/app/repos/aranlucas/other"));
+    await flushQueries();
+    expect(container.textContent).toContain("Other check");
+    expect(repoRequest).toHaveBeenCalledTimes(2);
   });
 
   it("keeps stale idle results until refresh across focus, reconnect, and panel navigation", async () => {
