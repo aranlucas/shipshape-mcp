@@ -42,15 +42,18 @@ describe("inspection evidence links", () => {
       }),
     ).toBe(`https://github.com/octo/demo/blob/${sha}/packages/core/package.json`);
   });
-  it("links CI job definitions at the evaluated commit", () => {
-    expect(
-      evidenceLink(repo, sha, {
-        ...check,
-        type: "ci-required-checks",
-        path: ".github/workflows/ci.yml",
-      }),
-    ).toBe(`https://github.com/octo/demo/blob/${sha}/.github/workflows/ci.yml`);
-  });
+  it.each(["ci-required-checks", "pr-workflow-efficiency"])(
+    "links %s job definitions at the evaluated commit",
+    (type) => {
+      expect(
+        evidenceLink(repo, sha, {
+          ...check,
+          type,
+          path: ".github/workflows/ci.yml",
+        }),
+      ).toBe(`https://github.com/octo/demo/blob/${sha}/.github/workflows/ci.yml`);
+    },
+  );
   it("pins and encodes file evidence at the individual evaluated commit", () => {
     expect(evidenceLink(repo, sha, check)).toBe(
       `https://github.com/octo/demo/blob/${sha}/config/a%20%23.json`,

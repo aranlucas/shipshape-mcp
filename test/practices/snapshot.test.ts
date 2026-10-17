@@ -162,6 +162,29 @@ describe("filesNeeded", () => {
 });
 
 describe("takeSnapshot API reads", () => {
+  it("reads every PR workflow at the captured commit for efficiency checks", async () => {
+    const contents = {
+      ".github/workflows/check.yml": { content: "on: pull_request\njobs: {}" },
+      ".github/workflows/other.yaml": { content: "on: push\njobs: {}" },
+      ".github/workflows/nested/ignored.yml": { content: "not a workflow" },
+      "scripts/check.ts": { content: "throw new Error('never execute')" },
+    };
+
+    const fixture = snapshotClient({ treePaths: Object.keys(contents), contents });
+    const selected = check({ type: "pr-workflow-efficiency" });
+    const snapshot = await takeSnapshot(fixture.client, snapshotRepository, [practice([selected])]);
+
+    expect([...snapshot.files.keys()].toSorted()).toEqual([
+      ".github/workflows/check.yml",
+      ".github/workflows/other.yaml",
+    ]);
+    expect(runCheck(selected, snapshot, {}).state).toBe("fail");
+    expect(
+      fixture.calls
+        .filter((url) => url.pathname.includes("/contents/"))
+        .every((url) => url.searchParams.get("ref") === headSha),
+    ).toBe(true);
+  });
   it("collects every Wrangler policy input at the captured commit without executing configs", async () => {
     const contents = {
       "packages/worker/package.json": { content: '{"scripts":{"deploy":"wrangler deploy"}}' },

@@ -17,6 +17,7 @@ const expectedPracticeIds = [
   "pnpm-setup",
   "vitest-test-script",
   "required-package-scripts",
+  "pr-workflow-efficiency",
   "oxforge-lint-format",
   "husky-lint-staged",
   "dependabot-weekly-grouped",

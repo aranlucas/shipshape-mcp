@@ -3,6 +3,7 @@ import { inspectLocalCli } from "./local-cli";
 import { inspectNoWrangler } from "./no-wrangler";
 import { inspectCiRequiredChecks } from "./ci-required-checks";
 import { inspectCiTestScript } from "./ci-test-script";
+import { inspectPrWorkflowEfficiency } from "./pr-workflow-efficiency";
 import {
   inspectFileExists,
   inspectFileMatches,
@@ -35,6 +36,8 @@ function inspectCheck(
       return inspectCiRequiredChecks(snapshot);
     case "ci-test-script":
       return inspectCiTestScript(snapshot);
+    case "pr-workflow-efficiency":
+      return inspectPrWorkflowEfficiency(snapshot);
     case "preferred-package-manager":
       return inspectPackageManager(snapshot);
     case "pnpm-setup":

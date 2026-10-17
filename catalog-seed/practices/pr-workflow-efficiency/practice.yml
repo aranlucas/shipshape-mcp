@@ -1,0 +1,7 @@
+version: 1
+id: pr-workflow-efficiency
+title: Prevent wasted GitHub Actions runs
+summary: Cancel superseded PR checks and skip every check job while the pull request is a draft.
+kind: files
+checks:
+  - type: pr-workflow-efficiency
