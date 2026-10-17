@@ -107,8 +107,41 @@ describe("Wrangler absence policy", () => {
     "$DEPLOY_COMMAND",
     'echo "$(wrangler deploy)"',
     'echo "`wrangler deploy`"',
+    'echo "$($DEPLOY_COMMAND)"',
+    "out=`$DEPLOY_COMMAND`",
   ])("preserves review for ambiguous or indirect commands: %s", (command) => {
     expect(inspect({ "package.json": script(command) }).state).toBe("unknown");
+  });
+
+  it.each([
+    'pr=$(gh pr list --json number)\ngh pr merge "$pr" --squash',
+    'echo "$HOME" && version=$(node --version)',
+    'sha=$(git rev-parse HEAD) && cf deploy --tag "$sha"',
+    String.raw`echo "costs \$(1)"`,
+  ])("inspects unquoted command substitutions as ordinary commands: %s", (command) => {
+    expect(inspect({ "package.json": script(command) }).state).toBe("pass");
+  });
+
+  it("rejects Wrangler inside an unquoted command substitution", () => {
+    expect(inspect({ "package.json": script("url=$(wrangler deploy)") }).state).toBe("fail");
+  });
+
+  it("passes the Dependabot auto-merge workflow from the catalog", () => {
+    const run = [
+      'pr=$(gh pr list --head "$HEAD_BRANCH" --state open --json number,author,headRefOid \\',
+      String.raw`  --jq ".[] | select(.author.login == \"app/dependabot\" and .headRefOid == \"$HEAD_SHA\") | .number")`,
+      'if [ -z "$pr" ]; then',
+      '  echo "No open Dependabot PR at $HEAD_SHA; nothing to merge."',
+      "  exit 0",
+      "fi",
+      'gh pr merge "$pr" --squash --delete-branch --match-head-commit "$HEAD_SHA"',
+    ];
+
+    expect(
+      inspect({
+        ".github/workflows/dependabot-automerge.yml": `jobs:\n  merge:\n    steps:\n      - run: |\n${run.map((line) => `          ${line}`).join("\n")}\n`,
+      }).state,
+    ).toBe("pass");
   });
 
   it("checks every script, including aliases not referenced by deploy", () => {
