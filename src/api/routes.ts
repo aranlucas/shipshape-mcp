@@ -257,18 +257,13 @@ api.notFound(() => errorResponse("Not found", 404));
 api.use("*", async (c, next) => {
   const request = c.req.raw;
 
-  if (request.method !== "GET") {
+  if (request.method === "POST" || request.method === "PUT" || request.method === "DELETE") {
     if (!sameOrigin(request, c.env)) {
       return errorResponse("Cross-origin request refused.", 403);
     }
 
     if (!isJsonRequest(request)) {
       return errorResponse("JSON body required", 400);
-    }
-
-    // Hono normally serves HEAD through GET; the dashboard API only supports explicit methods.
-    if (request.method === "HEAD") {
-      return c.notFound();
     }
   }
 

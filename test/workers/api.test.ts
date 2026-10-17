@@ -767,28 +767,25 @@ describe("dashboard API", () => {
     });
   });
 
-  it("keeps unsupported methods behind the request guards and returns a JSON 404", async () => {
-    const denied = await request("/app/api/overview", { method: "PATCH" });
-    expect(denied.status).toBe(403);
+  it.each(["PATCH", "OPTIONS"])(
+    "returns a JSON 404 for unsupported %s requests",
+    async (method) => {
+      const response = await request("/app/api/overview", { method });
 
-    const response = await request("/app/api/overview", {
-      method: "PATCH",
-      headers: { origin: ORIGIN, "content-type": "application/json" },
-    });
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
+        error: "Not found",
+      });
+    },
+  );
 
-    expect(response.status).toBe(404);
+  it("serves HEAD requests through GET without requiring write headers", async () => {
+    const response = await request("/app/api/overview", { method: "HEAD" });
+
+    expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({ error: "Not found" });
-  });
-
-  it("does not implicitly serve GET routes for HEAD requests", async () => {
-    const response = await request("/app/api/overview", {
-      method: "HEAD",
-      headers: { origin: ORIGIN, "content-type": "application/json" },
-    });
-
-    expect(response.status).toBe(404);
-    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
   });
 
   it("returns a safe JSON response for unexpected handler failures", async () => {
