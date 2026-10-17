@@ -2,6 +2,8 @@ import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { OAuthStateStore } from "./oauth-security";
 
 export interface EvaluationMessage {
+  /** Missing only on messages published before durable jobs were deployed. */
+  jobId?: string;
   repo: string;
   installationId: number;
   reason: "push" | "catalog" | "sweep" | "manual" | "installation";
@@ -16,6 +18,8 @@ export interface AppEnv {
   ASSETS?: Fetcher;
   DB: D1Database;
   EVALUATIONS: Queue<EvaluationMessage>;
+  WEBHOOKS: Queue<WebhookMessage>;
+  PREVIEW_READ_ONLY?: string;
   GITHUB_APP_ID: string;
   GITHUB_APP_PRIVATE_KEY: string;
   GITHUB_APP_CLIENT_ID: string;
@@ -29,3 +33,15 @@ export interface AppEnv {
   GITHUB_API_VERSION?: string;
   PUBLIC_ORIGIN?: string;
 }
+
+export type WebhookMessage =
+  | {
+      deliveryId: string;
+      event: "push";
+      repository: string;
+      installationId: number;
+      ref: string;
+      defaultBranch: string;
+    }
+  | { deliveryId: string; event: "repository"; repository: string; installationId: number }
+  | { deliveryId: string; event: "installation" | "installation_repositories" };

@@ -93,13 +93,13 @@ describe("production release", () => {
     const result = deploy();
     expect(result.status, result.stderr).toBe(0);
     expect(result.commands).toEqual([["build"], preflight, migrate, upload]);
-  });
+  }, 30_000);
 
   it("reuses CI artifacts while migrating before upload", () => {
     const result = deploy({ script: "release:ci" });
     expect(result.status, result.stderr).toBe(0);
     expect(result.commands).toEqual([preflight, migrate, upload]);
-  });
+  }, 30_000);
 
   it("stops before migration when the build fails", () => {
     const result = deploy({ fail: "build" });

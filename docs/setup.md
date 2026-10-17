@@ -72,24 +72,21 @@ Run them only after authenticating to the intended Cloudflare account. Keep the
 IDs returned by the create commands; do not substitute a database name where a
 database ID is required.
 
-Create the D1 database and queue:
+Create the D1 database, evaluation queue, ingress queue, and dead-letter queues:
 
 ```sh
 cf d1 create --name shipshape
 cf queues create --queue-name shipshape-evaluations
+cf queues create --queue-name shipshape-webhooks
+cf queues create --queue-name shipshape-evaluations-failed
+cf queues create --queue-name shipshape-webhooks-failed
 ```
 
-The Worker configuration already declares the `DB` binding for the `shipshape`
-database and the `EVALUATIONS` binding for the `shipshape-evaluations` queue.
-If you manage queue consumers explicitly, create the Worker consumer with a
-batch size of five:
-
-```sh
-cf queues consumers create <QUEUE_ID> \
-  --script-name shipshape-mcp \
-  --type worker \
-  --settings-batch-size 5
-```
+The Worker configuration declares `DB`, `EVALUATIONS`, and `WEBHOOKS`. Queue
+consumer settings are managed in `cloudflare.config.ts`: evaluation batches of
+five with one concurrent invocation, ingress batches of one, and explicit retry
+and dead-letter policies. The daily trigger requests a sweep; the minute trigger
+repairs dispatch and expired leases.
 
 Apply the checked-in migrations using the D1 database ID returned by the create
 command:
@@ -280,9 +277,55 @@ npx wrangler@4.151.0 preview secret bulk /secure/path/preview-secrets.json \
 This updates only the named Preview deployment. Do not use a production
 `workers secrets` command when the intended target is a Preview.
 
-The current bindings point to the `shipshape` D1 database by its explicit ID,
-`shipshape-evaluations` queue, and OAuth KV namespace. These resources are
-shared with production. A Preview can enqueue checks, but cannot consume them;
-without a deployed consumer, checks remain pending. Use local D1 and Queue
-simulation to verify the full evaluation flow before production is enabled.
-Keep Preview catalog writes within the intended private catalog repository.
+Previews require dedicated resources and do not fall back to production:
+
+```sh
+cf d1 create --name shipshape-preview
+cf kv namespaces create --title shipshape-preview-oauth
+cf queues create --queue-name shipshape-preview-evaluations
+cf queues create --queue-name shipshape-preview-webhooks
+```
+
+Set `PREVIEW_D1_DATABASE_ID` and `PREVIEW_OAUTH_KV_ID` in the environment used to
+build/deploy previews. Both must differ from production. Apply migrations to the
+preview database explicitly with `cf d1 migrations apply <PREVIEW_DATABASE_ID>
+--dir migrations`. The build fails if the preview resource IDs are missing or
+point at production.
+
+Preview dashboard/API reads and sign-in work against those separate resources.
+Dashboard mutations and webhook acceptance return `403`; built-in maintenance
+is disabled. Previews have no consumers or cron triggers. Seed the preview D1
+catalog/results with test data, and use local simulation for the full processing
+flow. A preview never writes the configured GitHub catalog through its API.
+
+## 8. Durable-job rollout and recovery
+
+Apply `0006_evaluation_jobs.sql` through the normal release entrypoint and create
+the ingress/dead-letter queues above before enabling the new Worker. For the
+first rollout, pause the evaluation consumer and let existing invocations finish
+before migrating/deploying; resume it after deployment. This avoids an old
+Worker invocation publishing unguarded results while new generations are active.
+Old queued messages are accepted and adopted into the job ledger once. A Worker
+code rollback still leaves D1 data in place; the old version cannot enforce the
+new generation checks, so keep consumers paused when reverting across this
+migration boundary.
+
+Queue publication failures do not undo accepted jobs. The minute trigger
+redispatches the outbox and recovers expired ten-minute leases. Persisted job
+attempts cap retries even if an ambiguous send creates another queue delivery.
+A job at the attempt limit becomes failed; structured logs include job and run
+IDs without credentials or repository file contents.
+
+Inspect durable failures with D1 SQL:
+
+```sql
+SELECT id, run_id, repo_full_name, attempts, failure, completed_at
+FROM evaluation_jobs WHERE status = 'failed' ORDER BY completed_at DESC;
+```
+
+A dashboard Refresh creates a new run to retry after fixing the underlying
+issue. Do not reset the aggregate pending counter manually. Reconciliation
+repairs it from job state, including counters left by pre-migration messages.
+Inspect both dead-letter queues after an ingress/platform outage and replay
+failed ingress events with their original delivery IDs. Acknowledged terminal
+evaluation jobs remain in D1 for diagnosis and do not automatically enter a DLQ.

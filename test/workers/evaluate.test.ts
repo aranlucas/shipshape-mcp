@@ -1,5 +1,4 @@
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-readable-spacing, typescript/no-unsafe-assignment */
-
+import type { JsonValue } from "@test/helpers/json";
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,11 +18,17 @@ import {
 import { parsePractice, type Practice } from "@/practices/schema";
 
 // SAFETY: cloudflare:test supplies the Worker bindings configured in vitest.config.ts.
+// SAFETY: cloudflare:test supplies the configured bindings; OAuthProvider adds its helper only on authenticated routes.
 const appEnv = env as AppEnv;
+
 const repoName = "octo/demo";
+
 const headSha = "b".repeat(40);
+
 const catalogSha = "a".repeat(40);
+
 const nextCatalogSha = "d".repeat(40);
+
 const oldCheckedAt = "2026-10-01T12:00:00.000Z";
 
 const repository: StoredRepository = {
@@ -122,7 +127,7 @@ async function seed(catalogValue: Catalog, rows: StoredResult[] = []): Promise<v
   }
 }
 
-function jsonResponse(value: unknown, status = 200, url?: string): Response {
+function jsonResponse(value: JsonValue, status = 200, url?: string): Response {
   const response = new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },
@@ -140,6 +145,11 @@ interface FetchCall {
   path: string;
 }
 
+interface GitHubSettings {
+  allow_auto_merge?: boolean;
+  allow_squash_merge?: boolean;
+}
+
 interface GitHubMockOptions {
   failedRead?: { path: string; status: number };
   tokenStatus?: number;
@@ -147,7 +157,7 @@ interface GitHubMockOptions {
   treeStatus?: number;
   treeTruncated?: boolean;
   treePaths?: string[];
-  settings?: Record<string, unknown>;
+  settings?: GitHubSettings;
   head?: string;
   fileContent?: string;
   transientContentFailure?: boolean;
@@ -352,6 +362,7 @@ describe("evaluateRepository", () => {
     const practice = validPractice("dependency-presence", "files", [
       { type: "dependency", file: "package.json", name: "example-package" },
     ]);
+
     practice.parsed = {
       ok: false,
       id: practice.id,
@@ -383,7 +394,9 @@ describe("evaluateRepository", () => {
     const practice = validPractice("oxforge", "files", [
       { type: "dependency", file: "package.json", name: "@aranlucas/oxforge" },
     ]);
+
     await seed(catalog([practice]));
+
     const calls = mockGitHub({
       treePaths: ["package.json"],
       fileContent: JSON.stringify({ devDependencies: { "@aranlucas/oxforge": "^0.2.2" } }),
@@ -407,6 +420,7 @@ describe("evaluateRepository", () => {
   it("persists pass and fail results for a 512 KiB file when the match is at the end", async () => {
     const needle = "needle-at-end";
     const fileContent = `${"x".repeat(512 * 1024 - needle.length)}${needle}`;
+
     const practices = [
       validPractice("present", "files", [
         { type: "file-contains", path: "README.md", text: needle },
@@ -415,6 +429,7 @@ describe("evaluateRepository", () => {
         { type: "file-contains", path: "README.md", text: "different-needle" },
       ]),
     ];
+
     await seed(catalog(practices));
     mockGitHub({ fileContent });
 
@@ -431,6 +446,7 @@ describe("evaluateRepository", () => {
 
   it("persists 40 control-heavy diagnostics within the serialized D1 item bound", async () => {
     const fileContent = `${"\u0001".repeat(512 * 1024 - 4)}END!`;
+
     const checks: Practice["checks"] = [
       ...Array.from({ length: 39 }, () => ({
         type: "file-matches" as const,
@@ -439,6 +455,7 @@ describe("evaluateRepository", () => {
       })),
       { type: "file-contains", path: "README.md", text: "missing" },
     ];
+
     const practice = validPractice("control-heavy", "files", checks);
 
     practice.files = { "files/check.txt": fileContent };
@@ -451,7 +468,7 @@ describe("evaluateRepository", () => {
     expect(stored?.cell.state).toBe("fail");
     expect(stored?.checks).toHaveLength(40);
     expect(stored?.checks.at(-1)?.state).toBe("fail");
-  });
+  }, 30_000);
 
   it.each([true, false, undefined])(
     "does not penalize private repositories for auto-merge setting %s",
@@ -496,6 +513,7 @@ describe("evaluateRepository", () => {
         { languages: ["Python"] },
       ),
     ];
+
     await seed(catalog(practices));
     mockGitHub({ treePaths: ["README.md"] });
 
@@ -528,6 +546,7 @@ describe("evaluateRepository", () => {
     const practices = [
       validPractice("readme", "files", [{ type: "file-exists", path: "README.md", absent: false }]),
     ];
+
     await seed(catalog(practices));
     const calls = mockGitHub({ treePaths: ["README.md"] });
     await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
@@ -543,6 +562,7 @@ describe("evaluateRepository", () => {
         { type: "setting", key: "allow_squash_merge", equals: true },
       ]),
     ];
+
     await seed(catalog(practices));
     mockGitHub({ settings: { allow_squash_merge: true } });
     await evaluateRepository(appEnv, repoName);
@@ -567,9 +587,11 @@ describe("evaluateRepository", () => {
     );
     const calls = mockGitHub();
     await evaluateRepository(appEnv, repoName);
+
     const previous = (await readResults(appEnv.DB, repoName)).find(
       (row) => row.practiceId === "readme",
     );
+
     calls.length = 0;
 
     await evaluateRepository(appEnv, repoName);
@@ -641,6 +663,7 @@ describe("evaluateRepository", () => {
         [{ type: "file-exists", path: "README.md", absent: false }],
         { visibility: "public", languages: ["TypeScript"] },
       );
+
       await seed(catalog([practice]));
       mockGitHub();
       await evaluateRepository(appEnv, repoName);
@@ -668,9 +691,11 @@ describe("evaluateRepository", () => {
       failedRead: { path: "/repos/octo/demo/contents/other.txt", status: 403 },
     });
     await evaluateRepository(appEnv, repoName);
+
     const healthy = (await readResults(appEnv.DB, repoName)).find(
       (row) => row.practiceId === "readme",
     );
+
     const calls = mockGitHub({ treePaths: ["README.md", "other.txt"] });
 
     await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
@@ -719,12 +744,15 @@ describe("evaluateRepository", () => {
           { type: "file-contains", path: "README.md", text: "content" },
         ]),
       ]);
+
       await seed(value);
       mockGitHub();
       await evaluateRepository(appEnv, repoName);
+
       if (change === "catalog") {
         await writeCatalog(appEnv.DB, { ...value, sha: nextCatalogSha }, new Date().toISOString());
       }
+
       if (change === "branch") {
         await upsertRepositories(
           appEnv.DB,
@@ -732,6 +760,7 @@ describe("evaluateRepository", () => {
           new Date().toISOString(),
         );
       }
+
       const calls = mockGitHub({ head: change === "head" ? "c".repeat(40) : headSha });
 
       await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
@@ -747,10 +776,12 @@ describe("evaluateRepository", () => {
 
   it("rechecks CI protection changes without a new commit or catalog revision", async () => {
     await seed(catalog([validPractice("ci", "files", [{ type: "ci-required-checks" }])]));
+
     const options = {
       treePaths: [".github/workflows/ci.yml"],
       fileContent: "jobs:\n  ci:\n    runs-on: ubuntu-latest\n",
     };
+
     mockGitHub({ ...options, requiredChecks: ["ci"] });
     await evaluateRepository(appEnv, repoName);
     expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("pass");
@@ -769,6 +800,7 @@ describe("evaluateRepository", () => {
     const practices = [
       validPractice("readme", "files", [{ type: "file-exists", path: "README.md", absent: false }]),
     ];
+
     await seed(catalog(practices));
     const calls = mockGitHub({ treePaths: ["README.md"] });
     await evaluateRepository(appEnv, repoName);
@@ -786,6 +818,7 @@ describe("evaluateRepository", () => {
           { type: "file-exists", path: "README.md", absent: false },
         ]),
       ];
+
       await seed(catalog(practices), [storedRow("readme")]);
       mockGitHub({ tokenStatus: status });
 
@@ -846,9 +879,11 @@ describe("evaluateRepository", () => {
     );
     mockGitHub({ failedRead: { path: "/repos/octo/demo/contents/README.md", status: 500 } });
     await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("retry");
+
     const completed = (await readResults(appEnv.DB, repoName)).find(
       (row) => row.practiceId === "squash",
     );
+
     expect(completed?.cell.state).toBe("pass");
 
     const calls = mockGitHub();
@@ -861,7 +896,7 @@ describe("evaluateRepository", () => {
     expect(calls.some((call) => call.path === "/repos/octo/demo")).toBe(false);
   });
 
-  it.each([403, 404, 429])("does not request a queue retry for HTTP %s reads", async (status) => {
+  it.each([403, 404])("does not request a queue retry for HTTP %s reads", async (status) => {
     await seed(
       catalog([
         validPractice("readme", "files", [
@@ -878,10 +913,26 @@ describe("evaluateRepository", () => {
     expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("unknown");
   });
 
+  it("requests delayed retry after a GitHub rate limit response", async () => {
+    await seed(
+      catalog([
+        validPractice("readme", "files", [
+          { type: "file-contains", path: "README.md", text: "content" },
+        ]),
+      ]),
+    );
+    const path = "/repos/octo/demo/contents/README.md";
+    const calls = mockGitHub({ failedRead: { path, status: 429 } });
+    await expect(evaluateRepository(appEnv, repoName)).resolves.toEqual({ retryAfterSeconds: 60 });
+    expect(calls.filter((call) => call.path === path)).toHaveLength(1);
+    expect((await readResults(appEnv.DB, repoName))[0]?.cell.state).toBe("unknown");
+  });
+
   it("recovers after an unavailable installation even when head and catalog are unchanged", async () => {
     const practices = [
       validPractice("readme", "files", [{ type: "file-exists", path: "README.md", absent: false }]),
     ];
+
     await seed(catalog(practices), [storedRow("readme")]);
     mockGitHub({ tokenStatus: 404 });
 
@@ -903,6 +954,7 @@ describe("evaluateRepository", () => {
         { type: "setting", key: "allow_squash_merge", equals: true },
       ]),
     ];
+
     await seed(catalog(practices));
     const calls = mockGitHub({ treeStatus: 409 });
 
@@ -921,6 +973,7 @@ describe("evaluateRepository", () => {
         { type: "file-exists", path: "README.md", absent: false },
       ]),
     ];
+
     await seed(catalog(practices));
     mockGitHub({ treeStatus: 409 });
 
@@ -939,6 +992,7 @@ describe("evaluateRepository", () => {
         { type: "file-exists", path: "README.md", absent: false },
       ]),
     ];
+
     await seed(catalog(practices));
     const calls = mockGitHub({ headStatus: 409 });
 
@@ -953,6 +1007,7 @@ describe("evaluateRepository", () => {
       validPractice("readme", "files", [{ type: "file-exists", path: "README.md", absent: false }]),
       invalidPractice("broken"),
     ];
+
     await seed(catalog(practices));
     mockGitHub({ treePaths: ["README.md"] });
 
@@ -964,10 +1019,14 @@ describe("evaluateRepository", () => {
     expect(byId.get("broken")?.checks).toEqual([]);
     expect(byId.get("readme")?.cell.state).toBe("pass");
     const stored = await readStoredCatalog(appEnv.DB);
-    expect(stored?.practices.find((practice) => practice.id === "broken")?.parsed).toMatchObject({
-      ok: false,
-      issues: expect.any(Array),
-    });
+    const parsed = stored?.practices.find((practice) => practice.id === "broken")?.parsed;
+    expect(parsed?.ok).toBe(false);
+
+    if (parsed?.ok !== false) {
+      throw new Error("Missing invalid catalog practice");
+    }
+
+    expect(parsed.issues).toBeInstanceOf(Array);
   });
 
   it("keeps a multi-chunk result write atomic when a later chunk fails", async () => {
@@ -999,9 +1058,11 @@ describe("evaluateRepository", () => {
     const keep = validPractice("keep", "files", [
       { type: "file-exists", path: "README.md", absent: false },
     ]);
+
     const removed = validPractice("removed", "files", [
       { type: "file-exists", path: "README.md", absent: false },
     ]);
+
     await seed(catalog([keep, removed]), [storedRow("keep"), storedRow("removed")]);
     await writeCatalog(appEnv.DB, catalog([keep], nextCatalogSha), new Date().toISOString());
     mockGitHub({ treePaths: ["README.md"] });

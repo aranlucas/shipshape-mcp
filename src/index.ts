@@ -1,24 +1,24 @@
-/* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/require-readable-spacing, no-await-in-loop */
-
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 
-import { verifyWebhookSignature } from "./github/webhook";
+import { Hono } from "hono";
+import { handleWebhook } from "./github/webhook-route";
 
 import { MCP_SCOPE } from "./config";
-import { isAllowedAccount, isOwner } from "./auth/owner";
-import type { AppEnv } from "./env";
+import { isOwner } from "./auth/owner";
+import type { AppEnv, EvaluationMessage, WebhookMessage } from "./env";
+import { handleWebhookQueue } from "./github/events";
+import { reconcileJobs } from "./jobs/dispatch";
 import { GitHubOwnerInputSchema } from "./github/schemas";
-import { loadCatalog } from "./practices/catalog";
-import { listRepositories, readCatalogRow, type StoredRepository } from "./practices/store";
-import { enqueueRepositories, handleQueue, requeueIfBuiltInsChanged } from "./queue";
-import { handleScheduled, inventoryForTrigger } from "./scheduled";
+import { handleQueue, requeueIfBuiltInsChanged } from "./queue";
+import { handleScheduled } from "./scheduled";
 import { createPracticesServer } from "./mcp";
-import { callbackUrl, type OAuthEnv } from "./oauth";
+import { callbackUrl } from "./oauth";
 import { defaultHandler } from "./oauth-runtime";
 
 const mcpOptions = { route: "/mcp", legacy: "stateless" } as const;
+
 const protectedIdentitySchema = z
   .object({
     login: GitHubOwnerInputSchema,
@@ -34,9 +34,7 @@ const protectedHandler = {
       return new Response("Forbidden", { status: 403 });
     }
 
-    // SAFETY: OAuthProvider passes the Worker bindings through to the protected API handler.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
-    const appEnv = env as unknown as AppEnv;
+    const appEnv = env;
 
     ctx.waitUntil(requeueIfBuiltInsChanged(appEnv));
 
@@ -45,7 +43,7 @@ const protectedHandler = {
 } satisfies ProtectedHandler;
 
 function createProvider(origin: string) {
-  return new OAuthProvider<OAuthEnv>({
+  return new OAuthProvider<AppEnv>({
     apiRoute: "/mcp",
     apiHandler: protectedHandler,
     defaultHandler,
@@ -66,242 +64,42 @@ function createProvider(origin: string) {
   });
 }
 
-const MAX_WEBHOOK_BYTES = 5 * 1024 * 1024;
-
-const pushPayloadSchema = z.object({
-  ref: z.string(),
-  repository: z.object({ full_name: z.string().min(1), default_branch: z.string().min(1) }),
-  installation: z.object({ id: z.number().int().positive() }),
-});
-
-const repositoryEventSchema = z.object({
-  repository: z.object({ full_name: z.string().min(1) }),
-  installation: z.object({ id: z.number().int().positive() }),
-});
-
-const objectPayloadSchema = z.record(z.string(), z.unknown());
-
-async function readWebhookBody(request: Request): Promise<string | null> {
-  if (!request.body) {
-    return "";
-  }
-
-  // SAFETY: the platform Request body reader yields byte chunks; the bounded loop below limits total memory.
-  const reader = request.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        break;
-      }
-
-      total += value.byteLength;
-
-      if (total > MAX_WEBHOOK_BYTES) {
-        await reader.cancel();
-        return null;
-      }
-
-      chunks.push(new Uint8Array(value));
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return new TextDecoder().decode(bytes);
+interface HttpEnv {
+  Bindings: AppEnv;
 }
 
-function queuedRepository(
-  fullName: string,
-  installationId: number,
-  defaultBranch = "main",
-): StoredRepository {
-  const separator = fullName.indexOf("/");
+const app = new Hono<HttpEnv>();
 
-  return {
-    fullName,
-    owner: fullName.slice(0, separator),
-    name: fullName.slice(separator + 1),
-    installationId,
-    private: false,
-    archived: false,
-    fork: false,
-    language: null,
-    defaultBranch,
-    pushedAt: null,
-    url: `https://github.com/${fullName}`,
-  };
-}
+app.all("/github/webhook", (c) => handleWebhook(c.req.raw, c.env));
 
-function repositoryChanged(before: StoredRepository | undefined, after: StoredRepository): boolean {
-  if (!before) {
-    return true;
-  }
-
-  return (
-    before.installationId !== after.installationId ||
-    before.private !== after.private ||
-    before.archived !== after.archived ||
-    before.fork !== after.fork ||
-    before.language !== after.language ||
-    before.defaultBranch !== after.defaultBranch ||
-    before.pushedAt !== after.pushedAt ||
-    before.url !== after.url
-  );
-}
-
-async function handleWebhookWork(
-  event: string,
-  payload: Record<string, unknown>,
-  env: AppEnv,
-): Promise<void> {
-  if (event === "push") {
-    const push = pushPayloadSchema.parse(payload);
-
-    const owner = push.repository.full_name.split("/")[0] ?? "";
-
-    if (
-      push.ref !== `refs/heads/${push.repository.default_branch}` ||
-      !isAllowedAccount(env, owner)
-    ) {
-      return;
-    }
-
-    if (push.repository.full_name.toLowerCase() === env.CATALOG_REPO.toLowerCase()) {
-      const previousSha = (await readCatalogRow(env.DB))?.sha;
-      const catalog = await loadCatalog(env);
-
-      // Dashboard saves load and enqueue their own commit before GitHub delivers this push.
-      if (catalog.commit !== previousSha) {
-        await enqueueRepositories(env, await listRepositories(env.DB), "catalog");
-      }
-      return;
-    }
-
-    await enqueueRepositories(
-      env,
-      [
-        queuedRepository(
-          push.repository.full_name,
-          push.installation.id,
-          push.repository.default_branch,
-        ),
-      ],
-      "push",
-    );
-    return;
-  }
-
-  if (event === "installation" || event === "installation_repositories" || event === "repository") {
-    const before = new Map((await listRepositories(env.DB)).map((repo) => [repo.fullName, repo]));
-    const { repos: after, refreshed } = await inventoryForTrigger(env);
-
-    if (event === "repository") {
-      const target = repositoryEventSchema.parse(payload);
-      const targetRepo = after.find((repo) => repo.fullName === target.repository.full_name);
-
-      await enqueueRepositories(env, targetRepo ? [targetRepo] : [], "installation");
-      return;
-    }
-
-    await enqueueRepositories(
-      env,
-      refreshed
-        ? after.filter((repo) => repositoryChanged(before.get(repo.fullName), repo))
-        : after,
-      "installation",
-    );
-  }
-}
-
-async function handleWebhook(
-  request: Request,
-  env: AppEnv,
-  ctx: ExecutionContext,
-): Promise<Response> {
-  if (request.method !== "POST") {
-    return new Response(null, { status: 405, headers: { Allow: "POST" } });
-  }
-
-  const body = await readWebhookBody(request);
-
-  if (body === null) {
-    return new Response(null, { status: 413 });
-  }
-
-  const valid = await verifyWebhookSignature(
-    env.GITHUB_WEBHOOK_SECRET,
-    body,
-    request.headers.get("X-Hub-Signature-256"),
-  );
-
-  if (!valid) {
-    return new Response(null, { status: 401 });
-  }
-
-  let payload: Record<string, unknown>;
-
-  try {
-    payload = objectPayloadSchema.parse(JSON.parse(body));
-  } catch {
-    return new Response(null, { status: 400 });
-  }
-
-  const event = request.headers.get("X-GitHub-Event") ?? "";
-
-  if (event === "ping") {
-    return new Response(null, { status: 200 });
-  }
-
-  if (
-    event !== "push" &&
-    event !== "installation" &&
-    event !== "installation_repositories" &&
-    event !== "repository"
-  ) {
-    return new Response(null, { status: 204 });
-  }
-
-  try {
-    if (event === "push") {
-      pushPayloadSchema.parse(payload);
-    } else if (event === "repository") {
-      repositoryEventSchema.parse(payload);
-    }
-  } catch {
-    return new Response(null, { status: 400 });
-  }
-
-  ctx.waitUntil(handleWebhookWork(event, payload, env));
-  return new Response(null, { status: 202 });
-}
+app.all("*", (c) =>
+  // SAFETY: app.fetch receives the native Worker context; Hono types expose only its common subset.
+  createProvider(callbackUrl(c.req.raw, c.env, "/").origin).fetch(
+    c.req.raw,
+    c.env,
+    c.executionCtx as ExecutionContext,
+  ),
+);
 
 const worker = {
-  fetch(request: Request, env: AppEnv, ctx: ExecutionContext): Promise<Response> {
-    if (new URL(request.url).pathname === "/github/webhook") {
-      return handleWebhook(request, env, ctx);
+  fetch: app.fetch,
+  queue(
+    batch: MessageBatch<EvaluationMessage> | MessageBatch<WebhookMessage>,
+    env: AppEnv,
+  ): Promise<void> {
+    if (batch.queue.endsWith("-webhooks")) {
+      // SAFETY: each configured queue has one producer schema and its corresponding consumer.
+      return handleWebhookQueue(batch as MessageBatch<WebhookMessage>, env);
     }
 
-    return createProvider(callbackUrl(request, env, "/").origin).fetch(request, env, ctx);
+    // SAFETY: the other configured consumer is the evaluation queue.
+    return handleQueue(batch as MessageBatch<EvaluationMessage>, env);
   },
-  queue: handleQueue,
-  scheduled(_controller: ScheduledController, env: AppEnv, ctx: ExecutionContext): void {
-    ctx.waitUntil(handleScheduled(env));
+  scheduled(controller: ScheduledController, env: AppEnv, ctx: ExecutionContext): void {
+    ctx.waitUntil(controller.cron === "0 13 * * *" ? handleScheduled(env) : reconcileJobs(env));
   },
 };
 
-type ProtectedHandler = { fetch: ExportedHandlerFetchHandler<OAuthEnv> };
+type ProtectedHandler = { fetch: ExportedHandlerFetchHandler<AppEnv> };
 
 export default worker;

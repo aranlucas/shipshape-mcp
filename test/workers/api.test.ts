@@ -1,9 +1,14 @@
-/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unknown-returns, oxforge/no-inline-types, anti-slop/no-known-value-widening, typescript/no-unsafe-assignment, typescript/no-base-to-string, eslint/no-shadow */
-
+import { parseJson } from "@test/helpers/json";
+import { queueSendResponse } from "@test/helpers/queue";
+import {
+  GitDataRequestBodySchema,
+  gitTreeEntries,
+  type RecordedGitRequest,
+} from "@test/helpers/git-data";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AppEnv } from "@/env";
+import type { AppEnv, EvaluationMessage } from "@/env";
 import worker from "@/index";
 import { createSession, SESSION_COOKIE_NAME } from "@/web/session";
 import { BUILT_IN_SOURCES } from "@test/helpers/no-built-in-sources";
@@ -24,9 +29,13 @@ import {
   RepoDetailResponseSchema,
 } from "@test/helpers/contract-schemas";
 
+// SAFETY: cloudflare:test supplies Worker bindings; authenticated requests receive the OAuth helper from OAuthProvider.
 const appEnv = env as AppEnv;
+
 const ORIGIN = "https://shipshape-mcp.aranlucas.workers.dev";
+
 const catalogSha = "a".repeat(40);
+
 const nextCatalogSha = "c".repeat(40);
 
 const validYaml = `version: 1
@@ -158,8 +167,10 @@ async function request(
   path: string,
   init: RequestInit = {},
   authenticated = true,
+  requestEnv: AppEnv = appEnv,
 ): Promise<Response> {
   const headers = new Headers(init.headers);
+
   if (init.body !== undefined && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
@@ -170,34 +181,47 @@ async function request(
   }
 
   const ctx = createExecutionContext();
+
   const response = await worker.fetch(
     new Request(`${ORIGIN}${path}`, { ...init, headers }),
-    appEnv,
+    requestEnv,
     ctx,
   );
+
   await waitOnExecutionContext(ctx);
+
   return response;
 }
 
-function parseJson(response: Response): Promise<unknown> {
-  return response.json();
+function evaluationRequests(messages: Iterable<MessageSendRequest<EvaluationMessage>> = []) {
+  return [...messages].map(({ body, ...options }) => {
+    expect(body.jobId).toBeTypeOf("string");
+    const { jobId: _jobId, ...evaluation } = body;
+
+    return { ...options, body: evaluation };
+  });
 }
 
 function gitDataFetch() {
-  const requests: Array<{ method: string; path: string; body: unknown }> = [];
-  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init);
-    const url = new URL(request.url);
-    const path = decodeURIComponent(url.pathname);
-    const body = request.method === "GET" ? null : JSON.parse(init?.body?.toString() ?? "null");
-    requests.push({ method: request.method, path, body });
+  const requests: RecordedGitRequest[] = [];
 
-    if (request.method === "GET" && path === "/app/installations") {
-      return Promise.resolve(
-        Response.json([{ id: 1, account: { login: "aranlucas", type: "User" } }]),
-      );
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const outboundRequest = new Request(input, init);
+    const url = new URL(outboundRequest.url);
+    const path = decodeURIComponent(url.pathname);
+
+    const body =
+      outboundRequest.body === null
+        ? null
+        : GitDataRequestBodySchema.parse(await outboundRequest.json());
+
+    requests.push({ method: outboundRequest.method, path, body });
+
+    if (outboundRequest.method === "GET" && path === "/app/installations") {
+      return Response.json([{ id: 1, account: { login: "aranlucas", type: "User" } }]);
     }
-    if (request.method === "GET" && path === "/installation/repositories") {
+
+    if (outboundRequest.method === "GET" && path === "/installation/repositories") {
       const response = Response.json({
         total_count: 2,
         repositories: ["private", "practices"].map((name, index) => ({
@@ -213,115 +237,129 @@ function gitDataFetch() {
           pushed_at: "2026-10-15T12:00:00Z",
         })),
       });
-      Object.defineProperty(response, "url", { value: request.url });
-      return Promise.resolve(response);
+
+      Object.defineProperty(response, "url", { value: outboundRequest.url });
+
+      return response;
     }
 
-    if (request.method === "POST" && path === "/app/installations/1/access_tokens") {
-      return Promise.resolve(
-        Response.json({ token: "installation-token", expires_at: "2030-01-01T00:00:00Z" }),
-      );
+    if (outboundRequest.method === "POST" && path === "/app/installations/1/access_tokens") {
+      return Response.json({ token: "installation-token", expires_at: "2030-01-01T00:00:00Z" });
     }
-    if (request.method === "GET" && path === "/repos/aranlucas/practices") {
-      return Promise.resolve(Response.json({ default_branch: "main" }));
+
+    if (outboundRequest.method === "GET" && path === "/repos/aranlucas/practices") {
+      return Response.json({ default_branch: "main" });
     }
-    if (request.method === "GET" && path === "/repos/aranlucas/practices/git/ref/heads/main") {
-      return Promise.resolve(Response.json({ object: { sha: "b".repeat(40), type: "commit" } }));
-    }
+
     if (
-      request.method === "GET" &&
+      outboundRequest.method === "GET" &&
+      path === "/repos/aranlucas/practices/git/ref/heads/main"
+    ) {
+      return Response.json({ object: { sha: "b".repeat(40), type: "commit" } });
+    }
+
+    if (
+      outboundRequest.method === "GET" &&
       path === `/repos/aranlucas/practices/git/commits/${"b".repeat(40)}`
     ) {
-      return Promise.resolve(Response.json({ tree: { sha: "t".repeat(40) } }));
-    }
-    if (
-      request.method === "GET" &&
-      path === `/repos/aranlucas/practices/git/trees/${"t".repeat(40)}`
-    ) {
-      return Promise.resolve(
-        Response.json({
-          truncated: false,
-          tree: [
-            { path: "practices/husky/practice.yml", mode: "100644", type: "blob", sha: "old-yaml" },
-            {
-              path: "practices/husky/instructions.md",
-              mode: "100644",
-              type: "blob",
-              sha: "old-instructions",
-            },
-            {
-              path: "practices/husky/files/pre-commit",
-              mode: "100755",
-              type: "blob",
-              sha: "old-file",
-            },
-          ],
-        }),
-      );
-    }
-    if (request.method === "POST" && path === "/repos/aranlucas/practices/git/blobs") {
-      return Promise.resolve(Response.json({ sha: `blob-${requests.length}` }));
-    }
-    if (request.method === "POST" && path === "/repos/aranlucas/practices/git/trees") {
-      return Promise.resolve(Response.json({ sha: "n".repeat(40) }));
-    }
-    if (request.method === "POST" && path === "/repos/aranlucas/practices/git/commits") {
-      return Promise.resolve(Response.json({ sha: nextCatalogSha }));
-    }
-    if (request.method === "PATCH" && path === "/repos/aranlucas/practices/git/refs/heads/main") {
-      return Promise.resolve(Response.json({ object: { sha: nextCatalogSha } }));
-    }
-    if (request.method === "GET" && path === "/repos/aranlucas/practices/commits/main") {
-      return Promise.resolve(Response.json({ sha: nextCatalogSha }));
-    }
-    if (
-      request.method === "GET" &&
-      path === `/repos/aranlucas/practices/git/trees/${nextCatalogSha}`
-    ) {
-      return Promise.resolve(
-        Response.json({
-          truncated: false,
-          tree: [
-            {
-              path: "practices/husky/practice.yml",
-              mode: "100644",
-              type: "blob",
-              sha: "new-yaml",
-              size: validYaml.length,
-            },
-            {
-              path: "practices/husky/instructions.md",
-              mode: "100644",
-              type: "blob",
-              sha: "new-instructions",
-              size: 18,
-            },
-            {
-              path: "practices/husky/files/pre-commit",
-              mode: "100755",
-              type: "blob",
-              sha: "new-file",
-              size: 10,
-            },
-          ],
-        }),
-      );
-    }
-    const blobs: Record<string, string> = {
-      "new-yaml": validYaml,
-      "new-instructions": "Install the hook.",
-      "new-file": "#!/bin/sh\n",
-    };
-    if (request.method === "GET" && path.includes("/git/blobs/")) {
-      const sha = path.split("/").at(-1) ?? "";
-      const content = blobs[sha] ?? "";
-      return Promise.resolve(
-        Response.json({ content: btoa(content), encoding: "base64", size: content.length }),
-      );
+      return Response.json({ tree: { sha: "t".repeat(40) } });
     }
 
-    return Promise.resolve(
-      Response.json({ message: `Unexpected ${request.method} ${path}` }, { status: 404 }),
+    if (
+      outboundRequest.method === "GET" &&
+      path === `/repos/aranlucas/practices/git/trees/${"t".repeat(40)}`
+    ) {
+      return Response.json({
+        truncated: false,
+        tree: [
+          { path: "practices/husky/practice.yml", mode: "100644", type: "blob", sha: "old-yaml" },
+          {
+            path: "practices/husky/instructions.md",
+            mode: "100644",
+            type: "blob",
+            sha: "old-instructions",
+          },
+          {
+            path: "practices/husky/files/pre-commit",
+            mode: "100755",
+            type: "blob",
+            sha: "old-file",
+          },
+        ],
+      });
+    }
+
+    if (outboundRequest.method === "POST" && path === "/repos/aranlucas/practices/git/blobs") {
+      return Response.json({ sha: `blob-${requests.length}` });
+    }
+
+    if (outboundRequest.method === "POST" && path === "/repos/aranlucas/practices/git/trees") {
+      return Response.json({ sha: "n".repeat(40) });
+    }
+
+    if (outboundRequest.method === "POST" && path === "/repos/aranlucas/practices/git/commits") {
+      return Response.json({ sha: nextCatalogSha });
+    }
+
+    if (
+      outboundRequest.method === "PATCH" &&
+      path === "/repos/aranlucas/practices/git/refs/heads/main"
+    ) {
+      return Response.json({ object: { sha: nextCatalogSha } });
+    }
+
+    if (outboundRequest.method === "GET" && path === "/repos/aranlucas/practices/commits/main") {
+      return Response.json({ sha: nextCatalogSha });
+    }
+
+    if (
+      outboundRequest.method === "GET" &&
+      path === `/repos/aranlucas/practices/git/trees/${nextCatalogSha}`
+    ) {
+      return Response.json({
+        truncated: false,
+        tree: [
+          {
+            path: "practices/husky/practice.yml",
+            mode: "100644",
+            type: "blob",
+            sha: "new-yaml",
+            size: validYaml.length,
+          },
+          {
+            path: "practices/husky/instructions.md",
+            mode: "100644",
+            type: "blob",
+            sha: "new-instructions",
+            size: 18,
+          },
+          {
+            path: "practices/husky/files/pre-commit",
+            mode: "100755",
+            type: "blob",
+            sha: "new-file",
+            size: 10,
+          },
+        ],
+      });
+    }
+
+    const blobs = new Map([
+      ["new-yaml", validYaml],
+      ["new-instructions", "Install the hook."],
+      ["new-file", "#!/bin/sh\n"],
+    ]);
+
+    if (outboundRequest.method === "GET" && path.includes("/git/blobs/")) {
+      const sha = path.split("/").at(-1) ?? "";
+      const content = blobs.get(sha) ?? "";
+
+      return Response.json({ content: btoa(content), encoding: "base64", size: content.length });
+    }
+
+    return Response.json(
+      { message: `Unexpected ${outboundRequest.method} ${path}` },
+      { status: 404 },
     );
   });
 
@@ -346,10 +384,9 @@ describe("dashboard API", () => {
       disabled: [],
     });
     expect(body.practices.map(({ id }) => id)).toEqual(["broken", "husky"]);
-    expect(body.practices.find(({ id }) => id === "broken")).toMatchObject({
-      valid: false,
-      error: expect.stringContaining("checks.0.type"),
-    });
+    const broken = body.practices.find(({ id }) => id === "broken");
+    expect(broken?.valid).toBe(false);
+    expect(broken?.error).toContain("checks.0.type");
     expect(body.repos.map(({ fullName }) => fullName)).toEqual([
       "aranlucas/alpha",
       "aranlucas/practices",
@@ -393,18 +430,24 @@ describe("dashboard API", () => {
 
   it("does not present results from a previous catalog revision as current evidence", async () => {
     await appEnv.DB.prepare("UPDATE results SET catalog_sha = ?").bind("d".repeat(40)).run();
+
     const overview = OverviewResponseSchema.parse(
       await parseJson(await request("/app/api/overview")),
     );
+
     expect(overview.results).toEqual({});
-    const practice = PracticeDetailResponseSchema.parse(
+
+    const practiceDetail = PracticeDetailResponseSchema.parse(
       await parseJson(await request("/app/api/practices/husky")),
     );
-    expect(practice.counts.pass).toBe(0);
-    expect(practice.counts.fail).toBe(0);
+
+    expect(practiceDetail.counts.pass).toBe(0);
+    expect(practiceDetail.counts.fail).toBe(0);
+
     const detail = RepoDetailResponseSchema.parse(
       await parseJson(await request("/app/api/repos/aranlucas/alpha")),
     );
+
     expect(detail.practices.every((entry) => entry.result.checkedAt === null)).toBe(true);
     expect(
       detail.practices.every((entry) => entry.checks.length === 0 && entry.headSha === null),
@@ -421,7 +464,7 @@ describe("dashboard API", () => {
       headSha: "h".repeat(40),
       catalogSha,
     });
-    expect(body.practices.map(({ practice }) => practice.id)).toEqual(["broken", "husky"]);
+    expect(body.practices.map(({ practice: summary }) => summary.id)).toEqual(["broken", "husky"]);
 
     const missing = await request("/app/api/repos/aranlucas/missing");
     expect(missing.status).toBe(404);
@@ -441,11 +484,13 @@ describe("dashboard API", () => {
   it("rejects invalid YAML at checks.0.type without making a GitHub write", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
+
     const response = await request("/app/api/practices/husky", {
       method: "PUT",
       headers: { origin: ORIGIN },
       body: JSON.stringify({ yaml: invalidYaml }),
     });
+
     expect(response.status).toBe(400);
     const body = ApiErrorResponseSchema.parse(await parseJson(response));
     expect(body.error).toBe("Practice is invalid");
@@ -456,11 +501,13 @@ describe("dashboard API", () => {
   it("rejects unsafe files paths before a GitHub write", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
+
     const response = await request("/app/api/practices/husky", {
       method: "PUT",
       headers: { origin: ORIGIN },
       body: JSON.stringify({ yaml: validYaml, files: [{ path: "../outside", content: "nope" }] }),
     });
+
     expect(response.status).toBe(400);
     expect(fetchMock.mock.calls).toEqual([]);
   });
@@ -468,6 +515,7 @@ describe("dashboard API", () => {
   it("commits a valid PUT, uses Git Data in sequence, and reloads the stored catalog", async () => {
     const { fetchMock, requests } = gitDataFetch();
     vi.stubGlobal("fetch", fetchMock);
+
     const response = await request("/app/api/practices/husky", {
       method: "PUT",
       headers: { origin: ORIGIN },
@@ -477,13 +525,16 @@ describe("dashboard API", () => {
         files: [{ path: "pre-commit", content: "#!/bin/sh\n" }],
       }),
     });
+
     expect(response.status).toBe(200);
     expect(CatalogWriteResponseSchema.parse(await parseJson(response))).toEqual({
       catalogSha: nextCatalogSha,
     });
+
     const writeMethods = requests
       .filter(({ method }) => ["POST", "PATCH"].includes(method))
       .map(({ method, path }) => `${method} ${path}`);
+
     expect(writeMethods).toEqual([
       "POST /app/installations/1/access_tokens",
       "POST /repos/aranlucas/practices/git/blobs",
@@ -508,10 +559,41 @@ describe("dashboard API", () => {
     ).toBe(true);
   });
 
+  it("reads overview without loading detailed evidence", async () => {
+    await appEnv.DB.prepare("UPDATE results SET checks_json = 'not JSON'").run();
+    const response = await request("/app/api/overview");
+    expect(response.status).toBe(200);
+    expect(
+      OverviewResponseSchema.parse(await parseJson(response)).results["aranlucas/alpha"].husky
+        .state,
+    ).toBe("fail");
+  });
+
+  it("blocks preview mutations while preserving owner read access", async () => {
+    const previewEnv = { ...appEnv, PREVIEW_READ_ONLY: "true" };
+
+    const response = await request(
+      "/app/api/refresh",
+      { method: "POST", body: "{}" },
+      true,
+      previewEnv,
+    );
+
+    expect(response.status).toBe(403);
+    expect((await request("/app/api/overview", {}, true, previewEnv)).status).toBe(200);
+    expect(
+      await appEnv.DB.prepare("SELECT COUNT(*) AS count FROM evaluation_jobs").first(),
+    ).toEqual({ count: 0 });
+  });
+
   it("queues every repository for re-evaluation after a saved catalog change", async () => {
     const { fetchMock } = gitDataFetch();
     vi.stubGlobal("fetch", fetchMock);
-    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+
+    const sendBatch = vi
+      .spyOn(appEnv.EVALUATIONS, "sendBatch")
+      .mockResolvedValue(queueSendResponse);
+
     const repos = await listRepositories(appEnv.DB);
 
     const response = await request("/app/api/practices/husky", {
@@ -522,9 +604,13 @@ describe("dashboard API", () => {
 
     expect(response.status).toBe(200);
     expect(repos.length).toBeGreaterThan(0);
-    expect(sendBatch).toHaveBeenCalledWith(
+    expect(evaluationRequests(sendBatch.mock.calls[0]?.[0])).toEqual(
       repos.map((repo) => ({
-        body: { repo: repo.fullName, installationId: repo.installationId, reason: "catalog" },
+        body: {
+          repo: repo.fullName,
+          installationId: repo.installationId,
+          reason: "catalog",
+        },
       })),
     );
   });
@@ -532,6 +618,7 @@ describe("dashboard API", () => {
   it("prepends the catalog files directory to repository-relative file paths", async () => {
     const { fetchMock, requests } = gitDataFetch();
     vi.stubGlobal("fetch", fetchMock);
+
     const response = await request("/app/api/practices/husky", {
       method: "PUT",
       headers: { origin: ORIGIN },
@@ -540,12 +627,14 @@ describe("dashboard API", () => {
         files: [{ path: "files/foo.txt", content: "nested\n" }],
       }),
     });
+
     expect(response.status).toBe(200);
 
     const tree = requests.find(
       ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
     );
-    const treeBody = tree?.body as { tree?: unknown[] } | undefined;
+
+    const treeBody = { tree: gitTreeEntries(tree) };
     expect(treeBody?.tree ?? []).toContainEqual(
       expect.objectContaining({
         path: "practices/husky/files/files/foo.txt",
@@ -559,21 +648,25 @@ describe("dashboard API", () => {
     const detail = PracticeDetailResponseSchema.parse(
       await parseJson(await request("/app/api/practices/husky")),
     );
+
     expect(detail.files).toEqual([{ path: "pre-commit", content: "#!/bin/sh\n" }]);
 
     const { fetchMock, requests } = gitDataFetch();
     vi.stubGlobal("fetch", fetchMock);
+
     const response = await request("/app/api/practices/husky", {
       method: "PUT",
       headers: { origin: ORIGIN },
       body: JSON.stringify({ yaml: detail.yaml, files: detail.files }),
     });
+
     expect(response.status).toBe(200);
 
     const tree = requests.find(
       ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
     );
-    const treeBody = tree?.body as { tree?: unknown[] } | undefined;
+
+    const treeBody = { tree: gitTreeEntries(tree) };
     expect(treeBody?.tree ?? []).toContainEqual(
       expect.objectContaining({
         path: "practices/husky/files/pre-commit",
@@ -586,7 +679,10 @@ describe("dashboard API", () => {
   it.each(["text/plain", ""])(
     "accepts valid JSON without a JSON content type (%s)",
     async (contentType) => {
-      const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+      const sendBatch = vi
+        .spyOn(appEnv.EVALUATIONS, "sendBatch")
+        .mockResolvedValue(queueSendResponse);
+
       const response = await request("/app/api/refresh", {
         method: "POST",
         headers: { origin: ORIGIN, "content-type": contentType },
@@ -595,8 +691,14 @@ describe("dashboard API", () => {
 
       expect(response.status).toBe(202);
       expect(RefreshResponseSchema.parse(await parseJson(response))).toEqual({ queued: 1 });
-      expect(sendBatch).toHaveBeenCalledWith([
-        { body: { repo: "aranlucas/alpha", installationId: 1, reason: "manual" } },
+      expect(evaluationRequests(sendBatch.mock.calls[0]?.[0])).toEqual([
+        {
+          body: {
+            repo: "aranlucas/alpha",
+            installationId: 1,
+            reason: "manual",
+          },
+        },
       ]);
     },
   );
@@ -606,10 +708,9 @@ describe("dashboard API", () => {
       method: "DELETE",
       headers: { origin: ORIGIN },
     });
+
     expect(response.status).toBe(404);
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: expect.any(String),
-    });
+    expect(ApiErrorResponseSchema.parse(await parseJson(response)).error).toBeTypeOf("string");
   });
 
   it("discovers installed private repositories and loads the catalog on the first refresh", async () => {
@@ -620,7 +721,10 @@ describe("dashboard API", () => {
     ]);
     const { fetchMock } = gitDataFetch();
     vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock);
-    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+
+    const sendBatch = vi
+      .spyOn(appEnv.EVALUATIONS, "sendBatch")
+      .mockResolvedValue(queueSendResponse);
 
     const response = await request("/app/api/refresh", {
       method: "POST",
@@ -630,9 +734,11 @@ describe("dashboard API", () => {
 
     expect(response.status).toBe(202);
     expect(RefreshResponseSchema.parse(await parseJson(response))).toEqual({ queued: 2 });
+
     const overview = OverviewResponseSchema.parse(
       await parseJson(await request("/app/api/overview")),
     );
+
     expect(
       overview.repos.map(({ fullName, private: isPrivate }) => ({ fullName, isPrivate })),
     ).toEqual([
@@ -640,53 +746,73 @@ describe("dashboard API", () => {
       { fullName: "aranlucas/private", isPrivate: true },
     ]);
     expect(overview.practices.map(({ id }) => id)).toEqual(["husky"]);
-    expect(sendBatch).toHaveBeenCalledWith(
+    expect(evaluationRequests(sendBatch.mock.calls[0]?.[0])).toEqual(
       expect.arrayContaining([
-        { body: { repo: "aranlucas/private", installationId: 1, reason: "manual" } },
+        {
+          body: {
+            repo: "aranlucas/private",
+            installationId: 1,
+            reason: "manual",
+          },
+        },
       ]),
     );
   });
 
   it("refreshes one known repository with the manual reason", async () => {
-    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const sendBatch = vi
+      .spyOn(appEnv.EVALUATIONS, "sendBatch")
+      .mockResolvedValue(queueSendResponse);
+
     const response = await request("/app/api/refresh", {
       method: "POST",
       body: JSON.stringify({ repo: "aranlucas/alpha" }),
     });
+
     expect(response.status).toBe(202);
     expect(RefreshResponseSchema.parse(await parseJson(response))).toEqual({ queued: 1 });
-    expect(sendBatch).toHaveBeenCalledWith([
-      { body: { repo: "aranlucas/alpha", installationId: 1, reason: "manual" } },
+    expect(evaluationRequests(sendBatch.mock.calls[0]?.[0])).toEqual([
+      {
+        body: {
+          repo: "aranlucas/alpha",
+          installationId: 1,
+          reason: "manual",
+        },
+      },
     ]);
   });
 
   it("returns 404 when refreshing an unknown repository", async () => {
-    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const sendBatch = vi
+      .spyOn(appEnv.EVALUATIONS, "sendBatch")
+      .mockResolvedValue(queueSendResponse);
+
     const response = await request("/app/api/refresh", {
       method: "POST",
       headers: { origin: ORIGIN },
       body: JSON.stringify({ repo: "aranlucas/missing" }),
     });
+
     expect(response.status).toBe(404);
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: expect.any(String),
-    });
+    expect(ApiErrorResponseSchema.parse(await parseJson(response)).error).toBeTypeOf("string");
     expect(sendBatch).not.toHaveBeenCalled();
   });
 
   it.each(["", "malformed", "aranlucas/alpha/extra"])(
     "rejects an invalid explicit repository filter (%s) without queueing",
     async (repo) => {
-      const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+      const sendBatch = vi
+        .spyOn(appEnv.EVALUATIONS, "sendBatch")
+        .mockResolvedValue(queueSendResponse);
+
       const response = await request("/app/api/refresh", {
         method: "POST",
         headers: { origin: ORIGIN },
         body: JSON.stringify({ repo }),
       });
+
       expect(response.status).toBe(400);
-      expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-        error: expect.any(String),
-      });
+      expect(ApiErrorResponseSchema.parse(await parseJson(response)).error).toBeTypeOf("string");
       expect(sendBatch).not.toHaveBeenCalled();
     },
   );
@@ -721,10 +847,9 @@ describe("dashboard API", () => {
 
     expect(response.status).toBe(400);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: "Invalid request",
-      issues: expect.any(Array),
-    });
+    const failure = ApiErrorResponseSchema.parse(await parseJson(response));
+    expect(failure.error).toBe("Invalid request");
+    expect(failure.issues).toBeInstanceOf(Array);
   });
 
   it.each(["{", "[]", "null"])("rejects an invalid JSON object body (%s)", async (body) => {
@@ -779,29 +904,24 @@ describe("dashboard API", () => {
   it("returns 401 for an unauthenticated API request", async () => {
     const response = await request("/app/api/overview", {}, false);
     expect(response.status).toBe(401);
-    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
-      error: expect.any(String),
-    });
+    expect(ApiErrorResponseSchema.parse(await parseJson(response)).error).toBeTypeOf("string");
   });
 });
 
-type RecordedRequest = { method: string; path: string; body: unknown };
-
-function treeEntries(requests: RecordedRequest[]) {
+function treeEntries(requests: RecordedGitRequest[]) {
   const tree = requests.find(
     ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
   );
-  const body = tree?.body as { tree?: Array<{ path: string; sha: string | null }> } | undefined;
 
-  return (body?.tree ?? []).map(({ path, sha }) => ({ path, sha }));
+  return gitTreeEntries(tree).map(({ path, sha }) => ({ path, sha }));
 }
 
-function commitMessage(requests: RecordedRequest[]) {
+function commitMessage(requests: RecordedGitRequest[]) {
   const commit = requests.find(
     ({ method, path }) => method === "POST" && path.endsWith("/git/commits"),
   );
 
-  return (commit?.body as { message?: string } | undefined)?.message;
+  return commit?.body?.message;
 }
 
 describe("built-in practices", () => {
@@ -827,7 +947,7 @@ describe("built-in practices", () => {
   });
 
   it("layers the catalog repository over built-ins", async () => {
-    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue(queueSendResponse);
 
     const body = OverviewResponseSchema.parse(await parseJson(await request("/app/api/overview")));
 
@@ -842,15 +962,21 @@ describe("built-in practices", () => {
   });
 
   it("requeues every repository once when a deploy changes the built-ins", async () => {
-    const sendBatch = vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    const sendBatch = vi
+      .spyOn(appEnv.EVALUATIONS, "sendBatch")
+      .mockResolvedValue(queueSendResponse);
 
     await request("/app/api/overview");
     await request("/app/api/overview");
 
     expect(sendBatch).toHaveBeenCalledTimes(1);
-    expect(sendBatch.mock.calls[0]?.[0]).toEqual(
+    expect(evaluationRequests(sendBatch.mock.calls[0]?.[0])).toEqual(
       (await listRepositories(appEnv.DB)).map((repo) => ({
-        body: { repo: repo.fullName, installationId: repo.installationId, reason: "catalog" },
+        body: {
+          repo: repo.fullName,
+          installationId: repo.installationId,
+          reason: "catalog",
+        },
       })),
     );
   });
@@ -859,7 +985,7 @@ describe("built-in practices", () => {
     ["an override", "husky"],
     ["a built-in with no catalog folder", "lint"],
   ])("turns off %s with a disabled marker instead of deleting it", async (_case, id) => {
-    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue(queueSendResponse);
     const { fetchMock, requests } = gitDataFetch();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -870,15 +996,13 @@ describe("built-in practices", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(treeEntries(requests)).toContainEqual({
-      path: `practices/${id}/disabled`,
-      sha: expect.stringMatching(/^blob-/u),
-    });
+    const marker = treeEntries(requests).find(({ path }) => path === `practices/${id}/disabled`);
+    expect(marker?.sha).toMatch(/^blob-/u);
     expect(commitMessage(requests)).toBe(`practice(${id}): turn off built-in from dashboard`);
   });
 
   it("deletes a custom practice outright", async () => {
-    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue(queueSendResponse);
     const { fetchMock, requests } = gitDataFetch();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -893,7 +1017,7 @@ describe("built-in practices", () => {
   });
 
   it("resets an override by deleting its catalog folder without a marker", async () => {
-    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue({} as never);
+    vi.spyOn(appEnv.EVALUATIONS, "sendBatch").mockResolvedValue(queueSendResponse);
     const { fetchMock, requests } = gitDataFetch();
     vi.stubGlobal("fetch", fetchMock);
 

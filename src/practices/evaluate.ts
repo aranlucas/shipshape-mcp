@@ -1,13 +1,13 @@
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/require-readable-spacing, oxforge/no-inline-types */
-
 import { z } from "zod";
 
 import type { AppEnv } from "../env";
+import type { JobLease, EvaluationGuard } from "../jobs/guard";
 import type { CheckResult } from "../api/contract";
 import { installationClient } from "../github/app";
 import { octokitGet, type GitHubOctokit } from "../github/client";
 import { GitHubSnapshotCache } from "../github/snapshot-cache";
-import { loadCatalog, readStoredCatalog, type Catalog, type CatalogPractice } from "./catalog";
+import { rateLimitDelay } from "../github/rate-limit";
+import { loadCatalog, readStoredCatalog, type CatalogPractice } from "./catalog";
 import { applies } from "./applies";
 import { evaluationKey } from "./evaluation-key";
 import { aggregate, runCheck } from "./checks";
@@ -17,32 +17,40 @@ import {
   markUnknown,
   readResults,
   type StoredResult,
+  type StoredRepository,
   writeResults,
 } from "./store";
 import { takeSnapshot, type PreloadedHead } from "./snapshot";
 
-const SHA = z.string().regex(/^[a-f0-9]{40}$/u);
+type HeadRepository = Pick<StoredRepository, "owner" | "name" | "defaultBranch">;
 
-function errorStatus(error: unknown): number | undefined {
-  return z.object({ status: z.number() }).safeParse(error).data?.status;
+interface EvaluationOptions {
+  force?: boolean;
+  practiceId?: string;
+  lease?: JobLease;
 }
 
-function isTransientGitHubError(error: unknown): boolean {
-  const status = errorStatus(error);
+export class EvaluationCooldown {
+  constructor(readonly retryAfterSeconds: number) {}
+}
 
+type EvaluationOutcome = "evaluated" | "skipped" | "unavailable" | "retry" | EvaluationCooldown;
+
+const SHA = z.string().regex(/^[a-f0-9]{40}$/u);
+
+function errorStatus(cause: unknown): number | undefined {
+  return z.object({ status: z.number() }).safeParse(cause).data?.status;
+}
+
+function isTransientGitHubError(status: number | undefined): boolean {
   return status !== undefined && status >= 500 && status < 600;
 }
 
-function headError(error: unknown): string {
-  return errorStatus(error) === 409
-    ? "Repository has no commits"
-    : "Repository head could not be read.";
+function headError(status: number | undefined): string {
+  return status === 409 ? "Repository has no commits" : "Repository head could not be read.";
 }
 
-async function readHead(
-  client: GitHubOctokit,
-  repo: { owner: string; name: string; defaultBranch: string },
-): Promise<PreloadedHead> {
+async function readHead(client: GitHubOctokit, repo: HeadRepository): Promise<PreloadedHead> {
   try {
     const response = await octokitGet(
       client,
@@ -53,7 +61,7 @@ async function readHead(
 
     return { sha: response.data.sha };
   } catch (error) {
-    return { sha: null, error: headError(error) };
+    return { sha: null, error: headError(errorStatus(error)) };
   }
 }
 
@@ -129,6 +137,7 @@ function evaluatePractice(
   const checks = practice.parsed.practice.checks.map((check) =>
     runCheck(check, snapshot, practice.files),
   );
+
   const summary = aggregate(checks);
 
   return {
@@ -144,10 +153,15 @@ function evaluatePractice(
 export async function evaluateRepository(
   env: AppEnv,
   fullName: string,
-  options: { force?: boolean; practiceId?: string } = {},
-): Promise<"evaluated" | "skipped" | "unavailable" | "retry"> {
+  options: EvaluationOptions = {},
+): Promise<EvaluationOutcome> {
   const storedCatalog = await readStoredCatalog(env.DB);
-  const catalog: Catalog = storedCatalog ?? (await loadCatalog(env));
+  const catalog = storedCatalog ?? (await loadCatalog(env));
+
+  const guard: EvaluationGuard | undefined = options.lease
+    ? { ...options.lease, catalogCommit: catalog.commit ?? catalog.sha }
+    : undefined;
+
   let practices = options.practiceId
     ? catalog.practices.filter((practice) => practice.id === options.practiceId)
     : catalog.practices;
@@ -155,6 +169,7 @@ export async function evaluateRepository(
   if (options.practiceId && practices.length === 0) {
     return "skipped";
   }
+
   const repo = await getRepository(env.DB, fullName);
 
   if (!repo) {
@@ -172,15 +187,29 @@ export async function evaluateRepository(
       fullName,
       { ...catalog, practices },
       "GitHub App installation unavailable",
+      guard,
     );
-    return isTransientGitHubError(error) ? "retry" : "unavailable";
+    const retryAfterSeconds = rateLimitDelay(error);
+
+    return retryAfterSeconds !== undefined
+      ? new EvaluationCooldown(retryAfterSeconds)
+      : isTransientGitHubError(errorStatus(error))
+        ? "retry"
+        : "unavailable";
   }
 
   let retryableReadFailure = false;
+  let retryAfterSeconds: number | undefined;
 
   // This outer hook sees only failures that exhaust Octokit's request-level retries.
   client.hook.error("request", (error, request) => {
-    if (request.method === "GET" && isTransientGitHubError(error)) {
+    const delay = rateLimitDelay(error);
+
+    if (delay !== undefined) {
+      retryAfterSeconds = Math.max(retryAfterSeconds ?? 0, delay);
+    }
+
+    if (request.method === "GET" && isTransientGitHubError(errorStatus(error))) {
       retryableReadFailure = true;
     }
 
@@ -195,6 +224,7 @@ export async function evaluateRepository(
   if (!options.force && !options.practiceId && preloadedHead.sha !== null) {
     practices = practices.filter((practice) => {
       const previous = previousById.get(practice.id);
+
       // Settings and branch protections can change without a Git commit.
       const mutable =
         practice.parsed.ok &&
@@ -225,28 +255,38 @@ export async function evaluateRepository(
       env.DB,
       fullName,
       catalog.practices.map((practice) => practice.id),
+      guard,
     );
+
     return "skipped";
   }
 
   const validPractices = practices.flatMap((practice) =>
     practice.parsed.ok ? [practice.parsed.practice] : [],
   );
+
   const cache = preloadedHead.sha
     ? new GitHubSnapshotCache(env.DB, repo, preloadedHead.sha, options.force)
     : undefined;
+
   const snapshot = await takeSnapshot(client, repo, validPractices, preloadedHead, cache);
+
   const rows = practices.map((practice) => ({
     ...evaluatePractice(fullName, practice, snapshot, catalog.sha),
     evaluationKey: key,
   }));
 
-  await writeResults(env.DB, rows);
+  await writeResults(env.DB, rows, guard);
   await deleteResultsNotIn(
     env.DB,
     fullName,
     catalog.practices.map((practice) => practice.id),
+    guard,
   );
+
+  if (retryAfterSeconds !== undefined) {
+    return new EvaluationCooldown(retryAfterSeconds);
+  }
 
   return retryableReadFailure && rows.some((row) => row.cell.unknown > 0 && row.checks.length > 0)
     ? "retry"

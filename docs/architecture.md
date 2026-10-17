@@ -4,24 +4,25 @@ Shipshape is a single-user Cloudflare Worker for checking personal engineering
 practices across every repository available through a GitHub App installation.
 
 ```text
-GitHub App OAuth (identity only)
-             |
-             v
-       owner-gated session ---- KV (short-lived state)
-             |
-             v
-   App installation clients ---- GitHub repositories
-             |
-             v
-       inventory + queue
-             |
-             v
-   bounded snapshot + practice engine
-             |
-             v
-          D1 results
-          /       \
-   dashboard API   MCP tools
+owner login -- GitHub OAuth -- KV sessions
+     |
+     v
+Hono HTTP router -- dashboard / MCP -- D1 views
+     |
+GitHub webhook -- verify + await ingress Queue
+                              |
+                              v
+                    inventory / catalog
+                              |
+manual refresh / daily cron --+-- D1 runs + job outbox
+                                      |
+minute reconciliation ----------------+-- evaluation Queue
+                                                |
+                                  bounded GitHub snapshot
+                                                |
+                                    SQL publication guard
+                                                |
+                                           D1 results
 ```
 
 ## Boundaries
@@ -74,17 +75,14 @@ in the existing bounded `actual` and `detail` fields. Action inputs named
 pull-request workflow; token-permission and pinning checks apply to every
 workflow.
 
-Evaluations retry transient GitHub server/transport failures at most twice,
-with 250 ms and 1 s backoffs and the existing 8 s per-request timeout.
-HTTP 4xx responses, including permission and feature errors, are not retried.
-Exhausted transient reads remain unknown and request a delayed retry of that
-repository's queue message. Installation-token HTTP 5xx failures also request a
-delayed retry. These failures allow at most three evaluation deliveries, with
-60 s and 120 s delays;
-pending bookkeeping completes on recovery or the final delivery. Persistent
-failures remain unknown for the next sweep or manual refresh. Permission and
-feature errors do not request queue retries. Catalog writes are not replayed,
-and these retries do not trigger additional sweeps.
+Evaluations retry transient GitHub server/transport failures with bounded
+request retries and an 8-second request timeout. Installation-token reads also
+have an 8-second timeout. Rate-limited 403/429 responses defer the repository
+until the reset/retry interval; permission failures remain unknown and do not
+request retries. Repository/practice jobs share a persisted three-attempt budget.
+After a transient evaluation failure, unknown practices can receive independent
+delayed jobs without rewriting healthy results. Catalog writes are not replayed
+by the evaluation queue.
 
 The starter CI rule checks ci.yml, a declared root test script invoked by CI,
 pnpm setup, read-only contents permission,
@@ -108,11 +106,12 @@ and other folders are custom practices.
 
 The catalog SHA that stored results carry is `<commit>+<built-in version>`, where
 the built-in version hashes the bundled files. A deploy that changes any built-in
-therefore makes every stored result stale at once. The first dashboard overview,
-MCP request, or daily sweep after such a deploy claims the new version in D1
-(`claimBuiltInVersion`) and requeues every repository exactly once. Apply
-`0005_built_in_practices.sql` before deploying; the standard deploy script
-applies migrations automatically.
+therefore makes every stored result stale at once. The first dashboard overview
+or MCP request that observes a new built-in version commits the version claim
+and repository job intents in one D1 transaction. Concurrent observers create
+one refresh run; a failed queue send leaves recoverable job intents. The daily
+sweep also revalidates every repository. Apply all migrations before deploying;
+the standard release script applies them automatically.
 
 ### Refreshing stored results
 
@@ -135,7 +134,7 @@ evaluator version. Bump `EVALUATOR_VERSION` in
 Refresh to replace stored evidence. Existing rows without the key are recomputed
 on their next evaluation. Apply `0003_evaluation_key.sql` before deploying this
 code; the standard deploy script applies migrations automatically. The read-only
-MCP tools do not trigger refreshes.
+MCP tools use stored results; request maintenance can enqueue a built-in refresh.
 
 ### Sharing GitHub inputs between practices
 
@@ -157,13 +156,54 @@ Apply `0004_github_snapshot_cache.sql` before deploying these changes; the stand
 deploy script applies it automatically. Concurrent evaluations that encounter a
 cold cache may both fetch the same input before either has stored it.
 
-## Runtime flow
+## Durable work and result publication
 
-GitHub push and installation events, dashboard refreshes, and the daily sweep
-enqueue repository evaluations. A consumer loads the catalog, reads the
-repository's default-branch head, evaluates each applicable practice, and
-stores results in D1. The API and MCP views use the same response builders, so
-the dashboard and tools expose the same states and evidence.
+The top-level HTTP router uses Hono. `/github/webhook` verifies the signature,
+projects the event into a compact envelope, and awaits `WEBHOOKS.send` before
+returning `202`. A failed send returns `503`; inventory/catalog reads happen in
+the ingress consumer. GitHub delivery IDs identify refresh runs. A digest of the
+signed event is used only when the delivery header is absent. Duplicate events
+reuse the same persisted run. Installation events re-evaluate the refreshed
+inventory so a retry after inventory synchronization cannot lose its targets.
+
+All evaluation triggers write `evaluation_runs`, `evaluation_heads`, and
+`evaluation_jobs` in a D1 transaction. The latest run for each repository is its
+generation. Jobs double as an outbox: publishing them is separate from accepting
+work. A failed/ambiguous queue send can repeat, but always uses the same job ID.
+The minute cron reconciles unpublished or overdue deliveries and expired leases.
+A lease lasts ten minutes; an overdue publication is redispatched after its
+scheduled availability plus ten minutes. The queue is capped at one concurrent
+consumer invocation, with three repository evaluations inside a batch.
+
+A consumer claims a job atomically and uses its stored metadata rather than the
+message's repository fields. Results, unknown-state writes, retry flags, and
+cleanup check the lease and latest repository generation in SQL. Evaluation
+writes also check the catalog commit. A superseded run, removed installation,
+or expired lease cannot publish results over current evidence. Practice retry
+jobs inherit the parent run and attempt budget; their creation and parent
+completion are transactional.
+
+The existing `sweep` response remains compatible, but its pending value is a
+projection of active job states. Database triggers update it only when jobs are
+inserted or change state, so a repeated completion cannot decrement twice.
+Each run records completion independently. Terminal errors are persisted on
+the job with a bounded failure description and logged with job/run/repository
+identifiers. Expected GitHub permission failures still produce unknown evidence.
+Unexpected platform delivery failures use configured dead-letter queues; jobs
+that deliberately enter a terminal state are acknowledged after persistence.
+
+The daily 13:00 UTC cron refreshes inventory/catalog and requests a sweep. The
+minute cron repairs job dispatch and leases without triggering another sweep.
+Old evaluation messages without job IDs are adopted into stable legacy runs.
+
+Dashboard and MCP views use the same response builders. Overview/count queries
+select cell summaries without downloading or parsing detailed `checks_json`;
+repository detail reads retain the full evidence. The dashboard still polls
+while work is active.
+
+Previews require separate D1 and OAuth KV IDs, use preview queue names, and
+reject dashboard mutations and webhooks. They have no queue/cron consumers.
+Preview resources and migration commands are described in the setup guide.
 
 ## Source layout
 
@@ -171,7 +211,9 @@ the dashboard and tools expose the same states and evidence.
 - `src/inventory/` synchronizes installations and repositories.
 - `src/practices/` contains catalog schema, applicability, snapshots, checks,
   workflow parsing, and result views.
+- `src/jobs/` owns durable runs, leases, dispatch, and SQL write guards.
 - `src/queue.ts` and `src/scheduled.ts` handle asynchronous evaluation.
+- `src/github/webhook-route.ts` accepts signed events; `events.ts` consumes them.
 - [`src/api/contract.ts`](../src/api/contract.ts) is the response type source of
   truth for both the dashboard API and MCP tools.
 - `src/web/` contains the owner login and signed-in placeholder page.
