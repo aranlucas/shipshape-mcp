@@ -107,6 +107,101 @@ const NODE_APPLIES = `appliesTo:
   languages: [TypeScript, JavaScript]
   hasFiles: [package.json]`;
 
+type SemanticSeed = [
+  id: string,
+  title: string,
+  summary: string,
+  kind: "files" | "settings",
+  checkType: string,
+  label: string,
+  applies: string,
+];
+
+// Catalog practices whose checks are a single semantic evaluator or setting.
+const SEMANTIC_PRACTICES: SemanticSeed[] = [
+  [
+    "preferred-package-manager",
+    "Use pnpm or Bun",
+    "Use pnpm or Bun instead of npm for JavaScript dependencies and commands.",
+    "files",
+    "preferred-package-manager",
+    "Lockfile and scripts use pnpm or Bun",
+    "appliesTo:\n  hasFiles: [package.json]\n",
+  ],
+  [
+    "pnpm-setup",
+    "Use pnpm/setup",
+    "Use pnpm/setup instead of pnpm/action-setup in workflows and composite actions.",
+    "files",
+    "pnpm-setup",
+    "Workflows use pnpm/setup",
+    "",
+  ],
+  [
+    "vitest-test-script",
+    "Vitest test scripts in every package",
+    "Every tracked package.json must declare a test script that runs Vitest.",
+    "files",
+    "vitest-test-script",
+    "Every package.json test script runs Vitest",
+    "",
+  ],
+  [
+    "required-package-scripts",
+    "Required lint, format, and build scripts",
+    "Every tracked package.json must declare non-empty lint, format, and build scripts.",
+    "files",
+    "required-package-scripts",
+    "lint, format, and build scripts declared",
+    "",
+  ],
+  [
+    "portless-local-dev",
+    "Use Portless for local web development",
+    "Make portless run the default web dev command and install Portless as a local dev dependency.",
+    "files",
+    "portless-dev",
+    "dev script runs portless",
+    "appliesTo:\n  hasFiles: [package.json]\n",
+  ],
+  [
+    "cloudflare-cf-cli",
+    "Avoid direct Wrangler dependencies and CLI usage",
+    "Keep Wrangler out of package dependencies, package scripts, workflows, and composite actions without requiring cf.",
+    "files",
+    "cloudflare-cf-cli",
+    "No direct Wrangler usage",
+    "",
+  ],
+  [
+    "pr-workflow-efficiency",
+    "Prevent wasted GitHub Actions runs",
+    "Cancel superseded PR checks and skip every check job while the pull request is a draft.",
+    "files",
+    "pr-workflow-efficiency",
+    "PR workflows cancel superseded runs and skip drafts",
+    "",
+  ],
+  [
+    "always-suggest-updating-pull-request-branches",
+    "Always suggest updating pull request branches",
+    "Offer to update pull request branches whenever they fall behind the base branch.",
+    "settings",
+    "setting",
+    "allow_update_branch = true",
+    "",
+  ],
+  [
+    "allow-auto-merge",
+    "Allow auto-merge",
+    "Allow pull requests to merge automatically once merge requirements are met in public repositories.",
+    "settings",
+    "setting",
+    "allow_auto_merge = true",
+    "appliesTo:\n  visibility: public\n",
+  ],
+];
+
 const PRACTICES: PracticeSeed[] = [
   practice(
     "oxforge-lint-format",
@@ -363,6 +458,23 @@ checks:
     key: security_and_analysis.secret_scanning_push_protection.status
     equals: enabled
 `,
+  ),
+  ...SEMANTIC_PRACTICES.map(([id, title, summary, kind, checkType, label, applies]) =>
+    practice(
+      id,
+      title,
+      summary,
+      kind,
+      [check(checkType, label, null, kind === "settings" ? "true" : null)],
+      `version: 1
+id: ${id}
+title: ${title}
+summary: ${summary}
+kind: ${kind}
+${applies}checks:
+  - type: ${checkType}
+`,
+    ),
   ),
 ];
 

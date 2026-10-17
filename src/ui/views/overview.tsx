@@ -1,9 +1,11 @@
 import { useMemo, useState } from "preact/hooks";
 import type { OverviewResponse } from "../../api/contract";
-import { Matrix } from "../components/matrix";
+import { Legend } from "../components/legend";
+import { PracticeRail } from "../components/practice-rail";
+import { RepoList } from "../components/repo-list";
 import { RepoPanel } from "../components/repo-panel";
-import { plural, timeAgo } from "../format";
-import { compareTallies, summarize, tallyRepo } from "../model";
+import { plural } from "../format";
+import { compareTallies, needsAttention, practiceGroups, summarize, tallyRepo } from "../model";
 import { linkHandler, paths } from "../router";
 
 interface OverviewProps {
@@ -19,6 +21,8 @@ export function Overview({ overview, login, repo, onRefresh, refreshing }: Overv
   const [query, setQuery] = useState("");
   const [behindOnly, setBehindOnly] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [focused, setFocused] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
 
   const tallies = useMemo(
     () => overview.repos.map((item) => tallyRepo(overview, item)),
@@ -33,11 +37,19 @@ export function Overview({ overview, login, repo, onRefresh, refreshing }: Overv
   );
 
   const needle = query.trim().toLowerCase();
+  const columns = practiceGroups(overview.practices);
+  const practices = columns.flatMap((group) => group.practices);
+  const focus = practices.find((practice) => practice.id === focused) ?? null;
+
+  const focusCount = focus
+    ? active.filter((tally) => needsAttention(overview, tally.repo.fullName, focus.id)).length
+    : 0;
 
   const visible = (showInactive ? tallies : active)
     .filter((tally) => !owner || tally.repo.owner === owner)
     .filter((tally) => !needle || tally.repo.name.toLowerCase().includes(needle))
-    .filter((tally) => !behindOnly || tally.behind > 0);
+    .filter((tally) => !behindOnly || tally.behind > 0)
+    .filter((tally) => !focus || needsAttention(overview, tally.repo.fullName, focus.id));
 
   const groups = owners.flatMap((name) => {
     const ownerTallies = visible
@@ -102,12 +114,6 @@ export function Overview({ overview, login, repo, onRefresh, refreshing }: Overv
         </p>
       </section>
 
-      <p class="catalog-coverage">
-        Coverage: {overview.practices.length - invalid.length} valid practices from your installed
-        catalog. Catalog loaded {timeAgo(overview.catalog.loadedAt)}. Only adopted practices are
-        assessed; available seed definitions are not automatically installed.
-      </p>
-
       {invalid.length > 0 && (
         <p class="notice notice-error">
           {invalid.length === 1 ? "One practice isn't" : `${invalid.length} practices aren't`} being
@@ -128,65 +134,107 @@ export function Overview({ overview, login, repo, onRefresh, refreshing }: Overv
         </p>
       )}
 
-      <div class="toolbar" role="group" aria-label="Filter repositories">
-        <label class="field field-search">
-          <span class="sr-only">Find a repository</span>
-          <input
-            type="search"
-            placeholder="Find a repository"
-            value={query}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-          />
-        </label>
-        <label class="field">
-          <span class="sr-only">Owner</span>
-          <select value={owner} onChange={(event) => setOwner(event.currentTarget.value)}>
-            <option value="">All owners</option>
-            {owners.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            checked={behindOnly}
-            onChange={(event) => setBehindOnly(event.currentTarget.checked)}
-          />
-          Behind only
-        </label>
-        {hidden > 0 && (
-          <label class="toggle">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(event) => setShowInactive(event.currentTarget.checked)}
-            />
-            Show {plural(hidden, "fork or archived repository", "forks and archived repositories")}
-          </label>
-        )}
-      </div>
+      <div class="board">
+        <PracticeRail
+          overview={overview}
+          groups={columns}
+          focused={focus?.id ?? null}
+          onFocus={setFocused}
+          onHover={setHovered}
+        />
 
-      {groups.length > 0 ? (
-        <Matrix overview={overview} groups={groups} selected={selected} />
-      ) : (
-        <p class="no-match">
-          No repositories match these filters.{" "}
-          <button
-            type="button"
-            class="link-button"
-            onClick={() => {
-              setOwner("");
-              setQuery("");
-              setBehindOnly(false);
-            }}
-          >
-            Clear filters
-          </button>
-        </p>
-      )}
+        <section class="board-repos" aria-label="Repositories">
+          <div class="toolbar" role="group" aria-label="Filter repositories">
+            <label class="field field-search">
+              <span class="sr-only">Find a repository</span>
+              <input
+                type="search"
+                placeholder="Find a repository"
+                value={query}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+              />
+            </label>
+            <label class="field">
+              <span class="sr-only">Owner</span>
+              <select value={owner} onChange={(event) => setOwner(event.currentTarget.value)}>
+                <option value="">All owners</option>
+                {owners.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label class="toggle">
+              <input
+                type="checkbox"
+                checked={behindOnly}
+                onChange={(event) => setBehindOnly(event.currentTarget.checked)}
+              />
+              Behind only
+            </label>
+            {hidden > 0 && (
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  checked={showInactive}
+                  onChange={(event) => setShowInactive(event.currentTarget.checked)}
+                />
+                Show{" "}
+                {plural(hidden, "fork or archived repository", "forks and archived repositories")}
+              </label>
+            )}
+          </div>
+
+          {focus && (
+            <div class="focus-bar" role="status">
+              <p>
+                <strong>{focus.title}</strong>
+                <span>
+                  {focusCount === 0
+                    ? "Every repository follows this practice or is exempt."
+                    : `${plural(focusCount, "repository needs", "repositories need")} attention.`}
+                </span>
+              </p>
+              <a href={paths.practice(focus.id)} onClick={linkHandler(paths.practice(focus.id))}>
+                Open practice
+              </a>
+              <button type="button" class="link-button" onClick={() => setFocused(null)}>
+                Show all repositories
+              </button>
+            </div>
+          )}
+
+          <Legend />
+
+          {groups.length > 0 ? (
+            <RepoList
+              overview={overview}
+              practices={practices}
+              groups={groups}
+              selected={selected}
+              highlight={hovered ?? focus?.id ?? null}
+            />
+          ) : (
+            !focus && (
+              <p class="no-match">
+                No repositories match these filters.{" "}
+                <button
+                  type="button"
+                  class="link-button"
+                  onClick={() => {
+                    setOwner("");
+                    setQuery("");
+                    setBehindOnly(false);
+                  }}
+                >
+                  Clear filters
+                </button>
+              </p>
+            )
+          )}
+        </section>
+      </div>
 
       {repo && (
         <RepoPanel

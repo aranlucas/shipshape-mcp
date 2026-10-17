@@ -19,6 +19,7 @@
   --hazard-soft: #fbe9f3;
   --speck: #b3c3cf;
   --focus: #1f6fb2;
+  --channel: #c3d8e6;
 
   --sans: "Overpass Variable", "Overpass", system-ui, sans-serif;
   --mono: "Overpass Mono", ui-monospace, monospace;
@@ -430,8 +431,6 @@ textarea::placeholder {
   stroke-dasharray: 2 2;
 }
 
-/* Matrix: the one dense, bold element. */
-
 .mark-loading {
   animation: check-spin 1.2s linear infinite;
 }
@@ -455,116 +454,143 @@ textarea::placeholder {
   }
 }
 
-.matrix-scroll {
-  overflow-x: auto;
-  margin-inline: calc(var(--gutter) * -1);
-  padding-inline: var(--gutter) 10rem;
+/*
+ * Overview board: the practice list on the left reads as the key to the
+ * mark strip in every repository row on the right.
+ */
+
+.board {
+  display: grid;
+  grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: start;
 }
 
-.matrix {
-  border-collapse: separate;
-  border-spacing: 0;
+.rail {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: 0 0.25rem 1rem 0;
+  scrollbar-width: thin;
 }
 
-.col-repo {
-  width: 17rem;
+.rail-head h2 {
+  font-size: var(--step-1);
+  font-weight: 650;
 }
 
-.col-count {
-  width: 2.25rem;
-}
-
-.matrix thead th,
-.matrix thead td {
-  padding: 0;
-  font-weight: 400;
-}
-
-.practice-row th {
-  height: 11.5rem;
-  vertical-align: bottom;
-}
-
-.corner {
-  padding: 0 1rem 0.6rem 0;
-  text-align: left;
-  font-size: var(--step--1);
+.rail-head p {
+  margin-top: 0.15rem;
   color: var(--sounding);
-}
-
-.corner .legend {
-  flex-direction: column;
-  margin: 0 0 1.25rem;
-}
-
-.corner-label {
-  display: block;
-}
-
-.practice-head {
-  position: relative;
-  width: 2.5rem;
-  min-width: 2.5rem;
-}
-
-.practice-head a {
-  position: absolute;
-  bottom: 2rem;
-  left: 50%;
-  transform-origin: 0 100%;
-  transform: rotate(-52deg);
-  white-space: nowrap;
-  text-decoration: none;
   font-size: var(--step--1);
-  line-height: 1;
 }
 
-.practice-head a:hover .practice-label {
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
+.rail-group {
+  margin-top: 1.25rem;
 }
 
-.practice-label {
-  display: inline-block;
-  max-width: 10.5rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: bottom;
-  padding-bottom: 0.1em;
-}
-
-.practice-behind {
-  display: block;
-  height: 1.25rem;
-  margin-bottom: 0.4rem;
-  color: var(--hazard);
+.rail-group h3 {
+  padding-bottom: 0.35rem;
+  border-bottom: 1.5px solid var(--ink);
   font-size: var(--step--1);
   font-weight: 700;
-  text-align: center;
 }
 
-.kind-row th {
+.rail-group ul {
+  margin: 0;
   padding: 0;
+  list-style: none;
+}
+
+.rail-practice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.3rem 0.75rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--shoal-soft);
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
   text-align: left;
-  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.rail-practice:hover {
+  background: var(--shoal-soft);
+}
+
+.rail-practice[aria-pressed="true"] {
+  background: var(--shoal);
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+.rail-title {
+  font-weight: 500;
+  line-height: 1.3;
+  text-wrap: pretty;
+}
+
+.rail-count {
   color: var(--sounding);
+  font-size: var(--step--1);
   white-space: nowrap;
 }
 
-.kind-row th > span {
+.rail-count.is-behind {
+  color: var(--hazard);
+  font-weight: 700;
+}
+
+.rail-practice .strip {
+  grid-column: 1 / -1;
+  height: 0.25rem;
+}
+
+.board-repos {
+  min-width: 0;
+}
+
+.board-repos .legend {
+  margin-bottom: 0.25rem;
+}
+
+.focus-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.9rem;
+  border-left: 3px solid var(--ink);
+  background: var(--shoal);
+  font-size: var(--step--1);
+}
+
+.focus-bar p {
+  margin-right: auto;
+}
+
+.focus-bar strong {
   display: block;
-  padding: 0.3rem 0 0.35rem 0.5rem;
-  border-top: 1.5px solid var(--ink);
+  font-size: var(--step-0);
+  font-weight: 650;
 }
 
-.owner-row th {
-  padding: 1.6rem 0 0.45rem;
-  border-bottom: 1px solid var(--rule);
-  text-align: left;
+.owner-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 1.75rem 0 0.4rem;
+  border-bottom: 1.5px solid var(--ink);
+  font-size: var(--step-0);
 }
 
-tbody:first-of-type .owner-row th {
-  padding-top: 0.6rem;
+.owner:first-child .owner-head {
+  padding-top: 0.75rem;
 }
 
 .owner-name {
@@ -572,37 +598,43 @@ tbody:first-of-type .owner-row th {
 }
 
 .owner-count {
-  margin-left: 0.6rem;
   color: var(--sounding);
   font-size: var(--step--1);
+  font-weight: 400;
 }
 
-.matrix tbody tr:not(.owner-row) > * {
-  height: 2rem;
+.repos {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.repo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.75rem auto;
+  align-items: center;
+  gap: 0 1rem;
+  padding: 0.5rem 0.5rem;
   border-bottom: 1px solid var(--shoal-soft);
+  cursor: pointer;
 }
 
-.matrix tbody tr:not(.owner-row):hover > * {
+.repo:hover {
   background: var(--shoal-soft);
 }
 
-.matrix tbody tr.is-selected > * {
+.repo.is-selected {
   background: var(--shoal);
 }
 
-.repo-cell {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  padding: 0 1rem 0 0;
-  background: var(--paper);
-  font-weight: 450;
-  text-align: left;
-  white-space: nowrap;
+.repo-main {
+  min-width: 0;
 }
 
 .repo-link {
+  font-weight: 600;
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 .repo-link:hover {
@@ -624,30 +656,44 @@ tbody:first-of-type .owner-row th {
   font-size: 0.75rem;
 }
 
-.count-cell {
-  text-align: center;
-}
-
-.behind-count {
-  color: var(--hazard);
-  font-weight: 700;
+.repo-note {
+  margin-top: 0.1rem;
+  color: var(--sounding);
   font-size: var(--step--1);
+  line-height: 1.4;
+  text-wrap: pretty;
 }
 
-.cell {
-  cursor: pointer;
+.note-behind {
+  color: var(--ink);
 }
 
-.cell .mark {
-  margin-inline: auto;
+.repo-behind {
+  color: var(--hazard);
+  font-size: var(--step--1);
+  font-weight: 700;
+  text-align: right;
 }
 
-.matrix .group-start {
-  padding-left: 0.75rem;
+.marks {
+  display: flex;
+  gap: 2px;
 }
 
-.practice-head.group-start a {
-  left: calc(50% + 0.375rem);
+.mark-slot {
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.75rem;
+  border-radius: 3px;
+}
+
+.mark-slot.group-start {
+  margin-left: 0.6rem;
+}
+
+.mark-slot.is-highlighted {
+  background: var(--channel);
 }
 
 /* Repository panel */
@@ -1150,19 +1196,39 @@ tbody:first-of-type .owner-row th {
     grid-template-columns: repeat(2, auto);
   }
 
-  .col-repo {
-    width: 11rem;
+  .board {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
   }
 
-  .repo-cell {
-    max-width: 11rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .rail-group ul {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    column-gap: 1rem;
+  }
+
+  .repo {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.4rem;
+  }
+
+  .marks {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+
+  .mark-slot {
+    width: 1.1rem;
   }
 }
 
-.entry-evidence,
-.catalog-coverage {
+.entry-evidence {
   color: var(--sounding);
   font-size: var(--step--1);
 }

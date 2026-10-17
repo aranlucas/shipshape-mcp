@@ -7,7 +7,14 @@ import type {
   PracticeSummary,
   RepoSummary,
 } from "@/api/contract";
-import { compareTallies, practiceGroups, summarize, tallyRepo } from "@/ui/model";
+import {
+  compareTallies,
+  needsAttention,
+  practiceGroups,
+  repoGaps,
+  summarize,
+  tallyRepo,
+} from "@/ui/model";
 
 function practice(id: string, kind: "files" | "settings", valid = true): PracticeSummary {
   return {
@@ -146,5 +153,41 @@ describe("dashboard model", () => {
         group.practices.map(({ id }) => id),
       ),
     ).toEqual([["husky", "broken"], ["squash"]]);
+  });
+
+  it("names the valid practices a repository is behind on or couldn't check", () => {
+    const view = overview(
+      {
+        "aranlucas/one": {
+          husky: cell("fail"),
+          squash: cell("unknown"),
+          broken: cell("fail"),
+        },
+      },
+      [repo("one")],
+    );
+
+    const gaps = repoGaps(view, "aranlucas/one");
+
+    expect(gaps.behind.map(({ id }) => id)).toEqual(["husky"]);
+    expect(gaps.unknown.map(({ id }) => id)).toEqual(["squash"]);
+  });
+
+  it("treats behind, couldn't-check, and unchecked results as needing attention", () => {
+    const view = overview(
+      {
+        "aranlucas/behind": { husky: cell("fail") },
+        "aranlucas/unknown": { husky: cell("unknown") },
+        "aranlucas/following": { husky: cell("pass") },
+        "aranlucas/exempt": { husky: cell("not_applicable") },
+      },
+      [repo("behind"), repo("unknown"), repo("following"), repo("exempt"), repo("unchecked")],
+    );
+
+    expect(
+      view.repos
+        .filter((item) => needsAttention(view, item.fullName, "husky"))
+        .map(({ name }) => name),
+    ).toEqual(["behind", "unknown", "unchecked"]);
   });
 });
