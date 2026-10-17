@@ -249,10 +249,7 @@ function safeFailure(error: Error): Response {
   return errorResponse("Dashboard API unavailable", 500);
 }
 
-const api = new Hono<ApiEnv>({
-  // Preserve the dashboard's existing tolerance for repeated and trailing slashes.
-  getPath: (request) => new URL(request.url).pathname.replaceAll(/\/+/gu, "/").replace(/\/$/u, ""),
-}).basePath("/app/api");
+const api = new Hono<ApiEnv>().basePath("/app/api");
 
 api.onError(safeFailure);
 api.notFound(() => errorResponse("Not found", 404));

@@ -699,14 +699,16 @@ describe("dashboard API", () => {
     },
   );
 
-  it.each(["/app/api/overview/", "/app/api//overview//"])(
-    "preserves slash normalization for %s",
+  it.each(["/app/api/overview/", "/app/api//overview", "/app/api//overview//"])(
+    "rejects noncanonical route paths (%s)",
     async (path) => {
       const response = await request(path);
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(404);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      OverviewResponseSchema.parse(await parseJson(response));
+      expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
+        error: "Not found",
+      });
     },
   );
 
