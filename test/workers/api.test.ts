@@ -699,6 +699,110 @@ describe("dashboard API", () => {
     },
   );
 
+  it.each(["/app/api/overview/", "/app/api//overview//"])(
+    "preserves slash normalization for %s",
+    async (path) => {
+      const response = await request(path);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      OverviewResponseSchema.parse(await parseJson(response));
+    },
+  );
+
+  it("decodes repository route parameters", async () => {
+    const response = await request("/app/api/repos/%61ranlucas/%61lpha");
+
+    expect(response.status).toBe(200);
+    expect(RepoDetailResponseSchema.parse(await parseJson(response)).repo.fullName).toBe(
+      "aranlucas/alpha",
+    );
+  });
+
+  it.each(["GET", "PUT", "DELETE"])("validates practice IDs for %s requests", async (method) => {
+    const response = await request("/app/api/practices/INVALID", {
+      method,
+      headers: { origin: ORIGIN, "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toMatchObject({
+      error: "Invalid request",
+      issues: expect.any(Array),
+    });
+  });
+
+  it.each([
+    ["PUT", "/app/api/practices/husky"],
+    ["DELETE", "/app/api/practices/husky"],
+    ["POST", "/app/api/refresh"],
+  ])("rejects cross-site %s requests to %s", async (method, path) => {
+    const response = await request(path, {
+      method,
+      headers: { origin: ORIGIN, "sec-fetch-site": "cross-site" },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
+      error: "Cross-origin request refused.",
+    });
+  });
+
+  it.each(["{", "[]", "null"])("rejects an invalid JSON object body (%s)", async (body) => {
+    const response = await request("/app/api/refresh", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+      body,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
+      error: "Invalid JSON body",
+    });
+  });
+
+  it("keeps unsupported methods behind the request guards and returns a JSON 404", async () => {
+    const denied = await request("/app/api/overview", { method: "PATCH" });
+    expect(denied.status).toBe(403);
+
+    const response = await request("/app/api/overview", {
+      method: "PATCH",
+      headers: { origin: ORIGIN, "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({ error: "Not found" });
+  });
+
+  it("does not implicitly serve GET routes for HEAD requests", async () => {
+    const response = await request("/app/api/overview", {
+      method: "HEAD",
+      headers: { origin: ORIGIN, "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("returns a safe JSON response for unexpected handler failures", async () => {
+    vi.spyOn(appEnv.DB, "prepare").mockImplementation(() => {
+      throw new Error("Private database failure");
+    });
+
+    const response = await request("/app/api/repos/aranlucas/alpha");
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(ApiErrorResponseSchema.parse(await parseJson(response))).toEqual({
+      error: "Dashboard API unavailable",
+    });
+  });
+
   it("returns 401 for an unauthenticated API request", async () => {
     const response = await request("/app/api/overview", {}, false);
     expect(response.status).toBe(401);
