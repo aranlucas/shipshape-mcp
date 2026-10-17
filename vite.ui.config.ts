@@ -1,7 +1,7 @@
 import { preact } from "@preact/preset-vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { defineConfig, type Plugin } from "vite";
-import { handleFixtureRequest } from "./src/ui/dev/fixture-api";
+import { handleFixtureRequest } from "./src/ui/dev/fixture-api.ts";
 
 const FIXTURE_LATENCY_MS = 250;
 

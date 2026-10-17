@@ -23,6 +23,9 @@ interface DeployOptions {
   fail?: string;
   preview?: boolean;
   missingDatabase?: boolean;
+  workersCi?: string;
+  ci?: string;
+  missingOutput?: boolean;
 }
 
 function deploy(options: DeployOptions = {}) {
@@ -50,6 +53,10 @@ function deploy(options: DeployOptions = {}) {
     }),
   );
 
+  if (options.missingOutput) {
+    rmSync(output, { recursive: true });
+  }
+
   const fakeCli = `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 import { basename } from "node:path";
@@ -76,6 +83,8 @@ if (args[1] === process.env.FAIL_COMMAND) process.exit(42);
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         COMMAND_LOG: log,
         FAIL_COMMAND: options.fail,
+        WORKERS_CI: options.workersCi,
+        CI: options.ci,
       },
       encoding: "utf8",
     },
@@ -107,6 +116,30 @@ describe("production deployment", () => {
     const result = deploy({ script: "deploy:ci" });
     expect(result.status, result.stderr).toBe(0);
     expect(result.commands).toEqual([migrate, ["cf", "deploy", "--prebuilt"]]);
+  });
+
+  it("reuses the preceding Workers Builds artifact and still migrates before upload", () => {
+    const result = deploy({ workersCi: "1" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.commands).toEqual([migrate, ["cf", "deploy", "--prebuilt"]]);
+  });
+
+  it.each([{ workersCi: "0" }, { ci: "true" }])("builds outside Workers Builds: %j", (options) => {
+    const result = deploy(options);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.commands).toEqual([["pnpm", "build"], migrate, ["cf", "deploy", "--prebuilt"]]);
+  });
+
+  it("refuses to migrate or upload when Workers Builds output is missing", () => {
+    const result = deploy({ workersCi: "1", missingOutput: true });
+    expect(result.status).not.toBe(0);
+    expect(result.commands).toEqual([]);
+  });
+
+  it("stops before upload when migration fails in Workers Builds", () => {
+    const result = deploy({ workersCi: "1", fail: "d1" });
+    expect(result.status).toBe(42);
+    expect(result.commands).toEqual([migrate]);
   });
 
   it("stops before migration when the build fails", () => {

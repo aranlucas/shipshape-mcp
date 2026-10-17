@@ -7,7 +7,7 @@ import type {
   PracticeSummary,
   RepoDetailResponse,
   RepoSummary,
-} from "../../api/contract";
+} from "../../api/contract.ts";
 
 // Development-only data in the shape of src/api/contract.ts. Organization
 // repository names are invented; they stand in for private repositories.

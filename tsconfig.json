@@ -6,6 +6,7 @@
     "lib": ["ES2022", "DOM", "ES2023.Array"],
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,

@@ -1,5 +1,5 @@
-import type { ApiErrorResponse, RefreshRequest, SavePracticeRequest } from "../../api/contract";
-import { createStore, overview, practiceDetail, repoDetail } from "./fixtures";
+import type { ApiErrorResponse, RefreshRequest, SavePracticeRequest } from "../../api/contract.ts";
+import { createStore, overview, practiceDetail, repoDetail } from "./fixtures.ts";
 
 const store = createStore();
 
