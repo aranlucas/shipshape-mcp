@@ -286,11 +286,19 @@ cf queues create --queue-name shipshape-preview-evaluations
 cf queues create --queue-name shipshape-preview-webhooks
 ```
 
-Set `PREVIEW_D1_DATABASE_ID` and `PREVIEW_OAUTH_KV_ID` in the environment used to
-build/deploy previews. Both must differ from production. Apply migrations to the
-preview database explicitly with `cf d1 migrations apply <PREVIEW_DATABASE_ID>
---dir migrations`. The build fails if the preview resource IDs are missing or
-point at production.
+The project records its shared preview resource IDs in `package.json` as
+`config.previewD1DatabaseId` and `config.previewOAuthKvId`, so Workers Builds
+can build previews without additional build variables. Set
+`PREVIEW_D1_DATABASE_ID` or `PREVIEW_OAUTH_KV_ID` to override either binding for
+a branch that needs its own resources. Both must differ from production.
+Apply migrations to the preview database explicitly with
+`cf d1 migrations apply <PREVIEW_DATABASE_ID> --dir migrations`. The build fails
+if neither project config nor the environment supplies the resource IDs, or if
+they point at production.
+
+`pnpm build:preview` validates the preview build without uploading it. CI and
+`pnpm check` build both preview and production modes; the production build runs
+last so the final artifact remains ready for a production release.
 
 Preview dashboard/API reads and sign-in work against those separate resources.
 Dashboard mutations and webhook acceptance return `403`; built-in maintenance
