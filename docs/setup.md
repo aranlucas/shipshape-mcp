@@ -143,25 +143,41 @@ protected JSON file outside the repository and use:
 
 ```sh
 pnpm build
-pnpm run deploy:ci --secrets-file /secure/path/app-secrets.json
+pnpm run deploy --dry-run
+pnpm db:migrate
+pnpm run deploy --secrets-file /secure/path/app-secrets.json
 ```
 
-Use `pnpm run deploy` for a local production release, or `pnpm run deploy:ci`
-after `pnpm build`. Both apply pending D1 migrations before uploading the Worker
-and stop if a migration fails. The database ID comes from the built Worker's
-`DB` binding, so it stays aligned with the deployed artifact. Prebuilt output
-must use production mode; Preview output is refused. `pnpm dry-run` builds and
-checks the same artifact without applying migrations or uploading anything.
+Use `pnpm release` for a local production release, or `pnpm release:ci` after
+`pnpm build`. Both apply pending D1 migrations before uploading the Worker and
+stop if validation or migration fails. The release first runs Cloudflare's
+prebuilt production dry run, which rejects invalid or Preview output before any
+database writes. `pnpm db:migrate` runs `cf d1 migrations apply` directly. Its
+database UUID lives in `package.json` under `config.d1DatabaseId`; pnpm exposes
+it to the command, and `cloudflare.config.ts` imports the same value for `DB`.
+`pnpm run deploy` is the standard `cf deploy` command
+for an existing production artifact; it does not build or migrate. Deployment
+options such as `--secrets-file`, `--tag`, and `--message` go directly to `cf`.
 
-Workers Builds uses `pnpm run build` followed by `pnpm run deploy`; keep its
-deploy command on the package script so it receives the migration gate. When
-`WORKERS_CI=1`, the deploy script reuses the preceding build instead of building
-again. Other CI systems can use `pnpm run deploy:ci` after their build step.
-Direct `cf deploy` calls bypass that gate. The build token needs D1 edit access
-for the bound database as well as Worker deployment access. Forward a named
-CLI auth profile with `--profile <name>` when needed; both migration and upload
-use it. Changes to an existing schema must remain compatible with the currently
-running Worker because migrations run before the new code is uploaded.
+`pnpm dry-run` builds and validates without applying migrations or uploading.
+For an existing build, use `pnpm run deploy --dry-run`. Use these commands for
+validation rather than adding `--dry-run` to a release command, which runs the
+migration step first. No migration runs through a `predeploy` lifecycle hook.
+
+Configure Workers Builds with **Build command: `pnpm run build`** and
+**Deploy command: `pnpm release:ci`**. Replace the previous `pnpm run deploy`
+dashboard setting so production builds continue to apply migrations. Other CI
+systems use the same build-then-release sequence. Build reuse is explicit and
+does not depend on `WORKERS_CI`.
+
+Direct `cf deploy` and `pnpm run deploy` calls bypass the migration gate. The
+build token needs D1 edit access for the bound database as well as Worker
+deployment access. Both commands inherit the active CLI profile or environment
+credentials. For an explicit named profile, build first, then run
+`pnpm run deploy --dry-run`, `pnpm db:migrate --profile <name>`, then
+`pnpm run deploy --profile <name>`. Changes to an existing schema must remain
+compatible with the currently running Worker because migrations run before the
+new code is uploaded.
 
 After deployment, sign in and choose **Find my repositories**. On an empty
 database this imports the App's installed repositories, loads the catalog,

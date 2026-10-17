@@ -8,14 +8,16 @@
     "build": "pnpm ui:build && cf build",
     "catalog:diff": "node scripts/catalog-diff.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm dry-run",
-    "deploy": "node scripts/deploy.ts",
-    "deploy:ci": "node scripts/deploy.ts --prebuilt",
+    "db:migrate": "cf d1 migrations apply \"$npm_package_config_d1DatabaseId\" --dir migrations",
+    "deploy": "cf deploy --prebuilt --mode production",
     "dev": "portless run vite",
-    "dry-run": "node scripts/deploy.ts --dry-run",
+    "dry-run": "pnpm build && pnpm run deploy --dry-run",
     "format": "oxfmt --config oxfmt.config.ts",
     "format:check": "oxfmt --config oxfmt.config.ts --check",
     "lint": "oxlint",
     "preview": "pnpm ui:build && cf previews deploy --mode preview",
+    "release": "pnpm build && pnpm release:ci",
+    "release:ci": "pnpm run deploy --dry-run && pnpm db:migrate && pnpm run deploy",
     "test": "vitest run",
     "typecheck": "cf workers types && tsc --noEmit",
     "types": "cf workers types",
@@ -68,6 +70,9 @@
     "*.{json,jsonc,json5,css,scss,md,mdx,yml,yaml,html,toml,vue,svelte,astro,graphql}": [
       "oxfmt --config oxfmt.config.ts --no-error-on-unmatched-pattern"
     ]
+  },
+  "config": {
+    "d1DatabaseId": "cac9757f-24e3-45fb-aee3-f66601f0bffe"
   },
   "packageManager": "pnpm@12.11.2"
 }

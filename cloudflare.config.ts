@@ -1,4 +1,5 @@
 import { bindings, defineConfig, triggers } from "cf/config";
+import manifest from "./package.json" with { type: "json" };
 import * as entrypoint from "./src/index" with { type: "cf-worker" };
 
 export default defineConfig(({ mode }) => ({
@@ -61,7 +62,7 @@ export default defineConfig(({ mode }) => ({
       }),
       ASSETS: bindings.assets(),
       // Preview uploads need the database ID; a name-only D1 binding is omitted.
-      DB: bindings.d1({ name: "shipshape", id: "cac9757f-24e3-45fb-aee3-f66601f0bffe" }),
+      DB: bindings.d1({ name: "shipshape", id: manifest.config.d1DatabaseId }),
       EVALUATIONS: bindings.queue({ name: "shipshape-evaluations" }),
     },
   },
