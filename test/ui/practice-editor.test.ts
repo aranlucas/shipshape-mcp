@@ -66,7 +66,7 @@ function yamlArea(): HTMLTextAreaElement {
   const area = container.querySelector("textarea");
 
   if (!(area instanceof HTMLTextAreaElement)) {
-    throw new Error("Missing practice YAML editor");
+    throw new TypeError("Missing practice YAML editor");
   }
 
   return area;

@@ -295,7 +295,7 @@ describe("repository panel during overview polling", () => {
       );
 
       if (!(button instanceof HTMLButtonElement)) {
-        throw new Error("Missing Check again button");
+        throw new TypeError("Missing Check again button");
       }
 
       button.click();
@@ -321,7 +321,7 @@ describe("repository panel during overview polling", () => {
       );
 
       if (!(button instanceof HTMLButtonElement)) {
-        throw new Error("Missing Check all again button");
+        throw new TypeError("Missing Check all again button");
       }
 
       button.click();
@@ -402,7 +402,7 @@ describe("repository panel during overview polling", () => {
     const section = container.querySelector(".panel-section details");
 
     if (!(section instanceof HTMLDetailsElement)) {
-      throw new Error("Missing practice section");
+      throw new TypeError("Missing practice section");
     }
 
     section.open = true;
@@ -573,7 +573,7 @@ describe("repository panel during overview polling", () => {
     expect(section).toBeInstanceOf(HTMLDetailsElement);
 
     if (!(section instanceof HTMLDetailsElement)) {
-      throw new Error("Missing practice section");
+      throw new TypeError("Missing practice section");
     }
 
     section.open = true;

@@ -620,7 +620,7 @@ async function responseBodyExceedsLimit(response: Response): Promise<boolean> {
       const chunk: unknown = result.value;
 
       if (!(chunk instanceof Uint8Array)) {
-        throw new Error("Expected a byte stream");
+        throw new TypeError("Expected a byte stream");
       }
 
       bytesRead += chunk.byteLength;
@@ -668,7 +668,7 @@ async function readJson(response: Response): Promise<z.infer<typeof GitHubUserSc
       const chunk: unknown = result.value;
 
       if (!(chunk instanceof Uint8Array)) {
-        throw new Error("Expected a byte stream");
+        throw new TypeError("Expected a byte stream");
       }
 
       bytesRead += chunk.byteLength;
