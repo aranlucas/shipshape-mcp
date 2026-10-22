@@ -22,7 +22,7 @@ function defaultCell(): CellResult {
   return { state: "unknown", checkedAt: null, failing: 0, unknown: 0 };
 }
 
-export function repoSummary(repo: StoredRepository): RepoSummary {
+function repoSummary(repo: StoredRepository): RepoSummary {
   return {
     fullName: repo.fullName,
     owner: repo.owner,

@@ -3,12 +3,14 @@ import { z } from "zod";
 
 import type { AppEnv } from "./env";
 import type { OverviewResponse, PracticeDetailResponse, RepoDetailResponse } from "./api/contract";
-import { GitHubInputError, GitHubPayloadError } from "./github/client";
+import { githubErrorStatus } from "./github/client";
+import { GitHubInputError } from "./github/input-error";
+import { GitHubPayloadError } from "./github/payload-error";
 import { GitHubOwnerInputSchema } from "./github/schemas";
 import { buildOverview, buildPracticeDetail, buildRepoDetail } from "./practices/views";
 import { listRepositories } from "./practices/store";
 
-export const READ_ONLY_ANNOTATIONS = {
+const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
@@ -25,7 +27,7 @@ function jsonResult(payload: PracticePayload) {
 }
 
 function toolError(cause: unknown) {
-  const status = z.object({ status: z.number() }).safeParse(cause).data?.status;
+  const status = githubErrorStatus(cause);
   let message = "The practice could not be read right now.";
 
   if (cause instanceof GitHubInputError) {

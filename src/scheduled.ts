@@ -11,7 +11,7 @@ interface TriggerInventory {
   refreshed: boolean;
 }
 
-export async function inventoryForTrigger(env: AppEnv): Promise<TriggerInventory> {
+async function inventoryForTrigger(env: AppEnv): Promise<TriggerInventory> {
   try {
     return { repos: await syncInventory(env), refreshed: true };
   } catch {

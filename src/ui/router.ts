@@ -7,7 +7,7 @@ export type Route =
   | { view: "new-practice" }
   | { view: "missing" };
 
-export function parseRoute(pathname: string): Route {
+function parseRoute(pathname: string): Route {
   const parts = pathname
     .replace(/^\/app\/?/u, "")
     .split("/")

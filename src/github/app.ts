@@ -1,12 +1,8 @@
 import { z } from "zod";
 import type { AppEnv } from "../env";
+import { GITHUB_API_VERSION } from "../config";
 import { InstallationTokenRequestError } from "./installation-token-error";
-import {
-  GITHUB_API_VERSION,
-  createGitHubOctokit,
-  type GitHubClientOptions,
-  type GitHubOctokit,
-} from "./client";
+import { createGitHubOctokit, type GitHubClientOptions, type GitHubOctokit } from "./client";
 
 const encoder = new TextEncoder();
 

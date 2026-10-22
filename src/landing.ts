@@ -87,7 +87,7 @@ export function healthResponse(): Response {
   });
 }
 
-export function stylesheetResponse(): Response {
+function stylesheetResponse(): Response {
   const headers = securityHeaders();
   headers.set("Content-Type", "text/css; charset=utf-8");
   headers.set("Cache-Control", "public, max-age=86400");

@@ -4,7 +4,7 @@ import type { AppEnv } from "../env";
 import type { JobLease, EvaluationGuard } from "../jobs/guard";
 import type { CheckResult } from "../api/contract";
 import { installationClient } from "../github/app";
-import { octokitGet, type GitHubOctokit } from "../github/client";
+import { githubErrorStatus, octokitGet, type GitHubOctokit } from "../github/client";
 import { GitHubSnapshotCache } from "../github/snapshot-cache";
 import { rateLimitDelay } from "../github/rate-limit";
 import { loadCatalog, readStoredCatalog, type CatalogPractice } from "./catalog";
@@ -38,10 +38,6 @@ type EvaluationOutcome = "evaluated" | "skipped" | "unavailable" | "retry" | Eva
 
 const SHA = z.string().regex(/^[a-f0-9]{40}$/u);
 
-function errorStatus(cause: unknown): number | undefined {
-  return z.object({ status: z.number() }).safeParse(cause).data?.status;
-}
-
 function isTransientGitHubError(status: number | undefined): boolean {
   return status !== undefined && status >= 500 && status < 600;
 }
@@ -61,7 +57,7 @@ async function readHead(client: GitHubOctokit, repo: HeadRepository): Promise<Pr
 
     return { sha: response.data.sha };
   } catch (error) {
-    return { sha: null, error: headError(errorStatus(error)) };
+    return { sha: null, error: headError(githubErrorStatus(error)) };
   }
 }
 
@@ -193,7 +189,7 @@ export async function evaluateRepository(
 
     return retryAfterSeconds !== undefined
       ? new EvaluationCooldown(retryAfterSeconds)
-      : isTransientGitHubError(errorStatus(error))
+      : isTransientGitHubError(githubErrorStatus(error))
         ? "retry"
         : "unavailable";
   }
@@ -209,7 +205,7 @@ export async function evaluateRepository(
       retryAfterSeconds = Math.max(retryAfterSeconds ?? 0, delay);
     }
 
-    if (request.method === "GET" && isTransientGitHubError(errorStatus(error))) {
+    if (request.method === "GET" && isTransientGitHubError(githubErrorStatus(error))) {
       retryableReadFailure = true;
     }
 

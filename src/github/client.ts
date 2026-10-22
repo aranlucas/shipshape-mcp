@@ -1,30 +1,27 @@
-import { GitHubPayloadError } from "./payload-error";
-
-export { GitHubPayloadError };
-
-import { GitHubInputError } from "./input-error";
-
-export { GitHubInputError };
-
 import { Octokit } from "octokit";
 import { z, type ZodType } from "zod";
 
 import { GITHUB_API_VERSION } from "../config";
+import { GitHubInputError } from "./input-error";
+import { GitHubPayloadError } from "./payload-error";
 import type { GitHubResponseMetadata } from "./schemas";
 
-export { GITHUB_API_VERSION };
+const DEFAULT_MAX_PAGES = 5;
 
-export const DEFAULT_MAX_PAGES = 5;
+const MAX_ALLOWED_PAGES = 20;
 
-export const MAX_ALLOWED_PAGES = 20;
+const DEFAULT_PER_PAGE = 50;
 
-export const DEFAULT_PER_PAGE = 50;
-
-export const MAX_PER_PAGE = 100;
+const MAX_PER_PAGE = 100;
 
 export const MAX_ALLOWED_CONCURRENCY = 8;
 
 export type GitHubOctokit = InstanceType<typeof Octokit>;
+
+/** The HTTP status carried by an error thrown from Octokit or a GitHub fetch, if any. */
+export function githubErrorStatus(cause: unknown): number | undefined {
+  return z.object({ status: z.number() }).safeParse(cause).data?.status;
+}
 
 /** Values accepted by our read-only REST endpoints; transport options remain typed. */
 export interface GitHubReadParameters {
@@ -135,7 +132,7 @@ const headerNumber = (value: string | undefined): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-export function responseMetadata(response: MetadataResponse): GitHubResponseMetadata {
+function responseMetadata(response: MetadataResponse): GitHubResponseMetadata {
   const pagination = links(String(response.headers.link ?? "") || undefined);
 
   return {
@@ -158,7 +155,7 @@ export function responseMetadata(response: MetadataResponse): GitHubResponseMeta
   };
 }
 
-export function parseGitHubResponse<T>(
+function parseGitHubResponse<T>(
   schema: ZodType<T>,
   response: Awaited<ReturnType<GitHubOctokit["request"]>>,
 ): T {
@@ -191,7 +188,7 @@ export async function octokitGet<T>(
 }
 
 /** Share effective bounds with the observation report, including clamped limits. */
-export function paginationLimits(options: PaginationOptions = {}) {
+function paginationLimits(options: PaginationOptions = {}) {
   const maxPages = boundedInteger(
     options.maxPages,
     DEFAULT_MAX_PAGES,
@@ -277,7 +274,7 @@ export async function octokitPaginate<T>(
   return { data, metadata, totalCount };
 }
 
-export type MetadataResponse = {
+type MetadataResponse = {
   url: string;
   status: number;
   headers: Record<string, string | number | undefined>;

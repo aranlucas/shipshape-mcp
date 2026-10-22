@@ -8,7 +8,7 @@ export const CSRF_COOKIE_NAME = "__Host-shipshape-csrf";
 
 export const APPROVED_CLIENT_COOKIE_NAME = "__Host-shipshape-approved";
 
-export const AUTHORIZATION_STATE_TTL_SECONDS = 10 * 60;
+const AUTHORIZATION_STATE_TTL_SECONDS = 10 * 60;
 
 export const APPROVED_CLIENT_TTL_SECONDS = 30 * 24 * 60 * 60;
 
