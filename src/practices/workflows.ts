@@ -118,10 +118,6 @@ function useIsPinned(reference: string): boolean {
   return separator >= 0 && /^[a-f0-9]{40}$/iu.test(reference.slice(separator + 1));
 }
 
-function actionUsesArePinned(workflow: ConfigDocument): boolean {
-  return workflowUses(workflow).every((use) => useIsPinned(use.reference));
-}
-
 function hasDependencyReview(workflow: ConfigDocument): boolean {
   return (
     workflowTriggersPullRequest(workflow) &&
@@ -178,5 +174,3 @@ export function inspectWorkflow(content: string, check: WorkflowCheck): Workflow
       : "No dependency-review Action triggered by pull_request was found in this workflow.",
   };
 }
-
-export { actionUsesArePinned, hasDependencyReview, permissionBlocksAreMinimal };

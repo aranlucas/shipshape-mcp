@@ -15,7 +15,7 @@ export function builtInVersion(sources: Record<string, string>): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-export function builtInPractices(sources: Record<string, string>): CatalogPractice[] {
+function builtInPractices(sources: Record<string, string>): CatalogPractice[] {
   const folders = new Map<string, Map<string, string>>();
 
   for (const [path, content] of Object.entries(sources)) {

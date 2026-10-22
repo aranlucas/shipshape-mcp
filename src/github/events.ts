@@ -30,7 +30,7 @@ function queuedRepository(
   };
 }
 
-export async function processWebhook(message: WebhookMessage, env: AppEnv): Promise<void> {
+async function processWebhook(message: WebhookMessage, env: AppEnv): Promise<void> {
   const runId = `webhook:${message.deliveryId}`;
 
   const existing = await env.DB.prepare("SELECT 1 FROM evaluation_runs WHERE id = ?")

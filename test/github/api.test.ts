@@ -2,13 +2,9 @@ import { Octokit } from "octokit";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import {
-  GITHUB_API_VERSION,
-  GitHubPayloadError,
-  createGitHubOctokit,
-  octokitGet,
-  octokitPaginate,
-} from "@/github/client";
+import { GITHUB_API_VERSION } from "@/config";
+import { createGitHubOctokit, octokitGet, octokitPaginate } from "@/github/client";
+import { GitHubPayloadError } from "@/github/payload-error";
 import { GitHubRefInputSchema, RepositoryCoordinatesSchema } from "@/github/schemas";
 
 describe("GitHub API boundaries", () => {

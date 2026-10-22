@@ -1,6 +1,6 @@
 const portlessOrigin = process.env.PORTLESS_URL;
 
-export const PUBLIC_ORIGIN =
+const PUBLIC_ORIGIN =
   portlessOrigin !== undefined && portlessOrigin.length > 0
     ? portlessOrigin
     : "https://shipshape-mcp.aranlucas.workers.dev";

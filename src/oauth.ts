@@ -35,7 +35,7 @@ import {
 } from "./oauth-security";
 import { STYLES_PATH } from "./styles";
 
-export const AUTHORIZE_PATH = "/authorize" as const;
+const AUTHORIZE_PATH = "/authorize" as const;
 
 export const CALLBACK_PATH = "/callback" as const;
 
@@ -75,7 +75,7 @@ export interface OAuthEnv {
   PUBLIC_ORIGIN?: string;
 }
 
-export interface AuthorizationFailure {
+interface AuthorizationFailure {
   code: string;
   redirectUri?: string;
   state?: string;
@@ -416,7 +416,7 @@ async function handleCallback(request: Request, env: OAuthEnv): Promise<Response
   return response;
 }
 
-export function renderConsentDialog(
+function renderConsentDialog(
   client: ClientInfo | null,
   oauthRequest: AuthRequest,
   state: string,

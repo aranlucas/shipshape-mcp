@@ -9,7 +9,12 @@ import {
   GitHubBranchSchema,
   GitHubTreeSchema,
 } from "../github/schemas";
-import { MAX_ALLOWED_CONCURRENCY, octokitGet, type GitHubOctokit } from "../github/client";
+import {
+  MAX_ALLOWED_CONCURRENCY,
+  githubErrorStatus,
+  octokitGet,
+  type GitHubOctokit,
+} from "../github/client";
 import type { GitHubSnapshotCache } from "../github/snapshot-cache";
 import { protectionState, type BranchProtectionFact } from "./protection";
 import { LINT_STAGED_CONFIG_NAMES } from "./lint-staged";
@@ -128,12 +133,8 @@ export function filesNeeded(practices: Practice[]): string[] {
   return [...paths];
 }
 
-function errorStatus(error: unknown): number | undefined {
-  return z.object({ status: z.number() }).safeParse(error).data?.status;
-}
-
 function readError(error: unknown): string {
-  const status = errorStatus(error);
+  const status = githubErrorStatus(error);
 
   return status === undefined ? "File could not be read" : `GitHub returned HTTP ${status}`;
 }
@@ -164,7 +165,7 @@ async function readProtection(
 
     return { status: "protected", protection: protectionState(protectionResponse.data) };
   } catch (error) {
-    const status = errorStatus(error);
+    const status = githubErrorStatus(error);
 
     return {
       status: "unknown",
@@ -246,7 +247,7 @@ export async function takeSnapshot(
       );
       headSha = headResponse.data.sha;
     } catch (error) {
-      const status = errorStatus(error);
+      const status = githubErrorStatus(error);
       headError = status === 409 ? "Repository has no commits" : readError(error);
     }
   }
@@ -289,7 +290,7 @@ export async function takeSnapshot(
         truncated: data.truncated,
       };
     } catch (error) {
-      const status = errorStatus(error);
+      const status = githubErrorStatus(error);
       treeError = status === 409 ? "Repository has no commits" : (headError ?? readError(error));
     }
   }

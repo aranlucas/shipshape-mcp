@@ -7,7 +7,7 @@ export const GitHubOwnerInputSchema = z
   .max(39)
   .regex(/^(?!-)[A-Za-z0-9-]+(?<!-)$/u, "Enter a valid GitHub owner");
 
-export const GitHubRepositoryNameSchema = z
+const GitHubRepositoryNameSchema = z
   .string()
   .min(1)
   .max(100)
@@ -41,14 +41,14 @@ export const RepositoryCoordinatesSchema = z.object({
   repo: GitHubRepositoryNameSchema,
 });
 
-export const GitHubOwnerSchema = z
+const GitHubOwnerSchema = z
   .object({
     login: z.string(),
     html_url: z.string().url().optional(),
   })
   .passthrough();
 
-export const GitHubLicenseSchema = z
+const GitHubLicenseSchema = z
   .object({
     key: z.string().nullable().optional(),
     name: z.string().nullable().optional(),
@@ -57,7 +57,7 @@ export const GitHubLicenseSchema = z
   })
   .passthrough();
 
-export const GitHubSecurityAnalysisSchema = z
+const GitHubSecurityAnalysisSchema = z
   .object({
     advanced_security: z.object({ status: z.string().optional() }).nullable().optional(),
     secret_scanning: z.object({ status: z.string().optional() }).nullable().optional(),
@@ -111,7 +111,7 @@ export const GitHubRepositorySchema = z
   })
   .passthrough();
 
-export const GitHubBranchCommitSchema = z
+const GitHubBranchCommitSchema = z
   .object({
     sha: z.string(),
     url: z.string().url().optional(),
@@ -182,9 +182,7 @@ export const GitHubBranchProtectionSchema = z
   })
   .passthrough();
 
-export type RepositoryCoordinates = z.infer<typeof RepositoryCoordinatesSchema>;
-
-export interface RateLimitMetadata {
+interface RateLimitMetadata {
   limit: number | null;
   remaining: number | null;
   used: number | null;
@@ -202,10 +200,6 @@ export interface GitHubResponseMetadata {
   nextUrl: string | null;
   previousUrl: string | null;
 }
-
-export type GitHubRepository = z.infer<typeof GitHubRepositorySchema>;
-
-export type GitHubBranch = z.infer<typeof GitHubBranchSchema>;
 
 export type GitHubBranchProtection = z.infer<typeof GitHubBranchProtectionSchema>;
 

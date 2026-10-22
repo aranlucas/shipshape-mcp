@@ -235,7 +235,7 @@ const AppliesToSchema = z
   })
   .strict();
 
-export const PracticeSchema = z
+const PracticeSchema = z
   .object({
     version: z.literal(1),
     id: z

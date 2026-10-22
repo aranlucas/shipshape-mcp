@@ -25,9 +25,9 @@ import {
   readSession,
 } from "./session";
 
-export const APP_PATH = "/app" as const;
+const APP_PATH = "/app" as const;
 
-export const WEB_CALLBACK_PATH = CALLBACK_PATH;
+const WEB_CALLBACK_PATH = CALLBACK_PATH;
 
 const LEGACY_WEB_CALLBACK_PATH = "/callback/web";
 
