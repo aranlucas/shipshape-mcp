@@ -6,13 +6,7 @@ import { readTextFile } from "./repository-files";
 import type { RepoSnapshot } from "./snapshot";
 import { parseWorkflow } from "./workflows";
 
-const REQUIRED_EVENTS = [
-  "opened",
-  "synchronize",
-  "reopened",
-  "ready_for_review",
-  "converted_to_draft",
-];
+const REQUIRED_EVENTS = ["opened", "synchronize", "reopened", "ready_for_review"];
 
 const WorkflowEvents = z.union([
   z.string().min(1),
@@ -279,7 +273,7 @@ export function inspectPrWorkflowEfficiency(snapshot: RepoSnapshot): CheckOutcom
       inspections.push({
         state: cancellation === false ? "fail" : "unknown",
         detail:
-          "Enable workflow cancel-in-progress for every pull_request activity, including converted_to_draft; conditional cancellation requires review.",
+          "Enable workflow cancel-in-progress for every configured pull_request activity; conditional cancellation requires review.",
       });
     }
 
