@@ -37,6 +37,7 @@ const fileWorkflowPracticeIds = new Set<string>([
   "pnpm-setup",
   "vitest-test-script",
   "required-package-scripts",
+  "pr-workflow-efficiency",
   "oxforge-lint-format",
   "husky-lint-staged",
   "dependabot-weekly-grouped",
@@ -213,11 +214,11 @@ describe("seed practice catalog", () => {
     expect(missingSources).toEqual([]);
   });
 
-  it("passes file checks and preserves unknown for CI protection", () => {
+  it("passes file checks and preserves unknown for conditional CI and protection", () => {
     const snapshot = repositorySnapshot();
     const seeds = seedPractices();
 
-    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(12);
+    expect(seeds.filter((seed) => fileWorkflowPracticeIds.has(seed.parsed.id))).toHaveLength(13);
 
     for (const seed of seeds) {
       if (!fileWorkflowPracticeIds.has(seed.parsed.id)) {
@@ -230,10 +231,15 @@ describe("seed practice catalog", () => {
         seed.parsed.id === "single-ci-workflow" ? "unknown" : "pass",
       );
 
-      expect(
-        aggregate(checks.filter((check) => check.type !== "ci-required-checks")).state,
-        seed.parsed.id,
-      ).toBe("pass");
+      for (const check of checks) {
+        // The draft guard makes CI execution conditional; protection is unavailable locally.
+        const expected =
+          check.type === "ci-test-script" || check.type === "ci-required-checks"
+            ? "unknown"
+            : "pass";
+
+        expect(check.state, `${seed.parsed.id}: ${check.type}`).toBe(expected);
+      }
     }
   });
 });
