@@ -57,8 +57,9 @@ executing scripts. Unreadable files, incomplete inventories, and indirect or
 complex commands require review and remain unknown.
 
 The `pr-workflow-efficiency` check requires PR workflows to cancel superseded
-runs using stable concurrency groups, handle ready-for-review and draft
-transitions, and skip draft work at every job. Path-filter cleanup, reusable
+runs using stable concurrency groups, start when a PR becomes ready for review,
+and skip draft work at every job. The `converted_to_draft` event is optional.
+Path-filter cleanup, reusable
 workflow internals, and complex expressions remain unknown for review. The seed
 includes remediation instructions; deploy evaluator support before adopting it
 in the separate live catalog.

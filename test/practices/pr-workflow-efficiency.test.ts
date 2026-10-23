@@ -10,7 +10,7 @@ const path = ".github/workflows/check.yml";
 
 const guard = "github.event.pull_request.draft != true";
 
-const events = ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"];
+const events = ["opened", "synchronize", "reopened", "ready_for_review"];
 
 function workflow() {
   return {
@@ -46,11 +46,12 @@ describe("PR workflow efficiency", () => {
     ["push", "pull_request"],
     { pull_request: null },
     { pull_request: {} },
-  ])("requires explicit ready-for-review and converted-to-draft activities for %j", (on) => {
+  ])("requires explicit ready-for-review activity for %j", (on) => {
     const result = evaluate({ ...workflow(), on });
 
     expect(result).toMatchObject({ state: "fail", path });
-    expect(result.detail).toContain("ready_for_review, converted_to_draft");
+    expect(result.detail).toContain("ready_for_review");
+    expect(result.detail).not.toContain("converted_to_draft");
   });
 
   it.each(events)("requires the %s event", (missing) => {
@@ -60,6 +61,15 @@ describe("PR workflow efficiency", () => {
         on: { pull_request: { types: events.filter((event) => event !== missing) } },
       }).state,
     ).toBe("fail");
+  });
+
+  it("allows converted_to_draft as an optional existing activity", () => {
+    expect(
+      evaluate({
+        ...workflow(),
+        on: { pull_request: { types: [...events, "converted_to_draft"] } },
+      }).state,
+    ).toBe("pass");
   });
 
   it("allows additional existing activities and mixed triggers", () => {

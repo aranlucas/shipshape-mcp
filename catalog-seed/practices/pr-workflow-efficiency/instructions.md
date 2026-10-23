@@ -4,7 +4,7 @@ draft. Preserve all existing triggers, filters, permissions, jobs, and condition
 ```yaml
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -33,10 +33,14 @@ guard. Job guards prevent runner allocation; step guards still allocate runners.
 The `!= true` form also permits non-PR events in workflows shared with push or
 manual triggers. Preserve failure propagation and cancellation behavior.
 
-Preserve existing activity types when adding `ready_for_review` and
-`converted_to_draft`. If `types` was implicit, retain the defaults `opened`,
-`synchronize`, and `reopened`. Ready-for-review starts checks when review begins;
-converted-to-draft lets a replacement run cancel old work before its jobs skip.
+Preserve existing activity types when adding `ready_for_review`. If `types` was
+implicit, retain the defaults `opened`, `synchronize`, and `reopened`.
+Ready-for-review starts checks when review begins.
+
+`converted_to_draft` is optional. Include it only when the repository wants a
+replacement run to cancel earlier work as a PR becomes a draft; the job guards
+then skip the replacement run's jobs. Without that event, converting to draft
+alone does not cancel an existing run.
 
 Concurrency cancellation needs a new run in the same group. If path filters
 prevent that run, use a trusted cleanup workflow on PR updates to cancel only
