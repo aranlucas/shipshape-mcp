@@ -49,8 +49,7 @@ function repository() {
 }
 
 function testEnv(): AppEnv {
-  // SAFETY: cloudflare:test provides the configured Worker bindings; these tests never access OAuthProvider's runtime helper.
-  return env as AppEnv;
+  return env;
 }
 
 beforeEach(async () => {

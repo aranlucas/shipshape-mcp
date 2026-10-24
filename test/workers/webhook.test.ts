@@ -13,7 +13,7 @@ import worker from "@/index";
 import { handleWebhookQueue } from "@/github/events";
 import { upsertRepositories, writeCatalog, type StoredRepository } from "@/practices/store";
 
-// SAFETY: cloudflare:test supplies the configured bindings; OAuthProvider adds its helper only on authenticated routes.
+// SAFETY: cloudflare:test supplies the configured Worker bindings used by webhook ingestion.
 const appEnv = env as AppEnv;
 
 let ingressSend: MockInstance<AppEnv["WEBHOOKS"]["send"]>;

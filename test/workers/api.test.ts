@@ -29,7 +29,7 @@ import {
   RepoDetailResponseSchema,
 } from "@test/helpers/contract-schemas";
 
-// SAFETY: cloudflare:test supplies Worker bindings; authenticated requests receive the OAuth helper from OAuthProvider.
+// SAFETY: cloudflare:test supplies the configured Worker bindings used by the API.
 const appEnv = env as AppEnv;
 
 const ORIGIN = "https://shipshape-mcp.aranlucas.workers.dev";

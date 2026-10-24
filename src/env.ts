@@ -1,4 +1,3 @@
-import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { OAuthStateStore } from "./oauth-security";
 
 export interface EvaluationMessage {
@@ -13,7 +12,9 @@ export interface EvaluationMessage {
 
 export interface AppEnv {
   OAUTH_KV: OAuthStateStore & KVNamespace;
-  OAUTH_PROVIDER: Pick<OAuthHelpers, "parseAuthRequest" | "lookupClient" | "completeAuthorization">;
+  BETTER_AUTH_ISSUER: string;
+  BETTER_AUTH_JWKS_URL: string;
+  MCP_ALLOWED_ORIGINS?: string;
   /** Static dashboard bundle (public/app); absent in unit tests. */
   ASSETS?: Fetcher;
   DB: D1Database;
@@ -22,14 +23,11 @@ export interface AppEnv {
   PREVIEW_READ_ONLY?: string;
   GITHUB_APP_ID: string;
   GITHUB_APP_PRIVATE_KEY: string;
-  GITHUB_APP_CLIENT_ID: string;
-  GITHUB_APP_CLIENT_SECRET: string;
   GITHUB_WEBHOOK_SECRET: string;
   OWNER_GITHUB_ID: string;
   CATALOG_REPO: string;
   /** Comma-separated GitHub accounts whose App installations Shipshape reads. */
   ALLOWED_INSTALLATION_ACCOUNTS: string;
-  COOKIE_ENCRYPTION_KEY?: string;
   GITHUB_API_VERSION?: string;
   PUBLIC_ORIGIN?: string;
 }

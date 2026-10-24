@@ -4,7 +4,7 @@ Shipshape is a single-user Cloudflare Worker for checking personal engineering
 practices across every repository available through a GitHub App installation.
 
 ```text
-owner login -- GitHub OAuth -- KV sessions
+owner login -- central Auth + GitHub social -- short-lived KV sessions
      |
      v
 Hono HTTP router -- dashboard / MCP -- D1 views
@@ -28,8 +28,16 @@ minute reconciliation ----------------+-- evaluation Queue
 ## Boundaries
 
 - The dashboard and MCP are available only to the configured owner.
-- GitHub App OAuth identifies the owner. The resulting user token is never
-  stored or used for repository reads.
+- Central Auth owns GitHub social login, account linking, consent, and OAuth grants.
+  Shipshape verifies the access-token signature, issuer, exact `/mcp` audience,
+  `shipshape:access` scope, and linked GitHub claims before comparing `github_id`
+  with `OWNER_GITHUB_ID`. GitHub credentials never enter Shipshape's login flow.
+- The dashboard uses a public authorization-code client with PKCE and one-time,
+  browser-bound state. Its opaque HttpOnly session cookie points to a hashed KV
+  record containing identity and expiration. It expires no later than the Auth
+  access token; tokens are not stored in dashboard sessions.
+- Shipshape publishes protected-resource metadata pointing to Auth's `/api/auth`
+  issuer. It exposes no authorization, token, or client registration endpoints.
 - Installation tokens read repository metadata, files, workflows, settings,
   and branch protection according to the App permissions.
 - Repository reads use one recursive tree and bounded content reads per

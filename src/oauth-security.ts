@@ -1,106 +1,13 @@
-import { hasControlCharacters, stripControlCharacters } from "./control-characters";
-import type { AuthRequest, ClientInfo } from "@cloudflare/workers-oauth-provider";
-import { z } from "zod";
-
-export const BROWSER_COOKIE_NAME = "__Host-shipshape-browser";
-
-export const CSRF_COOKIE_NAME = "__Host-shipshape-csrf";
-
-export const APPROVED_CLIENT_COOKIE_NAME = "__Host-shipshape-approved";
-
-const AUTHORIZATION_STATE_TTL_SECONDS = 10 * 60;
-
-export const APPROVED_CLIENT_TTL_SECONDS = 30 * 24 * 60 * 60;
+import { stripControlCharacters } from "./control-characters";
 
 const encoder = new TextEncoder();
 
 const MAX_COOKIE_VALUE_LENGTH = 6_000;
 
-const MAX_STATE_RECORD_LENGTH = 32_000;
-
-const safeClientStringSchema = z
-  .string()
-  .min(1)
-  .max(2_048)
-  .refine((value) => !hasControlCharacters(value));
-
-const safeScopeSchema = z
-  .string()
-  .max(256)
-  .regex(/^[A-Za-z0-9:._-]+$/);
-
-const safeScopeStringSchema = z
-  .string()
-  .max(2_048)
-  .refine((value) => value === "" || value.split(" ").every(isSafeScope));
-
-const base64UrlSchema = z
-  .string()
-  .min(1)
-  .regex(/^[A-Za-z0-9_-]+$/);
-
-const authRequestSchema = z
-  .object({
-    responseType: z.string(),
-    clientId: safeClientStringSchema,
-    redirectUri: safeClientStringSchema,
-    scope: z.array(safeScopeSchema),
-    state: z.string().max(512),
-  })
-  .passthrough();
-
-const approvedClientRecordSchema = z.object({
-  clientId: safeClientStringSchema,
-  redirectUri: safeClientStringSchema,
-  scope: safeScopeStringSchema,
-  expiresAt: z.number().int().safe(),
-});
-
-const oauthStateRecordSchema = z
-  .object({
-    kind: z.enum(["authorization", "github"]),
-    browserBinding: base64UrlSchema,
-    createdAt: z.number().int().safe(),
-    oauthRequest: authRequestSchema,
-  })
-  .passthrough();
-
 export interface OAuthStateStore {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
   delete(key: string): Promise<void>;
-}
-
-export interface AuthorizationStateRecord {
-  kind: "authorization";
-  browserBinding: string;
-  createdAt: number;
-  oauthRequest: AuthRequest;
-}
-
-export interface GitHubStateRecord {
-  kind: "github";
-  browserBinding: string;
-  createdAt: number;
-  oauthRequest: AuthRequest;
-}
-
-export type OAuthStateRecord = AuthorizationStateRecord | GitHubStateRecord;
-
-export interface ApprovedClientRecord {
-  clientId: string;
-  redirectUri: string;
-  scope: string;
-  expiresAt: number;
-}
-
-export interface SanitizedClientMetadata {
-  clientName: string;
-  clientUri?: string;
-  policyUri?: string;
-  tosUri?: string;
-  contacts: string[];
-  redirectUris: string[];
 }
 
 export function randomToken(byteLength = 32): string {
@@ -116,159 +23,6 @@ export function randomToken(byteLength = 32): string {
 
 export async function browserBinding(browserToken: string): Promise<string> {
   return encodeBase64Url(await crypto.subtle.digest("SHA-256", encoder.encode(browserToken)));
-}
-
-export async function putBrowserBoundState(
-  kv: OAuthStateStore,
-  state: string,
-  record: OAuthStateRecord,
-  browserToken: string,
-  expirationTtl = AUTHORIZATION_STATE_TTL_SECONDS,
-): Promise<void> {
-  if (!isSafeToken(state)) {
-    throw new Error("Invalid OAuth state");
-  }
-
-  const value: OAuthStateRecord = {
-    ...record,
-    browserBinding: await browserBinding(browserToken),
-  };
-
-  const serialized = JSON.stringify(value);
-
-  if (serialized.length > MAX_STATE_RECORD_LENGTH) {
-    throw new Error("OAuth state record is too large");
-  }
-
-  await kv.put(stateKey(state), serialized, { expirationTtl });
-}
-
-/**
- * Reads and immediately deletes a valid state record. KV does not expose a
- * compare-and-delete primitive, so the state is kept deliberately short lived
- * and is invalidated before any external operation begins.
- */
-export async function consumeBrowserBoundState(
-  kv: OAuthStateStore,
-  state: string,
-  browserToken: string,
-): Promise<OAuthStateRecord | null> {
-  if (!isSafeToken(state)) {
-    return null;
-  }
-
-  const serialized = await kv.get(stateKey(state));
-
-  if (serialized === null || serialized.length > MAX_STATE_RECORD_LENGTH) {
-    return null;
-  }
-
-  let parsed: unknown;
-
-  try {
-    parsed = JSON.parse(serialized);
-  } catch {
-    return null;
-  }
-
-  if (!isOAuthStateRecord(parsed)) {
-    return null;
-  }
-
-  if (parsed.createdAt + AUTHORIZATION_STATE_TTL_SECONDS * 1_000 < Date.now()) {
-    return null;
-  }
-
-  const expectedBinding = await browserBinding(browserToken);
-
-  if (!(await constantTimeEqual(parsed.browserBinding, expectedBinding))) {
-    return null;
-  }
-
-  await kv.delete(stateKey(state));
-
-  return parsed;
-}
-
-export async function createSignedApprovalCookie(
-  record: ApprovedClientRecord,
-  secret: string,
-): Promise<string> {
-  validateApprovedClientRecord(record);
-  const payload = encodeBase64Url(encoder.encode(JSON.stringify(record)));
-  const signature = await sign(payload, secret);
-  const cookieValue = `${payload}.${signature}`;
-
-  if (cookieValue.length > MAX_COOKIE_VALUE_LENGTH) {
-    throw new Error("Approved-client cookie is too large");
-  }
-
-  return cookieValue;
-}
-
-export async function parseSignedApprovalCookie(
-  cookieValue: string | null,
-  secret: string,
-  now = Date.now(),
-): Promise<ApprovedClientRecord | null> {
-  if (
-    cookieValue === null ||
-    cookieValue.length === 0 ||
-    cookieValue.length > MAX_COOKIE_VALUE_LENGTH
-  ) {
-    return null;
-  }
-
-  const separator = cookieValue.indexOf(".");
-
-  if (separator <= 0 || separator !== cookieValue.lastIndexOf(".")) {
-    return null;
-  }
-
-  const payload = cookieValue.slice(0, separator);
-  const signature = cookieValue.slice(separator + 1);
-
-  if (!isBase64Url(payload) || !isBase64Url(signature)) {
-    return null;
-  }
-
-  if (!(await verify(payload, signature, secret))) {
-    return null;
-  }
-
-  let parsed: unknown;
-
-  try {
-    parsed = JSON.parse(new TextDecoder().decode(decodeBase64Url(payload)));
-  } catch {
-    return null;
-  }
-
-  if (!isApprovedClientRecord(parsed) || parsed.expiresAt <= now) {
-    return null;
-  }
-
-  return parsed;
-}
-
-export function approvalMatches(
-  record: ApprovedClientRecord | null,
-  request: Pick<AuthRequest, "clientId" | "redirectUri" | "scope">,
-  now = Date.now(),
-): boolean {
-  if (record === null || record.expiresAt <= now) {
-    return false;
-  }
-
-  return (
-    record.clientId === request.clientId &&
-    record.redirectUri === request.redirectUri &&
-    record.scope === canonicalScope(request.scope)
-  );
-}
-
-export function canonicalScope(scope: readonly string[]): string {
-  return [...new Set(scope)].toSorted().join(" ");
 }
 
 export function getCookie(request: Request, name: string): string | null {
@@ -324,73 +78,10 @@ export function escapeHtml(value: string): string {
     .replaceAll("'", "&#x27;");
 }
 
-export function safeHttpUrl(value: string | undefined, maxLength = 2_048): string | undefined {
-  const parsedText = z.string().min(1).max(maxLength).safeParse(value);
-
-  if (!parsedText.success) {
-    return undefined;
-  }
-
-  try {
-    const parsed = new URL(parsedText.data);
-
-    if (
-      (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
-      parsed.username ||
-      parsed.password
-    ) {
-      return undefined;
-    }
-
-    return parsed.href;
-  } catch {
-    return undefined;
-  }
-}
-
-export function sanitizeClientMetadata(client: ClientInfo | null): SanitizedClientMetadata {
-  if (client === null) {
-    return {
-      clientName: "Unknown application",
-      contacts: [],
-      redirectUris: [],
-    };
-  }
-
-  const clientName = sanitizeText(client.clientName, "Unknown application", 256);
-
-  const contacts = Array.isArray(client.contacts)
-    ? client.contacts
-        .flatMap((contact) => {
-          const parsed = z.string().safeParse(contact);
-
-          return parsed.success ? [sanitizeText(parsed.data, "", 320)] : [];
-        })
-        .filter((contact) => contact.length > 0)
-        .slice(0, 10)
-    : [];
-
-  const redirectUris = Array.isArray(client.redirectUris)
-    ? client.redirectUris
-        .map((uri) => safeHttpUrl(uri))
-        .filter((uri): uri is string => uri !== undefined)
-        .slice(0, 10)
-    : [];
-
-  return {
-    clientName,
-    clientUri: safeHttpUrl(client.clientUri),
-    policyUri: safeHttpUrl(client.policyUri),
-    tosUri: safeHttpUrl(client.tosUri),
-    contacts,
-    redirectUris,
-  };
-}
-
 const CONTENT_SECURITY_POLICY =
   "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'";
 
-export function securityHeaders({ allowFormRedirects = false } = {}): Headers {
+export function securityHeaders(): Headers {
   const headers = new Headers();
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
@@ -399,71 +90,13 @@ export function securityHeaders({ allowFormRedirects = false } = {}): Headers {
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
   headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  // Consent POSTs redirect to GitHub on approval or the registered client on denial.
-  // Browsers apply form-action to the entire redirect chain, including custom URI schemes.
-  headers.set(
-    "Content-Security-Policy",
-    allowFormRedirects
-      ? CONTENT_SECURITY_POLICY.replace("form-action 'self'; ", "")
-      : CONTENT_SECURITY_POLICY,
-  );
+  headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
 
   return headers;
 }
 
 export function isSafeToken(value: string): boolean {
-  return value.length >= 16 && value.length <= 512 && isBase64Url(value);
-}
-
-function stateKey(state: string): string {
-  return `oauth:state:${state}`;
-}
-
-function sanitizeText(value: string | undefined, fallback: string, maxLength: number): string {
-  const text = z.string().min(1).safeParse(value);
-
-  if (!text.success) {
-    return fallback;
-  }
-
-  const withoutControls = stripControlCharacters(text.data).trim();
-
-  return withoutControls.length > 0 ? withoutControls.slice(0, maxLength) : fallback;
-}
-
-function validateApprovedClientRecord(record: ApprovedClientRecord): void {
-  if (
-    !isSafeClientString(record.clientId) ||
-    !isSafeClientString(record.redirectUri) ||
-    !isSafeScopeString(record.scope) ||
-    !Number.isSafeInteger(record.expiresAt)
-  ) {
-    throw new Error("Invalid approved-client record");
-  }
-}
-
-function isApprovedClientRecord(value: unknown): value is ApprovedClientRecord {
-  return approvedClientRecordSchema.safeParse(value).success;
-}
-
-function isOAuthStateRecord(value: unknown): value is OAuthStateRecord {
-  return oauthStateRecordSchema.safeParse(value).success;
-}
-
-function isSafeClientString(value: string): boolean {
-  return value.length > 0 && value.length <= 2_048 && !hasControlCharacters(value);
-}
-
-function isSafeScope(scope: string): boolean {
-  return scope.length <= 256 && /^[A-Za-z0-9:._-]+$/.test(scope);
-}
-
-function isSafeScopeString(scope: string): boolean {
-  return scope.length <= 2_048 && (scope === "" || scope.split(" ").every(isSafeScope));
-}
-
-function isBase64Url(value: string): boolean {
-  return value.length > 0 && /^[A-Za-z0-9_-]+$/.test(value);
+  return value.length >= 16 && value.length <= 512 && /^[A-Za-z0-9_-]+$/u.test(value);
 }
 
 function encodeBase64Url(bytes: ArrayBuffer | Uint8Array): string {
@@ -475,53 +108,6 @@ function encodeBase64Url(bytes: ArrayBuffer | Uint8Array): string {
   }
 
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function decodeBase64Url(value: string): ArrayBuffer {
-  const padded =
-    value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (value.length % 4)) % 4);
-
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.codePointAt(index) ?? 0;
-  }
-
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-}
-
-async function sign(payload: string, secret: string): Promise<string> {
-  const key = await signingKey(secret, ["sign"]);
-
-  return encodeBase64Url(await crypto.subtle.sign("HMAC", key, encoder.encode(payload)));
-}
-
-async function verify(payload: string, signature: string, secret: string): Promise<boolean> {
-  try {
-    const key = await signingKey(secret, ["verify"]);
-
-    return await crypto.subtle.verify(
-      "HMAC",
-      key,
-      decodeBase64Url(signature),
-      encoder.encode(payload),
-    );
-  } catch {
-    return false;
-  }
-}
-
-function signingKey(secret: string, usages: KeyUsage[]): Promise<CryptoKey> {
-  if (secret.length === 0 || secret.length > 4_096) {
-    return Promise.reject(new Error("Invalid cookie signing secret"));
-  }
-
-  const encoded = encoder.encode(secret);
-
-  const raw = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
-
-  return crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, usages);
 }
 
 export async function constantTimeEqual(left: string, right: string): Promise<boolean> {

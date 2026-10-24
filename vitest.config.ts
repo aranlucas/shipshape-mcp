@@ -26,14 +26,13 @@ export default defineConfig({
             miniflare: {
               bindings: {
                 GITHUB_APP_ID: "12345",
-                GITHUB_APP_CLIENT_ID: "Iv1.synthetic",
-                GITHUB_APP_CLIENT_SECRET: "synthetic-secret",
+                BETTER_AUTH_ISSUER: "https://auth.example/api/auth",
+                BETTER_AUTH_JWKS_URL: "https://auth.example/api/auth/jwks",
                 GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
                 GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
                 OWNER_GITHUB_ID: "1001",
                 CATALOG_REPO: "aranlucas/practices",
                 ALLOWED_INSTALLATION_ACCOUNTS: "aranlucas,sidequest-labs",
-                COOKIE_ENCRYPTION_KEY: "synthetic-cookie-key",
                 TEST_MIGRATIONS: JSON.stringify(testMigrations),
               },
             },

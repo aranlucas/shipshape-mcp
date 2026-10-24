@@ -21,9 +21,9 @@ export function renderSignInPage(message?: string): string {
         <h1>Keep every repository in practice.</h1>
         <p>Shipshape checks Lucas's engineering practices across his repositories.</p>
         ${notice}
-        <p class="permission-note">GitHub permission: identity only. Repository reads use GitHub App installation tokens, and your user token is never stored.</p>
+        <p class="permission-note">Sign in through Auth with your connected GitHub account. Repository reads use GitHub App installation tokens.</p>
         <div class="button-row"><a class="button-link button-primary" href="/app/login">Continue with GitHub</a></div>
-        <p class="legal-links"><a href="/privacy">Privacy</a></p>
+        <p class="legal-links"><a href="/privacy">Privacy</a> · <a href="https://auth.aranlucas.workers.dev/account">Manage Auth account</a></p>
       </section>
     </main>
   </body>

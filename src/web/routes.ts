@@ -1,11 +1,10 @@
 import { isOwner } from "../auth/owner";
 import { methodNotAllowed, notFoundResponse } from "../landing";
-import { CALLBACK_PATH, callbackUrl, completeGitHubLogin, type OAuthEnv } from "../oauth";
+import { CALLBACK_PATH, callbackUrl, type OAuthEnv } from "../oauth";
 import {
   appendSetCookie,
   clearCookie,
   escapeHtml,
-  getCookie,
   makeCookie,
   securityHeaders,
 } from "../oauth-security";
@@ -17,19 +16,15 @@ import {
   LOGIN_STATE_TTL_SECONDS,
   SESSION_COOKIE_NAME,
   SESSION_TTL_SECONDS,
-  WEB_LOGIN_STATE_PREFIX,
-  consumeLoginState,
-  createLoginState,
   createSession,
   deleteSession,
   readSession,
 } from "./session";
+import { completeDashboardLogin, startDashboardLogin } from "./login";
 
 const APP_PATH = "/app" as const;
 
 const WEB_CALLBACK_PATH = CALLBACK_PATH;
-
-const LEGACY_WEB_CALLBACK_PATH = "/callback/web";
 
 const APP_CONTENT_SECURITY_POLICY =
   "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
@@ -66,12 +61,9 @@ async function dashboardShell(request: Request, env: OAuthEnv, login: string): P
   );
 }
 
-export function isWebPath(pathname: string, state: string | null = null): boolean {
+export function isWebPath(pathname: string): boolean {
   return (
-    pathname === APP_PATH ||
-    pathname.startsWith(`${APP_PATH}/`) ||
-    pathname === LEGACY_WEB_CALLBACK_PATH ||
-    (pathname === WEB_CALLBACK_PATH && state?.startsWith(WEB_LOGIN_STATE_PREFIX) === true)
+    pathname === APP_PATH || pathname.startsWith(`${APP_PATH}/`) || pathname === WEB_CALLBACK_PATH
   );
 }
 
@@ -121,14 +113,7 @@ function sameOrigin(request: Request, env: OAuthEnv): boolean {
 }
 
 async function startLogin(request: Request, env: OAuthEnv): Promise<Response> {
-  const { state, browser } = await createLoginState(env.OAUTH_KV);
-  const authorize = new URL("https://github.com/login/oauth/authorize");
-  authorize.searchParams.set("client_id", env.GITHUB_APP_CLIENT_ID);
-  authorize.searchParams.set(
-    "redirect_uri",
-    callbackUrl(request, env, WEB_CALLBACK_PATH).toString(),
-  );
-  authorize.searchParams.set("state", state);
+  const { authorize, browser } = await startDashboardLogin(request, env);
   const response = redirect(authorize.toString());
   appendSetCookie(
     response.headers,
@@ -139,17 +124,15 @@ async function startLogin(request: Request, env: OAuthEnv): Promise<Response> {
 }
 
 async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
-  const url = new URL(request.url);
+  let login;
 
-  const valid = await consumeLoginState(
-    env.OAUTH_KV,
-    url.searchParams.get("state"),
-    getCookie(request, LOGIN_COOKIE_NAME),
-  );
+  try {
+    login = await completeDashboardLogin(request, env);
+  } catch {
+    login = null;
+  }
 
-  const identity = valid ? await completeGitHubLogin(request, env, url.pathname) : null;
-
-  if (identity === null) {
+  if (login === null) {
     const response = html(
       renderSignInPage("GitHub sign-in could not be completed. Please try again."),
       400,
@@ -160,7 +143,7 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
     return response;
   }
 
-  if (!isOwner(env, identity)) {
+  if (!isOwner(env, login.identity)) {
     const response = html(
       renderSignInPage("This Shipshape instance belongs to another GitHub account."),
       403,
@@ -171,12 +154,14 @@ async function finishLogin(request: Request, env: OAuthEnv): Promise<Response> {
     return response;
   }
 
-  const secret = await createSession(env.OAUTH_KV, identity);
+  const secret = await createSession(env.OAUTH_KV, login.identity, login.expiresAt);
   const response = redirect(APP_PATH);
   appendSetCookie(response.headers, clearCookie(LOGIN_COOKIE_NAME));
   appendSetCookie(
     response.headers,
-    makeCookie(SESSION_COOKIE_NAME, secret, { maxAge: SESSION_TTL_SECONDS }),
+    makeCookie(SESSION_COOKIE_NAME, secret, {
+      maxAge: Math.min(SESSION_TTL_SECONDS, login.expiresAt - Math.floor(Date.now() / 1000)),
+    }),
   );
 
   return response;
@@ -193,7 +178,7 @@ export async function webHandler(
     return request.method === "GET" ? startLogin(request, env) : methodNotAllowed();
   }
 
-  if (pathname === WEB_CALLBACK_PATH || pathname === LEGACY_WEB_CALLBACK_PATH) {
+  if (pathname === WEB_CALLBACK_PATH) {
     return request.method === "GET" ? finishLogin(request, env) : methodNotAllowed();
   }
 

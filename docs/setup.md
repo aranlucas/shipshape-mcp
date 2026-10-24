@@ -12,7 +12,7 @@ App**. Use these values:
 
 - App name: `Shipshape Personal Practices` (or another unique name).
 - Homepage URL: `${PUBLIC_ORIGIN}`.
-- Callback URL: `${PUBLIC_ORIGIN}/callback`.
+- User sign-in is handled by the central Auth Worker; the installation App needs no Shipshape login callback.
 - Turn **Request user authorization (OAuth) during installation** off.
 - Enable **Webhook** and set the URL to `${PUBLIC_ORIGIN}/github/webhook`.
 - Generate a long random webhook secret and store it in your password manager.
@@ -38,7 +38,7 @@ Subscribe to these events:
 - `installation_repositories`
 - `repository`
 
-After creating the App, save its App ID, Client ID, and Client Secret. Generate
+After creating the App, save its App ID. Generate
 the private key, keep the downloaded file outside the repository as `app.pem`,
 and convert it to the PKCS#8 PEM format expected by the Worker:
 
@@ -104,7 +104,8 @@ Set the text values in the deployment environment:
 
 ```sh
 export GITHUB_APP_ID=<app-id>
-export GITHUB_APP_CLIENT_ID=<client-id>
+export BETTER_AUTH_ISSUER=https://auth.aranlucas.workers.dev/api/auth
+export BETTER_AUTH_JWKS_URL=https://auth.aranlucas.workers.dev/api/auth/jwks
 export OWNER_GITHUB_ID=<numeric-owner-id>
 ```
 
@@ -114,14 +115,10 @@ the repository:
 
 ```sh
 export GITHUB_APP_PRIVATE_KEY="$(<app.pkcs8.pem)"
-export GITHUB_APP_CLIENT_SECRET=<client-secret>
 export GITHUB_WEBHOOK_SECRET=<webhook-secret>
-export COOKIE_ENCRYPTION_KEY=<random-cookie-key>
 
 cf workers secrets update GITHUB_APP_PRIVATE_KEY --worker shipshape-mcp --text "$GITHUB_APP_PRIVATE_KEY"
-cf workers secrets update GITHUB_APP_CLIENT_SECRET --worker shipshape-mcp --text "$GITHUB_APP_CLIENT_SECRET"
 cf workers secrets update GITHUB_WEBHOOK_SECRET --worker shipshape-mcp --text "$GITHUB_WEBHOOK_SECRET"
-cf workers secrets update COOKIE_ENCRYPTION_KEY --worker shipshape-mcp --text "$COOKIE_ENCRYPTION_KEY"
 ```
 
 `CATALOG_REPO` is configured as a text binding and defaults to
@@ -131,7 +128,24 @@ The catalog lookup and write allowlist compare repository names
 case-insensitively; keep the configured value aligned with an installed
 repository.
 `PUBLIC_ORIGIN` is the deployed Worker origin and is used to build the OAuth
-callback and webhook URLs.
+dashboard callback, resource identifier, and same-origin write checks. The webhook URL uses the same origin.
+
+Configure the central Auth Worker first, following [the auth migration guide](auth-migration.md).
+It owns GitHub social credentials and the callback
+`https://auth.aranlucas.workers.dev/api/auth/callback/github`. Connect GitHub from
+[Auth's account page](https://auth.aranlucas.workers.dev/account). Shipshape
+requests `shipshape:access` for its exact `/mcp` resource and accepts only signed
+`github_id`/`github_login` claims for `OWNER_GITHUB_ID`. The dashboard registers
+a public PKCE client with the exact `${PUBLIC_ORIGIN}/callback/web` redirect;
+no dashboard client secret is needed.
+
+`MCP_ALLOWED_ORIGINS` is an optional JSON array of additional browser origins.
+The Worker's own origin is always allowed. Origin-less native clients are
+accepted; other browser origins must be configured explicitly.
+
+The existing `OAUTH_KV` binding retains its deployed name and is still required
+for installation-token caching, dashboard client registration, browser-bound
+PKCE state, and hashed session records. OAuth grants now belong to Auth.
 
 Secrets must be configured on the production Worker as well as on any Preview.
 A successful Preview deployment does not configure production credentials.
@@ -235,7 +249,7 @@ done
 `.dev.vars` uses dotenv syntax and is loaded by local Cloudflare development
 for secret bindings. It is ignored by Git and must never contain production
 credentials in a commit. The text bindings `GITHUB_APP_ID`,
-`GITHUB_APP_CLIENT_ID`, and `OWNER_GITHUB_ID` are read from `process.env` by
+`BETTER_AUTH_ISSUER`, `BETTER_AUTH_JWKS_URL`, and `OWNER_GITHUB_ID` are read from `process.env` by
 `cloudflare.config.ts`, so export those values before starting `pnpm dev` if
 you do not put them in the config's development environment.
 
@@ -249,8 +263,10 @@ For a direct localhost server, set both `PUBLIC_ORIGIN` and `PORTLESS_URL` to
 the server origin before starting Vite. `PUBLIC_ORIGIN` controls OAuth and
 same-origin write checks; `PORTLESS_URL` controls local MCP metadata defaults.
 
-Before opening the dashboard, verify that the App callback and webhook URLs
-use the same `PUBLIC_ORIGIN` shown by the local server. Local D1 and Queue
+Before opening the dashboard, configure the local `/mcp` resource and exact
+`/callback/web` redirect in a development Auth instance. The production Auth
+resource policy accepts only declared resources. Keep the GitHub webhook URL
+aligned with the local `PUBLIC_ORIGIN`. Local D1 and Queue
 simulations are safe for development; use the configured Cloudflare resources
 only when you intentionally test the deployed integration.
 
@@ -258,14 +274,14 @@ only when you intentionally test the deployed integration.
 
 `pnpm preview` builds and deploys the current branch without queue consumers
 or cron triggers, which Cloudflare Previews do not support. The dashboard
-login and MCP discovery use the incoming Preview origin. Add its exact
-`https://<preview-host>/callback` URL to the GitHub App's callback URLs before
-testing sign-in.
+login and MCP discovery use the incoming Preview origin. Configure that exact
+`https://<preview-host>/mcp` resource and `/callback/web` redirect in a test Auth
+instance before testing sign-in. The production Auth policy accepts only its
+declared resource URLs; it does not automatically trust preview origins.
 
 Preview secrets are separate from production secrets. Upload a protected JSON
-file containing `GITHUB_APP_PRIVATE_KEY` (PKCS#8),
-`GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, and
-`COOKIE_ENCRYPTION_KEY` using Wrangler's Preview secret command. The installed
+file containing `GITHUB_APP_PRIVATE_KEY` (PKCS#8) and
+`GITHUB_WEBHOOK_SECRET` using Wrangler's Preview secret command. The installed
 `cf` version does not expose this command; Wrangler `4.151.0` is also present
 as a transitive dependency, or can be invoked explicitly:
 

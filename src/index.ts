@@ -1,68 +1,16 @@
-import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
-import { createMcpHandler } from "agents/mcp/server";
-import { z } from "zod";
-
 import { Hono } from "hono";
-import { handleWebhook } from "./github/webhook-route";
 
-import { MCP_SCOPE } from "./config";
-import { isOwner } from "./auth/owner";
+import { protectedMcp, resourceMetadata } from "./auth/mcp";
 import type { AppEnv, EvaluationMessage, WebhookMessage } from "./env";
+import { handleWebhook } from "./github/webhook-route";
 import { handleWebhookQueue } from "./github/events";
 import { reconcileJobs } from "./jobs/dispatch";
-import { GitHubOwnerInputSchema } from "./github/schemas";
-import { handleQueue, requeueIfBuiltInsChanged } from "./queue";
+import { handleQueue } from "./queue";
 import { handleScheduled } from "./scheduled";
-import { createPracticesServer } from "./mcp";
-import { callbackUrl } from "./oauth";
-import { defaultHandler } from "./oauth-runtime";
-
-const mcpOptions = { route: "/mcp", legacy: "stateless" } as const;
-
-const protectedIdentitySchema = z
-  .object({
-    login: GitHubOwnerInputSchema,
-    userId: z.number().int().positive(),
-  })
-  .strict();
-
-const protectedHandler = {
-  fetch(request, env, ctx) {
-    const identity = protectedIdentitySchema.safeParse(ctx.props);
-
-    if (!identity.success || !isOwner(env, identity.data)) {
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    const appEnv = env;
-
-    ctx.waitUntil(requeueIfBuiltInsChanged(appEnv));
-
-    return createMcpHandler(() => createPracticesServer(appEnv), mcpOptions)(request, env, ctx);
-  },
-} satisfies ProtectedHandler;
-
-function createProvider(origin: string) {
-  return new OAuthProvider<AppEnv>({
-    apiRoute: "/mcp",
-    apiHandler: protectedHandler,
-    defaultHandler,
-    authorizeEndpoint: "/authorize",
-    tokenEndpoint: "/oauth/token",
-    clientRegistrationEndpoint: "/oauth/register",
-    // Preserve native MCP clients such as Claude alongside HTTPS and loopback callbacks.
-    allowPrivateUseRedirectUris: true,
-    scopesSupported: [MCP_SCOPE],
-    requiredScopes: [MCP_SCOPE],
-    resourceMetadata: {
-      resource: `${origin}/mcp`,
-      authorization_servers: [origin],
-      bearer_methods_supported: ["header"],
-      resource_name: "Shipshape MCP",
-    },
-    clientIdMetadataDocumentEnabled: true,
-  });
-}
+import { landingHandler } from "./landing";
+import { logger } from "./logger";
+import { securityHeaders } from "./oauth-security";
+import { isWebPath, webHandler } from "./web/routes";
 
 interface HttpEnv {
   Bindings: AppEnv;
@@ -72,14 +20,27 @@ const app = new Hono<HttpEnv>();
 
 app.all("/github/webhook", (c) => handleWebhook(c.req.raw, c.env));
 
-app.all("*", (c) =>
-  // SAFETY: app.fetch receives the native Worker context; Hono types expose only its common subset.
-  createProvider(callbackUrl(c.req.raw, c.env, "/").origin).fetch(
-    c.req.raw,
-    c.env,
-    c.executionCtx as ExecutionContext,
-  ),
+app.all("/.well-known/oauth-protected-resource", (c) => resourceMetadata(c.req.raw, c.env));
+
+app.all("/.well-known/oauth-protected-resource/mcp", (c) => resourceMetadata(c.req.raw, c.env));
+
+app.all("/mcp", (c) =>
+  // SAFETY: Hono receives the native Worker context, but exposes only its common subset.
+  protectedMcp(c.req.raw, c.env, c.executionCtx as ExecutionContext),
 );
+
+app.all("*", (c) =>
+  // SAFETY: Hono receives the native Worker context, but exposes only its common subset.
+  isWebPath(c.req.path)
+    ? webHandler(c.req.raw, c.env, c.executionCtx as ExecutionContext)
+    : landingHandler(c.req.raw),
+);
+
+app.onError((_error, c) => {
+  logger.error({ path: c.req.path }, "request_failed");
+
+  return new Response("Service unavailable", { status: 503, headers: securityHeaders() });
+});
 
 const worker = {
   fetch: app.fetch,
@@ -99,7 +60,5 @@ const worker = {
     ctx.waitUntil(controller.cron === "0 13 * * *" ? handleScheduled(env) : reconcileJobs(env));
   },
 };
-
-type ProtectedHandler = { fetch: ExportedHandlerFetchHandler<AppEnv> };
 
 export default worker;

@@ -18,7 +18,7 @@ import {
 import { parsePractice, type Practice } from "@/practices/schema";
 
 // SAFETY: cloudflare:test supplies the Worker bindings configured in vitest.config.ts.
-// SAFETY: cloudflare:test supplies the configured bindings; OAuthProvider adds its helper only on authenticated routes.
+// SAFETY: cloudflare:test supplies the configured Worker bindings used by evaluations.
 const appEnv = env as AppEnv;
 
 const repoName = "octo/demo";

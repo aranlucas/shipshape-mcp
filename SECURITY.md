@@ -2,6 +2,13 @@
 
 Shipshape is a single-owner service. The configured GitHub user may sign in to
 the dashboard and authorize MCP access; every other GitHub account is rejected.
+Central Auth owns GitHub social sign-in and explicit account linking at
+`https://auth.aranlucas.workers.dev/account`. Shipshape accepts only signed,
+resource-bound `shipshape:access` JWTs from the configured Auth issuer, with
+GitHub identity claims matching `OWNER_GITHUB_ID`. Dashboard code exchanges use
+PKCE and browser-bound state; local sessions expire with the issued access
+token. Existing Shipshape OAuth grants must be replaced by reconnecting clients.
+
 Repository access comes from a GitHub App installed on the owner's personal and
 organization accounts, so the service can evaluate private repositories without
 using a long-lived user token.
