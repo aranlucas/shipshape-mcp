@@ -36,9 +36,9 @@ const PRIVACY_PAGE = `<!doctype html>
     <main class="consent-shell"><article class="legal-page">
       <a class="wordmark" href="/">Shipshape</a>
       <h1>Privacy, in plain language.</h1>
-      <p>Shipshape uses the GitHub App OAuth flow to identify Lucas and protect the dashboard and MCP. GitHub App installation tokens read every repository the App can access, including private and organization repositories.</p>
-      <p>The user token used to identify the account is not stored. The dashboard session stores only the GitHub login and numeric user id in an encrypted, HttpOnly cookie-backed session.</p>
-      <p>Short-lived OAuth state and grants are stored in Cloudflare KV. You can revoke the App installation or MCP client authorization from GitHub.</p>
+      <p>Shipshape uses the central Auth server's GitHub social login to identify Lucas and protect the dashboard and MCP. GitHub App installation tokens read every repository the App can access, including private and organization repositories.</p>
+      <p>Shipshape receives signed GitHub identity claims from Auth. Its dashboard session stores the GitHub login, numeric user id and expiration in Cloudflare KV, referenced by an opaque HttpOnly cookie. The session expires with the Auth access token, and no access or GitHub token is stored in it.</p>
+      <p>Short-lived dashboard login state is stored in Cloudflare KV. Manage GitHub connections on <a href="https://auth.aranlucas.workers.dev/account">Auth's account page</a>. Auth owns MCP client grants and revocation. Manage repository access through the GitHub App installation settings.</p>
       <p>Shipshape does not sell personal information and does not clone or execute repository code.</p>
       <p><a href="/">Return to Shipshape MCP</a></p>
     </article></main>

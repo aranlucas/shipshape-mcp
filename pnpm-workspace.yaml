@@ -2,9 +2,6 @@ allowBuilds:
   core-js-pure: true
   esbuild: true
   workerd: true
-permissions:
-  "@cloudflare/workers-oauth-provider":
-    skills: false
 minimumReleaseAgeExclude:
   - "@cloudflare/codemods@0.2.1"
   - cf@1.0.0-beta.10 || 1.0.0-beta.16

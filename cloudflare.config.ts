@@ -62,9 +62,13 @@ export default defineConfig(({ mode }) => {
                 "https://shipshape-mcp.aranlucas.workers.dev"),
         ),
         GITHUB_APP_ID: bindings.text(process.env.GITHUB_APP_ID ?? "5337206"),
-        GITHUB_APP_CLIENT_ID: bindings.text(
-          process.env.GITHUB_APP_CLIENT_ID ?? "Iv23liNbinuVCJJAhFVB",
+        BETTER_AUTH_ISSUER: bindings.text(
+          process.env.BETTER_AUTH_ISSUER ?? "https://auth.aranlucas.workers.dev/api/auth",
         ),
+        BETTER_AUTH_JWKS_URL: bindings.text(
+          process.env.BETTER_AUTH_JWKS_URL ?? "https://auth.aranlucas.workers.dev/api/auth/jwks",
+        ),
+        MCP_ALLOWED_ORIGINS: bindings.text(process.env.MCP_ALLOWED_ORIGINS ?? "[]"),
         OWNER_GITHUB_ID: bindings.text(process.env.OWNER_GITHUB_ID ?? "6351530"),
         CATALOG_REPO: bindings.text(process.env.CATALOG_REPO ?? "aranlucas/practices"),
         // The App is public so it can be installed on an organization; only these
@@ -73,9 +77,8 @@ export default defineConfig(({ mode }) => {
           process.env.ALLOWED_INSTALLATION_ACCOUNTS ?? "aranlucas,sidequest-labs",
         ),
         GITHUB_APP_PRIVATE_KEY: bindings.secret(),
-        GITHUB_APP_CLIENT_SECRET: bindings.secret(),
         GITHUB_WEBHOOK_SECRET: bindings.secret(),
-        COOKIE_ENCRYPTION_KEY: bindings.secret(),
+        // Retains its deployed name: caches installation tokens, dashboard clients and sessions.
         OAUTH_KV: bindings.kv({
           id: resources.kvId,
         }),

@@ -26,12 +26,24 @@ const SessionRecordSchema = z
     login: GitHubOwnerInputSchema,
     userId: z.number().int().positive(),
     createdAt: z.number().int().safe(),
+    expiresAt: z.number().int().positive().safe(),
   })
   .strict();
 
 const LoginStateSchema = z
-  .object({ binding: z.string().max(64), createdAt: z.number().int().safe() })
+  .object({
+    binding: z.string().max(64),
+    createdAt: z.number().int().safe(),
+    codeVerifier: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/u),
+    clientId: z.string().min(1).max(2048),
+    redirectUri: z.url(),
+  })
   .strict();
+
+export type LoginStateData = Pick<
+  z.infer<typeof LoginStateSchema>,
+  "codeVerifier" | "clientId" | "redirectUri"
+>;
 
 export interface WebSession {
   readonly login: string;
@@ -56,8 +68,13 @@ async function sessionKey(secret: string) {
   return `web:session:${base64Url(await digest("session", secret))}`;
 }
 
-export async function createSession(kv: OAuthStateStore, session: WebSession): Promise<string> {
+export async function createSession(
+  kv: OAuthStateStore,
+  session: WebSession,
+  expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+): Promise<string> {
   const secret = randomToken(32);
+  const expiration = Math.min(expiresAt, Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS);
 
   await kv.put(
     await sessionKey(secret),
@@ -65,8 +82,9 @@ export async function createSession(kv: OAuthStateStore, session: WebSession): P
       login: session.login,
       userId: session.userId,
       createdAt: Date.now(),
+      expiresAt: expiration,
     }),
-    { expirationTtl: SESSION_TTL_SECONDS },
+    { expirationTtl: Math.max(60, expiration - Math.floor(Date.now() / 1000)) },
   );
 
   return secret;
@@ -96,7 +114,10 @@ export async function readSession(
     return null;
   }
 
-  if (record.createdAt + SESSION_TTL_SECONDS * 1_000 < Date.now()) {
+  if (
+    record.createdAt + SESSION_TTL_SECONDS * 1_000 <= Date.now() ||
+    record.expiresAt * 1_000 <= Date.now()
+  ) {
     return null;
   }
 
@@ -112,7 +133,10 @@ export async function deleteSession(kv: OAuthStateStore, request: Request): Prom
 }
 
 /** One-time login state, bound to a browser cookie to stop login CSRF. */
-export async function createLoginState(kv: OAuthStateStore): Promise<LoginState> {
+export async function createLoginState(
+  kv: OAuthStateStore,
+  login: LoginStateData,
+): Promise<LoginState> {
   const state = WEB_LOGIN_STATE_PREFIX + randomToken(32);
   const browser = randomToken(32);
 
@@ -121,6 +145,7 @@ export async function createLoginState(kv: OAuthStateStore): Promise<LoginState>
     JSON.stringify({
       binding: await browserBinding(browser),
       createdAt: Date.now(),
+      ...login,
     }),
     { expirationTtl: LOGIN_STATE_TTL_SECONDS },
   );
@@ -132,16 +157,16 @@ export async function consumeLoginState(
   kv: OAuthStateStore,
   state: string | null,
   browser: string | null,
-): Promise<boolean> {
+): Promise<LoginStateData | null> {
   if (state === null || browser === null || !isSafeToken(state) || !isSafeToken(browser)) {
-    return false;
+    return null;
   }
 
   const key = `web:state:${state}`;
   const serialized = await kv.get(key);
 
-  if (serialized === null || serialized.length > 1_000) {
-    return false;
+  if (serialized === null || serialized.length > 8_000) {
+    return null;
   }
 
   await kv.delete(key);
@@ -159,10 +184,16 @@ export async function consumeLoginState(
   );
 
   if (!parsed.success || parsed.data.createdAt + LOGIN_STATE_TTL_SECONDS * 1_000 < Date.now()) {
-    return false;
+    return null;
   }
 
-  return constantTimeEqual(parsed.data.binding, await browserBinding(browser));
+  if (!(await constantTimeEqual(parsed.data.binding, await browserBinding(browser)))) {
+    return null;
+  }
+
+  const { codeVerifier, clientId, redirectUri } = parsed.data;
+
+  return { codeVerifier, clientId, redirectUri };
 }
 
 type LoginState = { state: string; browser: string };

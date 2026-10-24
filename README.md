@@ -9,7 +9,7 @@ practice catalog, evaluates bounded checks at each default-branch commit, and
 stores the results for the dashboard and MCP.
 
 The service covers personal and organization repositories, including private
-repositories. The GitHub user token is used only to identify the owner; all
+repositories. The central Auth Worker verifies the linked GitHub identity; all
 repository reads use installation tokens. Results preserve `pass`, `fail`,
 `unknown`, and `not_applicable` states.
 
@@ -23,7 +23,11 @@ codex mcp add shipshape \
 
 The MCP tools are `practices_overview`, `repo_practices`, and
 `practice_detail`. The browser dashboard is available at
-[`/app`](https://shipshape-mcp.aranlucas.workers.dev/app).
+[`/app`](https://shipshape-mcp.aranlucas.workers.dev/app). Both authenticate through
+[Auth](https://auth.aranlucas.workers.dev/); connect GitHub on its
+[account page](https://auth.aranlucas.workers.dev/account). Shipshape validates
+resource-bound `shipshape:access` tokens and the configured numeric GitHub owner
+ID. See [the migration guide](docs/auth-migration.md) for server setup and rollout.
 
 ## Practice catalog
 

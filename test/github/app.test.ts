@@ -17,14 +17,13 @@ function createTestEnv(kv: TestKv, apiVersion?: string): AppEnv {
   // SAFETY: this fixture only exercises App JWT and KV behavior; unrelated bindings are inert.
   return {
     OAUTH_KV: kv as AppEnv["OAUTH_KV"],
-    OAUTH_PROVIDER: {} as AppEnv["OAUTH_PROVIDER"],
     DB: {} as D1Database,
     WEBHOOKS: {} as Queue<never>,
     EVALUATIONS: {} as Queue<never>,
     GITHUB_APP_ID: "1",
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-    GITHUB_APP_CLIENT_ID: "synthetic-client",
-    GITHUB_APP_CLIENT_SECRET: "synthetic-secret",
+    BETTER_AUTH_ISSUER: "https://auth.aranlucas.workers.dev",
+    BETTER_AUTH_JWKS_URL: "https://auth.aranlucas.workers.dev/api/auth/jwks",
     GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
     OWNER_GITHUB_ID: "1001",
     CATALOG_REPO: "owner/repository",

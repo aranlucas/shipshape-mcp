@@ -13,7 +13,7 @@ import * as jobs from "@/jobs/store";
 import { dispatchJobs, reconcileJobs } from "@/jobs/dispatch";
 import { enqueueRepositories, handleQueue } from "@/queue";
 
-// SAFETY: cloudflare:test supplies the configured bindings; OAuthProvider adds its helper only on authenticated routes.
+// SAFETY: cloudflare:test supplies the configured Worker bindings used by queue processing.
 const appEnv = env as AppEnv;
 
 const headSha = "b".repeat(40);
