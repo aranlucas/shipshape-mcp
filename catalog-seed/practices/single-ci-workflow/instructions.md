@@ -1,7 +1,9 @@
 Adapt the CI workflow steps to the target repository's package manager, build,
 lint, typecheck, and test commands. Keep the workflow's contents permission at
-read and use the setup action appropriate for the repository's package manager;
-this starter convention assumes pnpm.
+read and preserve the repository's declared package manager. Use oven-sh/setup-bun
+for Bun or pnpm/setup for pnpm, directly or through a local composite action.
+The preferred-package-manager and pnpm-setup practices check package-manager policy
+separately; this CI practice does not require pnpm in Bun repositories.
 
 Declare a non-empty `scripts.test` in the root `package.json` and invoke that
 script in `.github/workflows/ci.yml`, for example with `pnpm test` or

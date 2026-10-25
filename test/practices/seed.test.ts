@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aggregate, runCheck } from "@/practices/checks";
+import { GitHubBranchProtectionSchema } from "@/github/schemas";
+import { protectionState } from "@/practices/protection";
 import { parsePractice, type Practice } from "@/practices/schema";
 import type { RepoSnapshot } from "@/practices/snapshot";
 import { makeSnapshot, type SnapshotOptions } from "@test/helpers/snapshot";
@@ -140,6 +142,69 @@ function repositorySnapshot(): RepoSnapshot {
 }
 
 describe("seed practice catalog", () => {
+  it.each([
+    ["bun", "oven-sh/setup-bun@v2"],
+    ["bun", "./tooling/github/setup"],
+    ["pnpm", "pnpm/setup@v3"],
+    ["pnpm", "./tooling/github/setup"],
+  ])("accepts %s CI with %s while retaining CI safeguards", (manager, action) => {
+    const seed = seedPractices().find((practice) => practice.parsed.id === "single-ci-workflow");
+
+    if (!seed) {
+      throw new Error("CI practice is missing");
+    }
+
+    const workflow = `permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ${action}
+      - run: ${manager} run test
+`;
+
+    const files = {
+      "package.json": JSON.stringify({
+        packageManager: `${manager}@1.0.0`,
+        scripts: { test: "vitest run" },
+      }),
+      ".github/workflows/ci.yml": workflow,
+      "tooling/github/setup/action.yml": `runs:\n  using: composite\n  steps:\n    - uses: ${manager === "bun" ? "oven-sh/setup-bun@v2" : "pnpm/setup@v3"}\n`,
+    };
+
+    const snapshot = makeSnapshot({
+      paths: Object.keys(files),
+      files,
+      protection: {
+        main: {
+          status: "protected",
+          protection: protectionState(
+            GitHubBranchProtectionSchema.parse({ required_status_checks: { contexts: ["ci"] } }),
+          ),
+        },
+      },
+    });
+
+    const evaluate = (value: RepoSnapshot) =>
+      aggregate(seed.parsed.checks.map((check) => runCheck(check, value, seed.files))).state;
+
+    expect(evaluate(snapshot)).toBe("pass");
+    snapshot.files.set(
+      ".github/workflows/ci.yml",
+      workflow.replace(`${manager} run test`, "echo tests skipped"),
+    );
+    expect(evaluate(snapshot)).toBe("fail");
+    snapshot.files.set(
+      ".github/workflows/ci.yml",
+      workflow.replace("contents: read", "contents: write"),
+    );
+    expect(evaluate(snapshot)).toBe("fail");
+    snapshot.files.set(".github/workflows/ci.yml", workflow);
+    snapshot.protection.set("main", { status: "unprotected" });
+    expect(evaluate(snapshot)).toBe("fail");
+  });
+
   it.each<SettingCase>([
     ["enabled", { allow_update_branch: true }, "pass"],
     ["disabled", { allow_update_branch: false }, "fail"],
