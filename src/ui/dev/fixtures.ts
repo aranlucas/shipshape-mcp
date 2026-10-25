@@ -355,16 +355,10 @@ checks:
   practice(
     "single-ci-workflow",
     "CI workflow configuration",
-    "Provide ci.yml with read-only contents permission, pnpm setup, and required branch checks.",
+    "Provide ci.yml with read-only contents permission and required branch checks.",
     "files",
     [
       check("file-exists", ".github/workflows/ci.yml exists", ".github/workflows/ci.yml", null),
-      check(
-        "file-contains",
-        "ci.yml uses pnpm/setup",
-        ".github/workflows/ci.yml",
-        "uses: pnpm/setup@",
-      ),
       check("yaml-path", "ci.yml permissions.contents = read", ".github/workflows/ci.yml", "read"),
       check(
         "ci-required-checks",
@@ -376,16 +370,13 @@ checks:
     `version: 1
 id: single-ci-workflow
 title: CI workflow configuration
-summary: Provide ci.yml with read-only contents permission, pnpm setup, and required branch checks.
+summary: Provide ci.yml with read-only contents permission and required branch checks.
 kind: files
 ${NODE_APPLIES}
 checks:
   - type: ci-required-checks
   - type: file-exists
     path: .github/workflows/ci.yml
-  - type: file-contains
-    path: .github/workflows/ci.yml
-    text: "uses: pnpm/setup@"
   - type: yaml-path
     file: .github/workflows/ci.yml
     path: permissions.contents
