@@ -74,24 +74,11 @@ on a development Auth server and configure its issuer/JWKS bindings. Production
 Auth does not automatically authorize arbitrary preview resources. Additional
 MCP browser origins can be configured in the `MCP_ALLOWED_ORIGINS` JSON array.
 
-`@better-auth/mcp`, `@better-auth/oauth-provider`, and `better-auth/oauth2`
-provide maintained resource verification, challenges, and metadata; the existing
-`oauth4webapi` dependency handles the dashboard authorization-code exchange.
-This replaces the embedded Workers OAuth provider rather than implementing
-another token server. `jose` is a direct development dependency for real signed
-JWT/JWKS security fixtures.
+## Consistency limit
 
-## Deployed configuration
-
-On 2026-10-24, Auth version `96c90b0e-8f12-4612-9481-c4589d30a1aa` and
-Shipshape version `7c9c8a8b-1129-49b2-a9e2-6f7b2f4bd17e` were deployed with this
-contract. Auth keeps the dedicated **Auth — GitHub** OAuth application from the
-merged social sign-in release; its existing production credentials were
-preserved. The recovered older Shipshape sign-in credential was not installed
-over the dedicated application's credential.
-
-Live verification passed for Auth health/discovery/JWKS, Shipshape protected
-resource metadata, the unauthenticated MCP challenge, and the dashboard's public
-client registration and S256 PKCE redirect. Sign in to the dashboard again and
-reconnect existing MCP clients to obtain central Auth grants. No database
-migration was needed for the cutover.
+Dashboard login state is browser-bound, but its KV `get` followed by `delete`
+is not an atomic consume-once operation. PKCE, browser binding, and the provider's
+code validation remain required. If strict atomic state consumption or immediate
+session invalidation is needed, use a transactional store rather than assuming
+KV provides those guarantees. This is a consistency limit, not evidence of an
+authentication bypass. See [KV consistency guidance](https://developers.cloudflare.com/kv/concepts/how-kv-works/).

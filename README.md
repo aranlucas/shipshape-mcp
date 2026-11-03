@@ -3,15 +3,10 @@
 [![CI](https://github.com/aranlucas/shipshape-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/aranlucas/shipshape-mcp/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/aranlucas/shipshape-mcp)](LICENSE)
 
-Shipshape checks Lucas's engineering practices across his repositories. A
-GitHub App inventories the repositories it can access, reads a versioned
-practice catalog, evaluates bounded checks at each default-branch commit, and
-stores the results for the dashboard and MCP.
-
-The service covers personal and organization repositories, including private
-repositories. The central Auth Worker verifies the linked GitHub identity; all
-repository reads use installation tokens. Results preserve `pass`, `fail`,
-`unknown`, and `not_applicable` states.
+Shipshape checks Lucas's engineering practices across personal and organization
+repositories, including private repositories. A GitHub App reads repositories;
+the dashboard and MCP show stored evidence as `pass`, `fail`, `unknown`, or
+`not_applicable`. Only the configured owner can sign in.
 
 ## Connect
 
@@ -21,79 +16,24 @@ codex mcp add shipshape \
   --oauth-client-registration auto
 ```
 
-The MCP tools are `practices_overview`, `repo_practices`, and
-`practice_detail`. The browser dashboard is available at
-[`/app`](https://shipshape-mcp.aranlucas.workers.dev/app). Both authenticate through
-[Auth](https://auth.aranlucas.workers.dev/); connect GitHub on its
-[account page](https://auth.aranlucas.workers.dev/account). Shipshape validates
-resource-bound `shipshape:access` tokens and the configured numeric GitHub owner
-ID. See [the migration guide](docs/auth-migration.md) for server setup and rollout.
+The MCP tools are `practices_overview`, `repo_practices`, and `practice_detail`.
+The [dashboard](https://shipshape-mcp.aranlucas.workers.dev/app) and MCP use
+[central Auth](https://auth.aranlucas.workers.dev/). Connect GitHub on its
+[account page](https://auth.aranlucas.workers.dev/account) before signing in.
+See [authentication setup and migration](docs/auth-migration.md) for the
+resource, scope, owner gate, and client reconnection requirements.
 
-## Practice catalog
+## Practices
 
-Practices live in the private `aranlucas/practices` catalog repository. Each
-practice has a strict `practice.yml` definition and may include canonical files
-and agent instructions. Checks cover repository files, JSON/YAML paths,
-dependencies, repository settings, branch protection, and workflow security.
+Built-in practices ship from [`catalog-seed/practices/`](catalog-seed/practices).
+The private `aranlucas/practices` repository supplies overrides, custom practices,
+and disabled markers. [Catalog setup](docs/setup.md#5-create-the-private-catalog-repository)
+explains how to edit or reset them without blocking future built-in updates.
 
-Practice `appliesTo.include` and `appliesTo.exclude` selectors accept case-insensitive
-`*` and `?` globs. Bare patterns such as `legacy-*` match repository names across
-owners; patterns containing `/`, such as `aranlucas/agents-mobile` or `octo/*`,
-match the full `owner/repository` name. Exclusions take precedence over inclusions.
-
-The CI practice includes `ci-required-checks`: jobs in `.github/workflows/ci.yml`
-must be required status checks on the default branch. It uses each job's `name`
-or job ID and allows additional required checks. Dynamic names, matrix jobs,
-reusable workflows and unreadable protection settings remain unknown. Shipshape
-reports missing requirements and provides remediation instructions without
-changing repository settings. Deploy evaluator support before adopting the
-updated seed in the separate live catalog.
-
-The CI practice also includes `ci-test-script`: the root `package.json` must
-declare a non-empty `scripts.test`, and `.github/workflows/ci.yml` must invoke
-it through a package-manager script command or a simple alias. Parallel steps
-are supported; conditional, indirect, or failure-ignoring execution needs review.
-
-The `vitest-test-script` check requires every tracked `package.json`, including
-nested packages, to declare a test script that runs Vitest (for example,
-`"test": "vitest run"`). It reads manifests at the evaluated commit without
-executing scripts. Unreadable files, incomplete inventories, and indirect or
-complex commands require review and remain unknown.
-
-The `pr-workflow-efficiency` check requires PR workflows to cancel superseded
-runs using stable concurrency groups, start when a PR becomes ready for review,
-and skip draft work at every job. The `converted_to_draft` event is optional.
-Path-filter cleanup, reusable
-workflow internals, and complex expressions remain unknown for review. The seed
-includes remediation instructions; deploy evaluator support before adopting it
-in the separate live catalog.
-
-The `required-package-scripts` check also requires non-empty `lint`, `format`,
-and `build` scripts in every tracked `package.json`. Missing entries and obvious
-placeholders fail. It checks declarations without running commands; unreadable
-manifests and incomplete inventories remain unknown unless a known failure exists.
-
-The `husky-lint-staged` check reads `package.json`, `.husky/pre-commit`, and
-recognized root lint-staged configuration files. It checks local dependencies,
-Husky initialization through prepare or postinstall, nonempty inline or
-JSON/YAML tasks, and a hook invocation that preserves lint failures. Common
-npm, pnpm, Yarn and Bun commands and bounded package-script aliases are supported.
-It never executes repository commands. Custom installers, shell preambles,
-CLI config/cwd/diff selectors, ambiguous configuration and JS/TS tasks require
-review and remain unknown. Task execution and machine-local Git settings are
-outside this static check.
-
-The `portless-local-dev` and `cloudflare-cf-cli` seed practices capture recurring
-requests for local development tooling. Their evidence, existing related rules,
-and adoption boundaries are recorded in
-[`docs/recurring-preferences.md`](docs/recurring-preferences.md). Deploy evaluator
-support before adopting the definitions in the separate live catalog.
-
-The dashboard and API contract are documented in
-[`docs/architecture.md`](docs/architecture.md); the TypeScript response source
-of truth is [`src/api/contract.ts`](src/api/contract.ts). Setup instructions
-for the GitHub App, D1 database, queue, and catalog repository are in
-[`docs/setup.md`](docs/setup.md).
+Each practice's `instructions.md` contains remediation guidance and check limits.
+The [coverage gaps](docs/practice-coverage.md) explain where a passing result still
+needs review. The Worker never executes repository code or writes to evaluated
+repositories; dashboard edits write only to the allowlisted catalog repository.
 
 ## Develop
 
@@ -102,54 +42,19 @@ pnpm install --frozen-lockfile
 cp .dev.vars.example .dev.vars
 pnpm types
 pnpm check
-pnpm dev
 ```
 
-The dashboard is a Preact bundle in `src/ui`. Work on it without GitHub
-credentials using fixture data in the API contract's shape:
+For dashboard work without credentials, run `pnpm ui:dev` and open
+`http://localhost:5200/app/`. It uses fixture data.
 
-```bash
-pnpm ui:dev   # http://localhost:5200/app/
-```
+For the full Worker, follow [local setup](docs/setup.md#6-local-development),
+including development Auth configuration and local migrations. Run
+`pnpm ui:build` before `pnpm dev` so the Worker can serve the dashboard bundle.
 
-`pnpm ui:build` writes the bundle to `public/app/`, which the Worker serves as
-static assets; `pnpm build`, `pnpm dry-run`, and `pnpm preview` run it first.
-Run it once before `pnpm dev` so the Worker can serve the dashboard shell.
+[Deployment setup](docs/setup.md#4-configure-deployed-secrets-and-text-bindings)
+covers production releases, migration safety, and Workers Builds.
 
-Use `pnpm release` to build, apply D1 migrations, and deploy production. Workers
-Builds runs `pnpm build` followed by `pnpm release:ci` to reuse the artifact.
-`pnpm run deploy` uploads an existing build without applying migrations;
-`pnpm dry-run` builds and validates without database writes or upload. See the
-[deployment setup](docs/setup.md#4-configure-deployed-secrets-and-text-bindings)
-for the Workers Builds commands and deployment options.
-
-See [`SECURITY.md`](SECURITY.md) for the security boundary and reporting
-instructions.
-
-## Architecture
-
-```mermaid
-flowchart LR
-  GitHub[GitHub App] --> Inventory[Inventory + installation tokens]
-  Catalog[Practice catalog repository] --> Queue[Evaluation queue]
-  Inventory --> Queue
-  Queue --> Engine[Practice check engine]
-  Engine --> DB[(D1 results)]
-  DB --> API[Dashboard API]
-  DB --> MCP[MCP tools]
-```
-
-- `src/github/app.ts` creates App and installation clients.
-- `src/inventory/sync.ts` refreshes every installation's repositories.
-- `src/practices/` parses the catalog, reads bounded repository snapshots, and
-  evaluates checks.
-- `src/queue.ts` and `src/scheduled.ts` trigger evaluation after pushes and on
-  the daily sweep.
-- `src/api/routes.ts` and `src/mcp.ts` expose the shared response contract.
-
-## Local checks
-
-`pnpm check` runs generated Worker types, typechecking, linting, formatting,
-the node and Worker test projects, and a Cloudflare dry run. Repository reads
-are bounded and no repository code is cloned, executed, or mutated by the
-Worker.
+- [Architecture and consistency boundaries](docs/architecture.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security and private reporting](SECURITY.md)
+- [Product roadmap](ROADMAP.md)
