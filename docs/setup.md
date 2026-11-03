@@ -66,47 +66,37 @@ GitHub user ID with this value; a different GitHub account receives `403`.
 
 ## 3. Create Cloudflare resources
 
-The project uses the `cf` CLI (`cf@1.0.0-beta.17`). The command forms below
-were discovered from the installed CLI with `cf cli search` and command help.
-Run them only after authenticating to the intended Cloudflare account. Keep the
-IDs returned by the create commands; do not substitute a database name where a
-database ID is required.
+Use the project-pinned `cf` CLI after authenticating to the intended Cloudflare
+account. D1 migration commands require a database UUID, not a name or binding.
 
-Create the D1 database, evaluation queue, ingress queue, and dead-letter queues:
+Create the D1 database, KV namespace, evaluation and ingress queues, and dead-letter queues:
 
 ```sh
 cf d1 create --name shipshape
+cf kv namespaces create --title shipshape-oauth
 cf queues create --queue-name shipshape-evaluations
 cf queues create --queue-name shipshape-webhooks
 cf queues create --queue-name shipshape-evaluations-failed
 cf queues create --queue-name shipshape-webhooks-failed
 ```
 
-The Worker configuration declares `DB`, `EVALUATIONS`, and `WEBHOOKS`. Queue
-consumer settings are managed in `cloudflare.config.ts`: evaluation batches of
-five with one concurrent invocation, ingress batches of one, and explicit retry
-and dead-letter policies. The daily trigger requests a sweep; the minute trigger
-repairs dispatch and expired leases.
-
-Apply the checked-in migrations using the D1 database ID returned by the create
-command:
-
-```sh
-cf d1 migrations apply <D1_DATABASE_ID> --dir migrations
-```
-
-The queue consumer batch size is five so a sweep does not exhaust one Worker
-invocation's subrequest budget. The cron trigger is `0 13 * * *` UTC.
+For another instance, put the returned D1 UUID in `package.json`'s
+`config.d1DatabaseId` and the KV ID in `PRODUCTION_KV_ID` in
+[`src/deployment-resources.ts`](../src/deployment-resources.ts). Align queue names
+and triggers in [`cloudflare.config.ts`](../cloudflare.config.ts) if renamed.
+Apply all checked-in migrations before enabling consumers; the release commands
+below do this for production. See [durable-job rollout](#8-durable-job-rollout-and-recovery)
+when upgrading an existing deployment.
 
 ## 4. Configure deployed secrets and text bindings
 
 Set the text values in the deployment environment:
 
 ```sh
-export GITHUB_APP_ID=<app-id>
+export GITHUB_APP_ID='<app-id>'
 export BETTER_AUTH_ISSUER=https://auth.aranlucas.workers.dev/api/auth
 export BETTER_AUTH_JWKS_URL=https://auth.aranlucas.workers.dev/api/auth/jwks
-export OWNER_GITHUB_ID=<numeric-owner-id>
+export OWNER_GITHUB_ID='<numeric-owner-id>'
 ```
 
 Set the secret bindings with the installed CLI. Keep the values in local shell
@@ -115,11 +105,15 @@ the repository:
 
 ```sh
 export GITHUB_APP_PRIVATE_KEY="$(<app.pkcs8.pem)"
-export GITHUB_WEBHOOK_SECRET=<webhook-secret>
+export GITHUB_WEBHOOK_SECRET='<webhook-secret>'
 
 cf workers secrets update GITHUB_APP_PRIVATE_KEY --worker shipshape-mcp --text "$GITHUB_APP_PRIVATE_KEY"
 cf workers secrets update GITHUB_WEBHOOK_SECRET --worker shipshape-mcp --text "$GITHUB_WEBHOOK_SECRET"
 ```
+
+`ALLOWED_INSTALLATION_ACCOUNTS` is a comma-separated installation account
+allowlist, defaulting to `aranlucas,sidequest-labs`. Set it for another instance;
+installing the public App alone does not grant Shipshape access to an account.
 
 `CATALOG_REPO` is configured as a text binding and defaults to
 `aranlucas/practices`. Set `CATALOG_REPO=owner/name` in the deployment
@@ -130,14 +124,9 @@ repository.
 `PUBLIC_ORIGIN` is the deployed Worker origin and is used to build the OAuth
 dashboard callback, resource identifier, and same-origin write checks. The webhook URL uses the same origin.
 
-Configure the central Auth Worker first, following [the auth migration guide](auth-migration.md).
-It owns GitHub social credentials and the callback
-`https://auth.aranlucas.workers.dev/api/auth/callback/github`. Connect GitHub from
-[Auth's account page](https://auth.aranlucas.workers.dev/account). Shipshape
-requests `shipshape:access` for its exact `/mcp` resource and accepts only signed
-`github_id`/`github_login` claims for `OWNER_GITHUB_ID`. The dashboard registers
-a public PKCE client with the exact `${PUBLIC_ORIGIN}/callback/web` redirect;
-no dashboard client secret is needed.
+Configure central Auth first using [the auth contract and migration guide](auth-migration.md).
+Declare the exact `/mcp` resource and `/callback/web` redirect for this instance.
+Shipshape needs no dashboard client secret.
 
 `MCP_ALLOWED_ORIGINS` is an optional JSON array of additional browser origins.
 The Worker's own origin is always allowed. Origin-less native clients are
@@ -159,36 +148,39 @@ pnpm db:migrate
 pnpm run deploy --secrets-file /secure/path/app-secrets.json
 ```
 
-Use `pnpm release` for a local production release, or `pnpm release:ci` after
-`pnpm build`. Both apply pending D1 migrations before uploading the Worker and
-stop if validation or migration fails. The release first runs Cloudflare's
-prebuilt production dry run, which rejects invalid or Preview output before any
-database writes. `pnpm db:migrate` runs `cf d1 migrations apply` directly. Its
-database UUID lives in `package.json` under `config.d1DatabaseId`; pnpm exposes
-it to the command, and `cloudflare.config.ts` imports the same value for `DB`.
-`pnpm run deploy` is the standard `cf deploy` command
-for an existing production artifact; it does not build or migrate. Deployment
-options such as `--secrets-file`, `--tag`, and `--message` go directly to `cf`.
+Use these release paths:
 
-`pnpm dry-run` builds and validates without applying migrations or uploading.
-For an existing build, use `pnpm run deploy --dry-run`. Use these commands for
-validation rather than adding `--dry-run` to a release command, which runs the
-migration step first. No migration runs through a `predeploy` lifecycle hook.
+| Task                                     | Command                     |
+| ---------------------------------------- | --------------------------- |
+| Local production release                 | `pnpm release`              |
+| Workers Builds build command             | `pnpm run build`            |
+| Workers Builds deploy command            | `pnpm release:ci`           |
+| Validate without migrations or upload    | `pnpm dry-run`              |
+| Validate an existing production artifact | `pnpm run deploy --dry-run` |
 
-Configure Workers Builds with **Build command: `pnpm run build`** and
-**Deploy command: `pnpm release:ci`**. Replace the previous `pnpm run deploy`
-dashboard setting so production builds continue to apply migrations. Other CI
-systems use the same build-then-release sequence. Build reuse is explicit and
-does not depend on `WORKERS_CI`.
+A release validates the prebuilt production artifact, then applies migrations,
+then uploads it, stopping on failure. `config.d1DatabaseId` supplies the UUID to
+both `db:migrate` and the Worker binding. Build and release from the same checkout;
+reusing an old artifact after changing resource configuration can migrate the
+wrong database. Direct `cf deploy` or `pnpm run deploy` bypasses migrations.
+Never append `--dry-run` to a release command: use the dedicated validation path.
+Keep migrations out of `predeploy` hooks, which can run even for a deploy dry run.
 
-Direct `cf deploy` and `pnpm run deploy` calls bypass the migration gate. The
-build token needs D1 edit access for the bound database as well as Worker
-deployment access. Both commands inherit the active CLI profile or environment
-credentials. For an explicit named profile, build first, then run
-`pnpm run deploy --dry-run`, `pnpm db:migrate --profile <name>`, then
-`pnpm run deploy --profile <name>`. Changes to an existing schema must remain
-compatible with the currently running Worker because migrations run before the
-new code is uploaded.
+Deployment options such as `--secrets-file`, `--tag`, and `--message` can be passed
+to `pnpm run deploy`. The build token needs D1 edit and Worker deployment access.
+For a named CLI profile, build first, then use the same profile for all three
+steps: `pnpm run deploy --dry-run --profile <name>`,
+`pnpm db:migrate --profile <name>`, and `pnpm run deploy --profile <name>`.
+
+Serialize production releases. Migrations precede upload, so schema changes must
+support the running Worker and any version needed for rollback. Worker rollback
+does not undo D1 writes. Prefer additive changes; contract the schema only after
+old code cannot return. After a migration failure, inspect applied migration
+bookkeeping and database state before retrying. Do not assume the entire release
+rolled back or that each `cf` migration created a separate backup. D1 Time Travel
+is a separate recovery operation; verify the account's recovery window before
+relying on it. See [Worker rollback constraints](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
+and [D1 recovery](https://developers.cloudflare.com/d1/reference/time-travel/).
 
 After deployment, sign in and choose **Find my repositories**. On an empty
 database this imports the App's installed repositories, loads the catalog,
@@ -205,8 +197,7 @@ nothing but an initial commit:
 gh repo create aranlucas/practices --private --add-readme
 ```
 
-Install the GitHub App on it. These commands are documentation only; do not
-run them against a real account without reviewing the target first.
+Install the GitHub App on it and include its owner in `ALLOWED_INSTALLATION_ACCOUNTS`.
 
 The catalog layout is `practices/<id>/practice.yml`, with optional
 `instructions.md` and `files/` content. The effective catalog is the built-ins
@@ -235,14 +226,16 @@ pnpm dev
 
 The local D1 database starts empty. Apply the migrations to it once per
 local state directory, using the local explorer the dev server prints at
-startup (`/cdn-cgi/local/explorer/api`):
+startup (`/cdn-cgi/local/explorer/api`). In the shell running these commands,
+set `LOCAL_ORIGIN` to that local server origin:
 
 ```sh
-DB_ID=$(curl -s "$PUBLIC_ORIGIN/cdn-cgi/local/explorer/api/d1/database" | jq -r '.result[0].uuid')
+LOCAL_ORIGIN='<local-server-origin>'
+DB_ID=$(curl -s "$LOCAL_ORIGIN/cdn-cgi/local/explorer/api/d1/database" | jq -r '.result[0].uuid')
 for file in migrations/*.sql; do
   jq -n --rawfile sql "$file" '{sql: $sql}' |
     curl -s -X POST -H 'Content-Type: application/json' --data @- \
-      "$PUBLIC_ORIGIN/cdn-cgi/local/explorer/api/d1/database/$DB_ID/raw"
+      "$LOCAL_ORIGIN/cdn-cgi/local/explorer/api/d1/database/$DB_ID/raw"
 done
 ```
 
@@ -279,14 +272,13 @@ login and MCP discovery use the incoming Preview origin. Configure that exact
 instance before testing sign-in. The production Auth policy accepts only its
 declared resource URLs; it does not automatically trust preview origins.
 
-Preview secrets are separate from production secrets. Upload a protected JSON
-file containing `GITHUB_APP_PRIVATE_KEY` (PKCS#8) and
-`GITHUB_WEBHOOK_SECRET` using Wrangler's Preview secret command. The installed
-`cf` version does not expose this command; Wrangler `4.151.0` is also present
-as a transitive dependency, or can be invoked explicitly:
+Preview secrets are separate from production secrets. The pinned `cf` CLI has
+no preview-secret upload command. For this operation, use Wrangler's Preview
+secret command with a protected JSON file containing `GITHUB_APP_PRIVATE_KEY`
+(PKCS#8) and `GITHUB_WEBHOOK_SECRET`:
 
 ```sh
-npx wrangler@4.151.0 preview secret bulk /secure/path/preview-secrets.json \
+pnpm dlx wrangler@4.152.0 preview secret bulk /secure/path/preview-secrets.json \
   --worker-name shipshape-mcp --name '<branch-name>'
 ```
 

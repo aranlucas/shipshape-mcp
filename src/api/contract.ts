@@ -1,6 +1,5 @@
 /**
  * Dashboard API contract shared by the Worker (/app/api) and the UI.
- * Source of truth: docs/superpowers/specs/2026-10-15-personal-practices-design.md
  */
 
 export type PracticeState = "pass" | "fail" | "unknown" | "not_applicable";

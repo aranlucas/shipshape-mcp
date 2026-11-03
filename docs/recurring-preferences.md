@@ -32,8 +32,6 @@ requests. Preserve existing catalog exceptions when adopting them.
   [Fix CI Workflow Setup Action](t3-thread://v1/b685b3bc-0fb7-4e54-816f-6b25e7c707af),
   [Prefer Bun in Agent Instructions](t3-thread://v1/1a5b8b74-ebfc-42bd-80fa-1ccf57456ea2)
   and [Use Bun for Traverse Setup](t3-thread://v1/3604e90a-e568-4806-951e-5107d2763405).
-  The CI seed still has a literal pnpm/setup requirement; that known gap needs a
-  package-manager-aware CI evaluator rather than imposing pnpm on Bun repositories.
 - **Shared Oxforge and effective Tailwind sorting:** `oxforge-lint-format`.
   Requests recur in
   [Install Oxforge Across TypeScript Projects](t3-thread://v1/8a6cecc9-86b0-4348-a4ce-442ff209d813),
@@ -63,5 +61,5 @@ updates, PR creation and rebases recur as work requests, but the reviewed messag
 do not establish a universal repository configuration to enforce. Avoid inventing
 static checks for behavior that needs interaction, runtime evidence or judgement.
 
-Deploy the evaluator before adopting the new definitions in the separate live
-catalog. See [practice coverage](practice-coverage.md) for check boundaries.
+Built-ins ship with their evaluators; existing catalog overrides retain their own
+definitions and exceptions. See [coverage gaps](practice-coverage.md) for limits.

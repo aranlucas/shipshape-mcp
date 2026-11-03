@@ -6,12 +6,6 @@ Updated 2026-10-26. Proposed release order, not delivery dates or evidence of cu
 
 A maintainer with many repositories who needs to know which few changes are worth doing next and whether they actually helped.
 
-## Current baseline
-
-Shipshape already inventories GitHub repositories, evaluates a practice catalog and exposes overview/detail tools plus a dashboard. Results distinguish pass, fail, unknown and not applicable.
-
-Planning evidence: [README](README.md) and [MCP entry point](src/mcp.ts) at `1561668ce157`. This focused product pass does not claim a complete new code audit or live-provider validation.
-
 ## Prioritized releases
 
 | Order | Feature                                   | User value and scope                                                                                                                                      | Release acceptance                                                                                                            |
@@ -35,4 +29,4 @@ Build the ranked inbox from existing evaluations; include an explicit “not wor
 
 No blanket compliance score as a proxy for business value. No automatic merge or mass rollout. Keep repository-specific exceptions and private-repository access boundaries; use the existing catalog rather than another custom scanner.
 
-Engineering work belongs in the milestone only when it enables that acceptance criterion. Prefer existing native libraries and test runners. Update this roadmap when a user-visible increment ships, recording the outcome and remaining limits rather than checking off implementation activity alone.
+Fix requests should remain independent of the eventual agent transport.
