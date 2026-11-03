@@ -1,5 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing */
-
 import { z } from "zod";
 
 const practiceState = z.enum(["pass", "fail", "unknown", "not_applicable"]);
