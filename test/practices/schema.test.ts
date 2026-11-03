@@ -108,7 +108,6 @@ describe("practice schema", () => {
   it("parses every seed check type", () => {
     const result = parsePractice(fixture, "husky-lint-staged");
     expect(result.ok).toBe(true);
-    expect(result.ok).toBe(true);
     expect(result.ok ? result.practice.checks : []).toHaveLength(10);
   });
 

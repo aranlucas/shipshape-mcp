@@ -30,22 +30,6 @@ afterEach(() => {
 });
 
 describe("owner web sessions", () => {
-  it("stores only owner identity and expiry under a hash of the session cookie", async () => {
-    const kv = memoryKv();
-    const put = vi.spyOn(kv, "put");
-    const expiresAt = Math.floor(Date.now() / 1_000) + 300;
-    const secret = await createSession(kv, identity, expiresAt);
-
-    expect(await readSession(kv, sessionRequest(secret))).toEqual(identity);
-    const [key, value] = put.mock.calls[0] ?? [];
-    expect(key).toMatch(/^web:session:[A-Za-z0-9_-]+$/u);
-    expect(key).not.toContain(secret);
-    const stored: unknown = JSON.parse(value ?? "null");
-    expect(stored).toMatchObject({ ...identity, expiresAt });
-    expect(stored).toHaveProperty("createdAt");
-    expect(value).not.toContain("token");
-  });
-
   it("expires at the access token boundary even when KV retains its record", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));

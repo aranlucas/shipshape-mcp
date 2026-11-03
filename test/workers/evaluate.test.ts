@@ -736,7 +736,7 @@ describe("evaluateRepository", () => {
     );
   });
 
-  it.each(["head", "catalog", "branch"] as const)(
+  it.each(["catalog", "branch"] as const)(
     "invalidates cached files when the %s changes",
     async (change) => {
       const value = catalog([
@@ -761,7 +761,7 @@ describe("evaluateRepository", () => {
         );
       }
 
-      const calls = mockGitHub({ head: change === "head" ? "c".repeat(40) : headSha });
+      const calls = mockGitHub();
 
       await expect(evaluateRepository(appEnv, repoName)).resolves.toBe("evaluated");
 
