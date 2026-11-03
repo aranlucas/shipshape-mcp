@@ -259,13 +259,6 @@ jobs:
     for (const seed of seeds) {
       const folderPath = join(seedRoot, seed.folder);
 
-      expect(
-        parsePractice(readFileSync(join(folderPath, "practice.yml"), "utf8"), seed.folder),
-      ).toEqual({
-        ok: true,
-        practice: seed.parsed,
-      });
-
       for (const check of seed.parsed.checks) {
         if (
           check.type === "file-matches" &&

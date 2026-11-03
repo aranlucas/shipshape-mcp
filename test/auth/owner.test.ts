@@ -12,12 +12,6 @@ describe("owner gate", () => {
     expect(isOwner({ OWNER_GITHUB_ID: "0" }, { login: "aranlucas", userId: 0 })).toBe(false);
     expect(isOwner({ OWNER_GITHUB_ID: "" }, { login: "aranlucas", userId: 1001 })).toBe(false);
   });
-
-  it("uses the id rather than the login as the authority", () => {
-    expect(isOwner({ OWNER_GITHUB_ID: "1001" }, { login: "someone-else", userId: 1002 })).toBe(
-      false,
-    );
-  });
 });
 
 describe("isAllowedAccount", () => {

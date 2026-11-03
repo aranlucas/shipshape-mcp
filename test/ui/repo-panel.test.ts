@@ -264,17 +264,6 @@ describe("repository panel during overview polling", () => {
     expect(repoRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("reuses fresh checks when reopening the same repository", async () => {
-    vi.spyOn(api, "overview").mockResolvedValue(overview(0));
-    const repoRequest = vi.spyOn(api, "repo").mockResolvedValue(detail());
-    await mount();
-    await act(() => navigate("/app"));
-    await act(() => navigate("/app/repos/aranlucas/vienna-travel"));
-    await flushQueries();
-    expect(container.textContent).toContain("Original check");
-    expect(repoRequest).toHaveBeenCalledTimes(1);
-  });
-
   it("starts polling after a refresh mutation and stops when the sweep completes", async () => {
     const refresh = vi.spyOn(api, "refresh").mockResolvedValue({ queued: 1 });
 

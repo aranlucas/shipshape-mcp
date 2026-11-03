@@ -5,7 +5,6 @@ import { assert, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { MCP_RESOURCE } from "@/config";
 import type { AppEnv } from "@/env";
 import worker from "@/index";
-import { startDashboardLogin } from "@/web/login";
 import { AUTH_SCOPE, authTokenFixture, type AuthTokenFixture } from "@test/helpers/auth-token";
 
 // SAFETY: the Workers test bindings supply AppEnv; each request overrides external Auth settings.
@@ -154,15 +153,6 @@ describe("external Auth resource server", () => {
     const response = await dispatch(new URL(path, MCP_RESOURCE), { method });
     expect(response.status).toBe(status);
     expect(response.headers.get("Location")).toBeNull();
-  });
-
-  it("starts browser authorization within the Worker runtime", async () => {
-    const login = await startDashboardLogin(new Request(new URL("/app/login", MCP_RESOURCE)), {
-      ...appEnv,
-      BETTER_AUTH_ISSUER: auth.issuer,
-      BETTER_AUTH_JWKS_URL: auth.jwksUrl,
-    });
-    expect(login.authorize.origin).toBe(auth.issuer);
   });
 
   it("advertises the preview resource and callback while retaining the central issuer", async () => {

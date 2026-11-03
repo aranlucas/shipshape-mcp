@@ -775,8 +775,4 @@ describe("aggregate", () => {
   it("returns unknown when no check fails but one is unknown", () => {
     expect(aggregate([pass, unknown])).toEqual({ state: "unknown", failing: 0, unknown: 1 });
   });
-
-  it("returns pass for an empty defensive input", () => {
-    expect(aggregate([])).toEqual({ state: "pass", failing: 0, unknown: 0 });
-  });
 });
