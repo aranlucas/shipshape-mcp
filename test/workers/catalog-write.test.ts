@@ -206,6 +206,27 @@ describe("catalog write allowlist and Git Data commits", () => {
     );
   });
 
+  it("creates a practice without deleting an absent instructions file", async () => {
+    const { fetchMock, requests } = gitDataFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await commitCatalogChange(testEnv(), {
+      practiceId: "new-practice",
+      yaml: "id: new-practice\n",
+      instructions: null,
+    });
+
+    const tree = requests.find(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
+    );
+    expect(gitTreeEntries(tree)).toEqual([
+      expect.objectContaining({
+        path: "practices/new-practice/practice.yml",
+        sha: expect.any(String),
+      }),
+    ]);
+  });
+
   it("commits an update through Git Data in order and never forces the ref", async () => {
     const appEnv = testEnv();
     const { fetchMock, requests } = gitDataFetch();
@@ -253,6 +274,7 @@ describe("catalog write allowlist and Git Data commits", () => {
     expect(commit?.body).toMatchObject({
       message: "practice(husky): update from dashboard",
       tree: nextTreeSha,
+      parents: [baseSha],
     });
 
     const ref = requests.find(

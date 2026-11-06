@@ -187,6 +187,13 @@ export async function webHandler(
       });
     }
 
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && !sameOrigin(request, env)) {
+      return new Response(JSON.stringify({ error: "Cross-origin request refused." }), {
+        status: 403,
+        headers: appHeaders("application/json; charset=utf-8"),
+      });
+    }
+
     // SAFETY: this fallback implements the sole ExecutionContext method used by the API handler.
     const executionContext =
       ctx ??

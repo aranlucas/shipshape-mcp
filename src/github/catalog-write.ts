@@ -53,7 +53,7 @@ interface TreeEntry {
 
 type RepositoryParts = [string, string];
 type RouteParameters = Record<string, string>;
-type WriteParameters = Record<string, string | number | boolean | TreeEntry[]>;
+type WriteParameters = Record<string, string | number | boolean | TreeEntry[] | string[]>;
 type BlobContent = { path: string; content: string };
 
 function splitRepository(repository: string): RepositoryParts | null {
@@ -209,7 +209,11 @@ export async function commitCatalogChange(env: AppEnv, change: CatalogChange): P
       const path = `${prefix}instructions.md`;
 
       if (change.instructions === null) {
-        entries.push({ path, mode: "100644", type: "blob", sha: null });
+        const existing = currentBlobs.find((entry) => entry.path === path);
+
+        if (existing) {
+          entries.push(deletionEntry(existing));
+        }
       } else {
         blobs.push({ path, content: change.instructions });
       }
@@ -266,7 +270,7 @@ export async function commitCatalogChange(env: AppEnv, change: CatalogChange): P
     owner,
     repo,
     "POST /repos/{owner}/{repo}/git/commits",
-    { ...coordinates, message, tree: createdTree.sha },
+    { ...coordinates, message, tree: createdTree.sha, parents: [base] },
     GitHubShaSchema,
   );
   await writeRequest(

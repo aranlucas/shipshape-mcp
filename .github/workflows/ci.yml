@@ -29,11 +29,26 @@ jobs:
       - name: Set up pnpm, Node.js, and dependencies
         uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
         with:
+          runtime: node@26
           cache: true
           require-lockfile: true
 
       - name: Generate Worker types
         run: pnpm types
+
+      - name: Demonstrate audit regressions against pre-fix source
+        shell: bash
+        run: |
+          git fetch --no-tags origin 62172464551c6a9b51480829200c808fc1031317
+          files=(src/github/catalog-write.ts src/web/routes.ts src/ui/views/practice-editor.tsx)
+          trap 'git restore --source=HEAD -- "${files[@]}"' EXIT
+          git restore --source=62172464551c6a9b51480829200c808fc1031317 -- "${files[@]}"
+          set +e
+          pnpm exec vitest run test/workers/catalog-write.test.ts test/web.test.ts test/ui/practice-editor.test.ts -t 'commits an update through|creates a practice without deleting|creates a practice using a valid YAML ID|refuses unsafe authenticated API requests' --reporter=json --outputFile=/tmp/audit-before.json
+          result=$?
+          set -e
+          test "$result" -ne 0
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; const r = JSON.parse(fs.readFileSync("/tmp/audit-before.json", "utf8")); assert.equal(r.numFailedTests, 7); assert.equal(r.numPassedTests, 0); assert.equal(r.testResults.flatMap(s => s.assertionResults).filter(t => t.status === "failed").length, 7);'
 
       - parallel:
           - name: Lint
@@ -50,3 +65,24 @@ jobs:
 
       - name: Check patch hygiene
         run: git diff --check
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
+        with:
+          runtime: node@26
+          cache: true
+          require-lockfile: true
+      - run: pnpm exec e2e-web install chromium --with-deps
+      - run: pnpm test:e2e
+      - name: Upload browser regression evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dashboard-e2e
+          path: .e2e
+          include-hidden-files: true
+          retention-days: 7

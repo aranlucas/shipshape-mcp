@@ -173,6 +173,20 @@ describe("practice editor queries and mutations", () => {
     expect(yamlArea().value).toBe("id: new-practice\n");
   });
 
+  it.each(["id: new-practice # explanation\n", '"id": new-practice\n'])(
+    "creates a practice using a valid YAML ID (%s)",
+    async (yaml) => {
+      window.history.replaceState(null, "", "/app/practices/new");
+      const save = vi
+        .spyOn(api, "savePractice")
+        .mockRejectedValue(new ApiError("Synthetic failure", 500));
+      await mount();
+      await editYaml(yaml);
+      await clickButton("Add practice");
+      expect(save).toHaveBeenCalledWith("new-practice", expect.objectContaining({ yaml }));
+    },
+  );
+
   it("preserves an unsaved draft when the cached practice refetches", async () => {
     await mount();
     const draft = `${yamlArea().value}\n# Unsaved local edit\n`;
