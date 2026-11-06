@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { parseCatalogSources, practiceSummary } from "../../practices/catalog-definition";
 import { runCheck } from "../../practices/checks";
 import type { CatalogPractice } from "../../practices/catalog-definition";
@@ -82,7 +81,7 @@ interface PracticeSeed {
   files: Array<{ path: string; content: string }>;
 }
 
-const seedRoot = fileURLToPath(new URL("../../../catalog-seed", import.meta.url));
+const seedRoot = resolve(import.meta.dirname, "../../../catalog-seed");
 
 const sources = Object.fromEntries(
   readdirSync(seedRoot, { recursive: true, withFileTypes: true })
