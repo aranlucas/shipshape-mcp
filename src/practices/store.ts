@@ -1,5 +1,5 @@
 import type { CellResult, CheckResult, RepoSummary } from "../api/contract";
-import type { Catalog } from "./catalog";
+import type { Catalog } from "./catalog-definition";
 import {
   evaluationGuardSql,
   evaluationGuardValues,

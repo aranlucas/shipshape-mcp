@@ -1,3 +1,4 @@
+import { DAILY_SWEEP_CRON, GITHUB_API_VERSION } from "./src/deployment-settings.ts";
 import { bindings, defineConfig, triggers } from "cf/config";
 import manifest from "./package.json" with { type: "json" };
 import * as entrypoint from "./src/index" with { type: "cf-worker" };
@@ -48,11 +49,11 @@ export default defineConfig(({ mode }) => {
                 maxRetries: 5,
                 deadLetterQueue: "shipshape-webhooks-failed",
               }),
-              triggers.scheduled({ schedule: "0 13 * * *" }),
+              triggers.scheduled({ schedule: DAILY_SWEEP_CRON }),
               triggers.scheduled({ schedule: "* * * * *" }),
             ],
       env: {
-        GITHUB_API_VERSION: bindings.text("2026-03-10"),
+        GITHUB_API_VERSION: bindings.text(GITHUB_API_VERSION),
         PREVIEW_READ_ONLY: bindings.text(resources.readOnly),
         PUBLIC_ORIGIN: bindings.text(
           mode === "preview"

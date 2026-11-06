@@ -1,3 +1,4 @@
+import { hasMutableInputs } from "./check-evidence";
 import { z } from "zod";
 
 import type { AppEnv } from "../env";
@@ -222,14 +223,7 @@ export async function evaluateRepository(
       const previous = previousById.get(practice.id);
 
       // Settings and branch protections can change without a Git commit.
-      const mutable =
-        practice.parsed.ok &&
-        practice.parsed.practice.checks.some(
-          (check) =>
-            check.type === "setting" ||
-            check.type === "branch-protection" ||
-            check.type === "ci-required-checks",
-        );
+      const mutable = practice.parsed.ok && practice.parsed.practice.checks.some(hasMutableInputs);
 
       return (
         mutable ||

@@ -1,8 +1,7 @@
-/* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/require-readable-spacing, typescript/switch-exhaustiveness-check */
+/* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/require-readable-spacing */
 
 import pLimit from "p-limit";
-import { CI_WORKFLOW_PATH } from "./ci-required-checks";
-import { LINT_CONFIG_NAMES, joinPath, parseConfig, parentPath, resolvePath } from "./lint-config";
+import { parseConfig, parentPath, resolvePath } from "./lint-config";
 import { z } from "zod";
 import {
   GitHubBranchProtectionSchema,
@@ -17,8 +16,8 @@ import {
 } from "../github/client";
 import type { GitHubSnapshotCache } from "../github/snapshot-cache";
 import { protectionState, type BranchProtectionFact } from "./protection";
-import { LINT_STAGED_CONFIG_NAMES } from "./lint-staged";
-import type { Check, Practice } from "./schema";
+import { snapshotInputs, PACKAGE_MARKER, WORKFLOW_MARKER } from "./check-inputs";
+import type { Practice } from "./schema";
 import type { StoredRepository } from "./store";
 
 const SHA = z.string().regex(/^[a-f0-9]{40}$/u);
@@ -29,8 +28,6 @@ const ContentsFileSchema = z.object({
   size: z.number().int().nonnegative(),
 });
 
-const WORKFLOW_MARKER = ".github/workflows/*";
-const PACKAGE_MARKER = "**/package.json";
 const MAX_FILE_READS = 64;
 const MAX_FILE_BYTES = 512 * 1024;
 const CachedFileSchema = z.string().max(MAX_FILE_BYTES);
@@ -56,82 +53,7 @@ export interface PreloadedHead {
   error?: string | null;
 }
 
-function checkFilePath(check: Check): string | null {
-  switch (check.type) {
-    case "portless-dev":
-      return joinPath(check.directory, "package.json");
-    case "ci-required-checks":
-    case "ci-test-script":
-      return CI_WORKFLOW_PATH;
-    case "dependabot-grouped":
-      return check.path;
-    case "file-matches":
-    case "file-contains":
-      return check.path;
-    case "json-path":
-    case "yaml-path":
-    case "dependency":
-      return check.file;
-    default:
-      return null;
-  }
-}
-
-export function filesNeeded(practices: Practice[]): string[] {
-  const paths = new Set<string>();
-
-  for (const practice of practices) {
-    for (const check of practice.checks) {
-      if (check.type === "ci-test-script") {
-        paths.add("package.json");
-      }
-      if (
-        check.type === "vitest-test-script" ||
-        check.type === "required-package-scripts" ||
-        check.type === "preferred-package-manager" ||
-        check.type === "cloudflare-cf-cli"
-      ) {
-        paths.add(PACKAGE_MARKER);
-      }
-      if (
-        check.type === "preferred-package-manager" ||
-        check.type === "pnpm-setup" ||
-        check.type === "cloudflare-cf-cli"
-      ) {
-        paths.add(WORKFLOW_MARKER);
-        paths.add("**/action.yml");
-      }
-      if (check.type === "oxforge-format") {
-        paths.add(joinPath(check.directory, "package.json"));
-        paths.add(joinPath(check.directory, "oxfmt.config.ts"));
-      }
-      if (check.type === "husky-lint-staged") {
-        paths.add("package.json");
-        paths.add(".husky/pre-commit");
-        for (const name of LINT_STAGED_CONFIG_NAMES) {
-          paths.add(name);
-        }
-      }
-      if (check.type === "oxforge") {
-        paths.add(joinPath(check.directory, "package.json"));
-        for (const name of LINT_CONFIG_NAMES) {
-          paths.add(joinPath(check.directory, name));
-        }
-      }
-      const path = checkFilePath(check);
-
-      if (path) {
-        paths.add(path);
-      }
-
-      if (check.type === "workflow" || check.type === "pr-workflow-efficiency") {
-        paths.add(WORKFLOW_MARKER);
-      }
-    }
-  }
-
-  return [...paths];
-}
+export { filesNeeded } from "./check-inputs";
 
 function readError(error: unknown): string {
   const status = githubErrorStatus(error);
@@ -218,21 +140,10 @@ export async function takeSnapshot(
   preloadedHead?: PreloadedHead,
   cache?: GitHubSnapshotCache,
 ): Promise<RepoSnapshot> {
-  const needed = filesNeeded(practices);
-  const needsSettings = practices.some((practice) =>
-    practice.checks.some((check) => check.type === "setting"),
-  );
-  const branchNames = new Set(
-    practices.flatMap((practice) =>
-      practice.checks.flatMap((check) =>
-        check.type === "ci-required-checks"
-          ? [repo.defaultBranch]
-          : check.type === "branch-protection"
-            ? [check.branch ?? repo.defaultBranch]
-            : [],
-      ),
-    ),
-  );
+  const inputs = snapshotInputs(practices, repo.defaultBranch);
+  const needed = inputs.files;
+  const needsSettings = inputs.settings;
+  const branchNames = inputs.branches;
 
   let headSha: string | null = preloadedHead?.sha ?? null;
   let headError: string | null = preloadedHead?.error ?? null;
@@ -255,17 +166,9 @@ export async function takeSnapshot(
   let tree: RepoSnapshot["tree"] = null;
   let treeError: string | null = null;
 
-  const needsTree = practices.some(
-    (practice) =>
-      Boolean(practice.appliesTo.hasFiles?.length) ||
-      practice.checks.some(
-        (check) => check.type !== "setting" && check.type !== "branch-protection",
-      ),
-  );
-
   if (!headSha) {
     treeError = headError ?? "Repository head could not be read.";
-  } else if (needsTree) {
+  } else if (inputs.tree) {
     try {
       const cached = await cache?.get("tree", GitHubTreeSchema);
       const data =

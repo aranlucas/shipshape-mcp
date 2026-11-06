@@ -1,3 +1,10 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { parseCatalogSources, practiceSummary } from "../../practices/catalog-definition";
+import { runCheck } from "../../practices/checks";
+import type { CatalogPractice } from "../../practices/catalog-definition";
+import type { RepoSnapshot } from "../../practices/snapshot";
+import { applies } from "../../practices/applies";
 import type {
   CellResult,
   CheckResult,
@@ -68,415 +75,46 @@ const ORG: RepoSeed[] = [
 
 interface PracticeSeed {
   summary: PracticeSummary;
-  checks: Array<Omit<CheckResult, "state" | "actual">>;
-  forNode: boolean;
+  definition: CatalogPractice;
   yaml: string;
   instructions: string | null;
   files: Array<{ path: string; content: string }>;
 }
 
-function practice(
-  id: string,
-  title: string,
-  summary: string,
-  kind: "files" | "settings",
-  checks: PracticeSeed["checks"],
-  yaml: string,
-  extra: Partial<Pick<PracticeSeed, "instructions" | "files">> = {},
-): PracticeSeed {
+const seedRoot = resolve(import.meta.dirname, "../../../catalog-seed");
+
+const sources = Object.fromEntries(
+  readdirSync(seedRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => {
+      const path = join(entry.parentPath, entry.name);
+
+      return [relative(seedRoot, path), readFileSync(path, "utf8")];
+    }),
+);
+
+export function practiceSeed(definition: CatalogPractice): PracticeSeed {
   return {
-    summary: {
-      id,
-      title,
-      summary,
-      kind,
-      valid: true,
-      error: null,
-      origin: "built-in",
-      matchesBuiltIn: false,
-    },
-    checks,
-    forNode: kind === "files",
-    yaml,
-    instructions: extra.instructions ?? null,
-    files: extra.files ?? [],
+    summary: practiceSummary(definition),
+    definition,
+    yaml: definition.yaml,
+    instructions: definition.instructions,
+    files: Object.entries(definition.files).map(([path, content]) => ({
+      path: path.replace(/^files\//u, ""),
+      content,
+    })),
   };
 }
 
-function check(
-  type: string,
-  label: string,
-  path: string | null,
-  expected: string | null,
-): PracticeSeed["checks"][number] {
-  return { type, label, path, expected, detail: null };
+const PRACTICES = parseCatalogSources(sources).map((definition) =>
+  practiceSeed({ ...definition, origin: "built-in" }),
+);
+
+export function originalPracticeSeed(id: string): PracticeSeed | undefined {
+  const original = PRACTICES.find((seed) => seed.summary.id === id);
+
+  return original ? practiceSeed(original.definition) : undefined;
 }
-
-const NODE_APPLIES = `appliesTo:
-  languages: [TypeScript, JavaScript]
-  hasFiles: [package.json]`;
-
-type SemanticSeed = [
-  id: string,
-  title: string,
-  summary: string,
-  kind: "files" | "settings",
-  checkType: string,
-  label: string,
-  applies: string,
-];
-
-// Catalog practices whose checks are a single semantic evaluator or setting.
-const SEMANTIC_PRACTICES: SemanticSeed[] = [
-  [
-    "preferred-package-manager",
-    "Use pnpm or Bun",
-    "Use pnpm or Bun instead of npm for JavaScript dependencies and commands.",
-    "files",
-    "preferred-package-manager",
-    "Lockfile and scripts use pnpm or Bun",
-    "appliesTo:\n  hasFiles: [package.json]\n",
-  ],
-  [
-    "pnpm-setup",
-    "Use pnpm/setup",
-    "Use pnpm/setup instead of pnpm/action-setup in workflows and composite actions.",
-    "files",
-    "pnpm-setup",
-    "Workflows use pnpm/setup",
-    "",
-  ],
-  [
-    "vitest-test-script",
-    "Vitest test scripts in every package",
-    "Every tracked package.json must declare a test script that runs Vitest.",
-    "files",
-    "vitest-test-script",
-    "Every package.json test script runs Vitest",
-    "",
-  ],
-  [
-    "required-package-scripts",
-    "Required lint, format, and build scripts",
-    "Every tracked package.json must declare non-empty lint, format, and build scripts.",
-    "files",
-    "required-package-scripts",
-    "lint, format, and build scripts declared",
-    "",
-  ],
-  [
-    "portless-local-dev",
-    "Use Portless for local web development",
-    "Make portless run the default web dev command and install Portless as a local dev dependency.",
-    "files",
-    "portless-dev",
-    "dev script runs portless",
-    "appliesTo:\n  hasFiles: [package.json]\n",
-  ],
-  [
-    "cloudflare-cf-cli",
-    "Avoid direct Wrangler dependencies and CLI usage",
-    "Keep Wrangler out of package dependencies, package scripts, workflows, and composite actions without requiring cf.",
-    "files",
-    "cloudflare-cf-cli",
-    "No direct Wrangler usage",
-    "",
-  ],
-  [
-    "pr-workflow-efficiency",
-    "Prevent wasted GitHub Actions runs",
-    "Cancel superseded PR checks and skip every check job while the pull request is a draft.",
-    "files",
-    "pr-workflow-efficiency",
-    "PR workflows cancel superseded runs and skip drafts",
-    "",
-  ],
-  [
-    "always-suggest-updating-pull-request-branches",
-    "Always suggest updating pull request branches",
-    "Offer to update pull request branches whenever they fall behind the base branch.",
-    "settings",
-    "setting",
-    "allow_update_branch = true",
-    "",
-  ],
-  [
-    "allow-auto-merge",
-    "Allow auto-merge",
-    "Allow pull requests to merge automatically once merge requirements are met in public repositories.",
-    "settings",
-    "setting",
-    "allow_auto_merge = true",
-    "appliesTo:\n  visibility: public\n",
-  ],
-];
-
-const PRACTICES: PracticeSeed[] = [
-  practice(
-    "oxforge-lint-format",
-    "Oxforge lint and format",
-    "Lint and format with the shared Oxforge presets.",
-    "files",
-    [
-      check("dependency", "@aranlucas/oxforge declared", "package.json", null),
-      check(
-        "file-contains",
-        ".oxlintrc.json extends the Oxforge recommended preset",
-        ".oxlintrc.json",
-        "@aranlucas/oxforge/configs/recommended.json",
-      ),
-      check("file-matches", "oxfmt.config.ts matches the catalog copy", "oxfmt.config.ts", null),
-    ],
-    `version: 1
-id: oxforge-lint-format
-title: Oxforge lint and format
-summary: Lint and format with the shared Oxforge presets.
-kind: files
-${NODE_APPLIES}
-checks:
-  - type: dependency
-    name: "@aranlucas/oxforge"
-  - type: file-contains
-    path: .oxlintrc.json
-    text: "@aranlucas/oxforge/configs/recommended.json"
-  - type: file-matches
-    path: oxfmt.config.ts
-    source: files/oxfmt.config.ts
-`,
-    {
-      instructions:
-        "Declare Oxforge with the repository's package manager; version ranges are accepted. Keep any repository-specific ignorePatterns in .oxlintrc.json.\n",
-      files: [
-        {
-          path: "oxfmt.config.ts",
-          content: 'export { default } from "@aranlucas/oxforge/format-config";\n',
-        },
-      ],
-    },
-  ),
-  practice(
-    "husky-lint-staged",
-    "Pre-commit with husky and lint-staged",
-    "Fix lint and formatting on staged files before every commit.",
-    "files",
-    [
-      check(
-        "file-matches",
-        ".husky/pre-commit matches the catalog copy",
-        ".husky/pre-commit",
-        null,
-      ),
-      check("json-path", "package.json scripts.prepare = husky", "package.json", "husky"),
-      check("json-path", "package.json lint-staged exists", "package.json", "exists"),
-    ],
-    `version: 1
-id: husky-lint-staged
-title: Pre-commit with husky and lint-staged
-summary: Fix lint and formatting on staged files before every commit.
-kind: files
-${NODE_APPLIES}
-checks:
-  - type: file-matches
-    path: .husky/pre-commit
-    source: files/.husky/pre-commit
-  - type: json-path
-    file: package.json
-    path: scripts.prepare
-    equals: husky
-  - type: json-path
-    file: package.json
-    path: lint-staged
-    exists: true
-`,
-    { files: [{ path: ".husky/pre-commit", content: "pnpm exec lint-staged\n" }] },
-  ),
-  practice(
-    "dependabot-weekly-grouped",
-    "Weekly grouped Dependabot",
-    "One grouped dependency PR every Thursday morning, Pacific time.",
-    "files",
-    [
-      check("file-exists", ".github/dependabot.yml exists", ".github/dependabot.yml", null),
-      check("yaml-path", "Group schedule day = thursday", ".github/dependabot.yml", "thursday"),
-      check(
-        "yaml-path",
-        "Group timezone = America/Los_Angeles",
-        ".github/dependabot.yml",
-        "America/Los_Angeles",
-      ),
-    ],
-    `version: 1
-id: dependabot-weekly-grouped
-title: Weekly grouped Dependabot
-summary: One grouped dependency PR every Thursday morning, Pacific time.
-kind: files
-${NODE_APPLIES}
-checks:
-  - type: file-exists
-    path: .github/dependabot.yml
-  - type: yaml-path
-    file: .github/dependabot.yml
-    path: multi-ecosystem-groups.weekly-dependencies.schedule.day
-    equals: thursday
-  - type: yaml-path
-    file: .github/dependabot.yml
-    path: multi-ecosystem-groups.weekly-dependencies.schedule.timezone
-    equals: America/Los_Angeles
-`,
-    {
-      instructions:
-        "Include an updates entry for every package ecosystem the repository uses (npm, github-actions, docker…), all in the weekly-dependencies group.\n",
-    },
-  ),
-  practice(
-    "dependabot-automerge",
-    "Dependabot auto-merge workflow file",
-    "Provide a Dependabot auto-merge workflow file; merge behavior requires separate review.",
-    "files",
-    [
-      check(
-        "file-exists",
-        ".github/workflows/dependabot-automerge.yml exists",
-        ".github/workflows/dependabot-automerge.yml",
-        null,
-      ),
-    ],
-    `version: 1
-id: dependabot-automerge
-title: Dependabot auto-merge workflow file
-summary: Provide a Dependabot auto-merge workflow file; merge behavior requires separate review.
-kind: files
-${NODE_APPLIES}
-checks:
-  - type: file-exists
-    path: .github/workflows/dependabot-automerge.yml
-`,
-  ),
-  practice(
-    "single-ci-workflow",
-    "CI workflow configuration",
-    "Provide ci.yml with read-only contents permission and required branch checks.",
-    "files",
-    [
-      check("file-exists", ".github/workflows/ci.yml exists", ".github/workflows/ci.yml", null),
-      check("yaml-path", "ci.yml permissions.contents = read", ".github/workflows/ci.yml", "read"),
-      check(
-        "ci-required-checks",
-        "ci.yml jobs are required status checks on the default branch",
-        ".github/workflows/ci.yml",
-        '["ci"]',
-      ),
-    ],
-    `version: 1
-id: single-ci-workflow
-title: CI workflow configuration
-summary: Provide ci.yml with read-only contents permission and required branch checks.
-kind: files
-${NODE_APPLIES}
-checks:
-  - type: ci-required-checks
-  - type: file-exists
-    path: .github/workflows/ci.yml
-  - type: yaml-path
-    file: .github/workflows/ci.yml
-    path: permissions.contents
-    equals: read
-`,
-  ),
-  practice(
-    "pinned-actions",
-    "Actions pinned to commit SHAs",
-    "Every third-party action is referenced by a full commit SHA.",
-    "files",
-    [check("workflow", "Actions pinned to full commit SHAs", ".github/workflows", null)],
-    `version: 1
-id: pinned-actions
-title: Actions pinned to commit SHAs
-summary: Every third-party action is referenced by a full commit SHA.
-kind: files
-${NODE_APPLIES}
-checks:
-  - type: workflow
-    check: pinned-actions
-`,
-  ),
-  practice(
-    "squash-only-merges",
-    "Squash-only merges",
-    "Squash merges only, and merged branches are deleted.",
-    "settings",
-    [
-      check("setting", "allow_squash_merge = true", null, "true"),
-      check("setting", "allow_merge_commit = false", null, "false"),
-      check("setting", "allow_rebase_merge = false", null, "false"),
-      check("setting", "delete_branch_on_merge = true", null, "true"),
-    ],
-    `version: 1
-id: squash-only-merges
-title: Squash-only merges
-summary: Squash merges only, and merged branches are deleted.
-kind: settings
-checks:
-  - type: setting
-    key: allow_squash_merge
-    equals: true
-  - type: setting
-    key: allow_merge_commit
-    equals: false
-  - type: setting
-    key: allow_rebase_merge
-    equals: false
-  - type: setting
-    key: delete_branch_on_merge
-    equals: true
-`,
-  ),
-  practice(
-    "secret-scanning",
-    "Secret scanning and push protection",
-    "GitHub blocks pushes that contain secrets.",
-    "settings",
-    [
-      check("setting", "security_and_analysis.secret_scanning.status = enabled", null, "enabled"),
-      check(
-        "setting",
-        "security_and_analysis.secret_scanning_push_protection.status = enabled",
-        null,
-        "enabled",
-      ),
-    ],
-    `version: 1
-id: secret-scanning
-title: Secret scanning and push protection
-summary: GitHub blocks pushes that contain secrets.
-kind: settings
-checks:
-  - type: setting
-    key: security_and_analysis.secret_scanning.status
-    equals: enabled
-  - type: setting
-    key: security_and_analysis.secret_scanning_push_protection.status
-    equals: enabled
-`,
-  ),
-  ...SEMANTIC_PRACTICES.map(([id, title, summary, kind, checkType, label, applies]) =>
-    practice(
-      id,
-      title,
-      summary,
-      kind,
-      [check(checkType, label, null, kind === "settings" ? "true" : null)],
-      `version: 1
-id: ${id}
-title: ${title}
-summary: ${summary}
-kind: ${kind}
-${applies}checks:
-  - type: ${checkType}
-`,
-    ),
-  ),
-];
 
 const BROKEN: PracticeSummary = {
   id: "changesets-release",
@@ -532,31 +170,10 @@ interface Evaluated {
   checks: CheckResult[];
 }
 
-type SeedCheck = PracticeSeed["checks"][number];
+type SeedCheck = Omit<CheckResult, "state" | "actual">;
 
-function catalogCopy(item: SeedCheck, seed: PracticeSeed): string | null {
-  return seed.files.find((file) => file.path === item.path)?.content ?? null;
-}
-
-/** Mirrors src/practices/checks.ts: raw expected values, stringified. */
-function expectedFor(item: SeedCheck, seed: PracticeSeed): string | null {
-  if (item.type === "file-exists") {
-    return "true";
-  }
-
-  if (item.type === "file-matches") {
-    return catalogCopy(item, seed);
-  }
-
-  return item.expected === "exists" ? "true" : item.expected;
-}
-
-function actualFor(
-  item: SeedCheck,
-  seed: PracticeSeed,
-  state: CheckResult["state"],
-): string | null {
-  const expected = expectedFor(item, seed);
+function actualFor(item: SeedCheck, state: CheckResult["state"]): string | null {
+  const expected = item.expected;
 
   if (state === "pass") {
     return expected;
@@ -581,9 +198,25 @@ function actualFor(
 }
 
 function evaluate(repo: RepoSummary, seed: PracticeSeed): Evaluated {
-  const node = repo.language === "TypeScript" || repo.language === "JavaScript";
+  const snapshot: RepoSnapshot = {
+    repo: { ...repo, installationId: 1 },
+    headSha: "a".repeat(40),
+    tree: {
+      paths: new Set(
+        repo.language === "TypeScript" || repo.language === "JavaScript" ? ["package.json"] : [],
+      ),
+      truncated: false,
+    },
+    treeError: null,
+    files: new Map(),
+    settings: null,
+    protection: new Map(),
+  };
 
-  if (repo.fork || repo.archived || (seed.forNode && !node)) {
+  const parsed = seed.definition.parsed;
+  const applicable = parsed.ok && applies(parsed.practice, snapshot.repo, snapshot);
+
+  if (applicable === false) {
     return {
       cell: { state: "not_applicable", checkedAt: CHECKED_AT, failing: 0, unknown: 0 },
       checks: [],
@@ -594,16 +227,20 @@ function evaluate(repo: RepoSummary, seed: PracticeSeed): Evaluated {
   const unknownCase = roll > 0.95;
   const failing = roll > 0.8 && !unknownCase;
 
-  const checks: CheckResult[] = seed.checks.map((item, index) => {
+  const checks: CheckResult[] = (parsed.ok ? parsed.practice.checks : []).map((check, index) => {
+    const item = runCheck(check, snapshot, seed.definition.files);
     const failsHere = failing && (index === 0 || hash(`${repo.name}${index}`) > 0.55);
-    const unknownHere = unknownCase && index === seed.checks.length - 1;
+
+    const unknownHere =
+      unknownCase && index === (parsed.ok ? parsed.practice.checks.length : 0) - 1;
+
     const state = unknownHere ? "unknown" : failsHere ? "fail" : "pass";
 
     return {
       ...item,
       state,
-      expected: expectedFor(item, seed),
-      actual: actualFor(item, seed, state),
+      expected: item.expected,
+      actual: actualFor(item, state),
       detail:
         failsHere && item.type === "workflow"
           ? "2 actions use tags instead of commit SHAs: actions/checkout@v4, pnpm/setup@v3."

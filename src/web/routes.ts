@@ -1,3 +1,4 @@
+import { parseRoute } from "../dashboard-routes";
 import { isOwner } from "../auth/owner";
 import { methodNotAllowed, notFoundResponse } from "../landing";
 import { CALLBACK_PATH, callbackUrl, type OAuthEnv } from "../oauth";
@@ -32,17 +33,6 @@ const APP_CONTENT_SECURITY_POLICY =
 const SHELL_PATH = "/app/index.html";
 
 const LOGIN_META = /<meta name="shipshape-login" content="[^"]*"\s*\/?>/u;
-
-/** Client-side routes rendered by the dashboard bundle (src/ui/router.ts). */
-function isDashboardPage(pathname: string): boolean {
-  const parts = pathname.split("/").filter(Boolean).slice(1);
-
-  return (
-    parts.length === 0 ||
-    (parts[0] === "repos" && parts.length === 3) ||
-    (parts[0] === "practices" && parts.length <= 2)
-  );
-}
 
 /** Serves the built shell with the signed-in login, or explains how to build it. */
 async function dashboardShell(request: Request, env: OAuthEnv, login: string): Promise<Response> {
@@ -210,7 +200,10 @@ export async function webHandler(
     return apiHandler(request, env as AppEnv, session, executionContext);
   }
 
-  if ((pathname === APP_PATH || pathname.startsWith(`${APP_PATH}/`)) && isDashboardPage(pathname)) {
+  if (
+    (pathname === APP_PATH || pathname.startsWith(`${APP_PATH}/`)) &&
+    parseRoute(pathname).view !== "missing"
+  ) {
     if (request.method !== "GET") {
       return methodNotAllowed();
     }

@@ -1,3 +1,4 @@
+import { DAILY_SWEEP_CRON } from "./deployment-settings";
 import { Hono } from "hono";
 
 import { protectedMcp, resourceMetadata } from "./auth/mcp";
@@ -57,7 +58,7 @@ const worker = {
     return handleQueue(batch as MessageBatch<EvaluationMessage>, env);
   },
   scheduled(controller: ScheduledController, env: AppEnv, ctx: ExecutionContext): void {
-    ctx.waitUntil(controller.cron === "0 13 * * *" ? handleScheduled(env) : reconcileJobs(env));
+    ctx.waitUntil(controller.cron === DAILY_SWEEP_CRON ? handleScheduled(env) : reconcileJobs(env));
   },
 };
 
