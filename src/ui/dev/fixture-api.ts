@@ -1,5 +1,13 @@
+import { parsePractice } from "../../practices/schema";
 import type { ApiErrorResponse, RefreshRequest, SavePracticeRequest } from "../../api/contract.ts";
-import { createStore, overview, practiceDetail, repoDetail } from "./fixtures.ts";
+import {
+  createStore,
+  overview,
+  practiceDetail,
+  repoDetail,
+  practiceSeed,
+  originalPracticeSeed,
+} from "./fixtures.ts";
 
 const store = createStore();
 
@@ -54,32 +62,31 @@ export function handleFixtureRequest(method: string, url: string, body: string):
       // SAFETY: development-only fixture; the dashboard sends SavePracticeRequest bodies.
       const request = JSON.parse(body) as SavePracticeRequest;
 
-      if (/type:\s*file-exist\s*$/mu.test(request.yaml)) {
-        return error(400, "Practice is invalid", [
-          {
-            path: "checks.0.type",
-            message:
-              'Invalid option: expected one of "file-exists"|"file-matches"|"file-contains"|"json-path"|"yaml-path"|"dependency"|"setting"|"branch-protection"|"workflow"',
-          },
-        ]);
+      const parsed = parsePractice(request.yaml, id);
+
+      if (!parsed.ok) {
+        return error(400, "Practice is invalid", parsed.issues);
       }
 
-      if (!new RegExp(`^id:\\s*${id}\\s*$`, "mu").test(request.yaml)) {
-        return error(400, "Practice is invalid", [
-          { path: "id", message: `id must match its folder name "${id}"` },
-        ]);
-      }
+      const index = store.practices.findIndex((item) => item.summary.id === id);
+      const previous = store.practices[index];
 
-      const seed = store.practices.find((item) => item.summary.id === id);
+      const saved = practiceSeed({
+        id,
+        folder: id,
+        yaml: request.yaml,
+        parsed,
+        instructions: request.instructions ?? null,
+        files: request.files
+          ? Object.fromEntries(request.files.map((file) => [`files/${file.path}`, file.content]))
+          : (previous?.definition.files ?? {}),
+        origin: previous && previous.summary.origin !== "custom" ? "override" : "custom",
+      });
 
-      if (seed) {
-        seed.yaml = request.yaml;
-        seed.instructions = request.instructions ?? null;
-        seed.files = request.files ?? seed.files;
-
-        if (seed.summary.origin !== "custom") {
-          seed.summary = { ...seed.summary, origin: "override", matchesBuiltIn: false };
-        }
+      if (previous) {
+        store.practices[index] = saved;
+      } else {
+        store.practices.push(saved);
       }
 
       store.catalogSha = crypto.randomUUID().replaceAll("-", "").padEnd(40, "0").slice(0, 40);
@@ -114,9 +121,18 @@ export function handleFixtureRequest(method: string, url: string, body: string):
     const seed = store.practices.find((item) => item.summary.id === id);
 
     if (disabledIndex !== -1) {
-      store.practices.push(...store.disabled.splice(disabledIndex, 1));
+      store.disabled.splice(disabledIndex, 1);
+      const original = originalPracticeSeed(id);
+
+      if (original) {
+        store.practices.push(original);
+      }
     } else if (seed?.summary.origin === "override") {
-      seed.summary = { ...seed.summary, origin: "built-in", matchesBuiltIn: false };
+      const original = originalPracticeSeed(id);
+
+      if (original) {
+        store.practices[store.practices.indexOf(seed)] = original;
+      }
     } else {
       return error(404, "No catalog copy of this built-in practice to remove");
     }

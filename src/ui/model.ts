@@ -68,7 +68,6 @@ export function summarize(tallies: RepoTally[]): PortfolioSummary {
   };
 }
 
-/** Behind first, then couldn't-check, then by name. */
 export function compareTallies(a: RepoTally, b: RepoTally): number {
   return (
     b.behind - a.behind ||
@@ -116,7 +115,6 @@ export function practiceCounts(overview: OverviewResponse, practiceId: string) {
   return counts;
 }
 
-/** The valid practices a repository is behind on, or that Shipshape couldn't check. */
 export function repoGaps(overview: OverviewResponse, repo: string) {
   const valid = overview.practices.filter((item) => item.valid);
 
@@ -128,7 +126,6 @@ export function repoGaps(overview: OverviewResponse, repo: string) {
 
 const SETTLED = new Set<CellState>(["pass", "not_applicable"]);
 
-/** Whether a repository still has something to do, or confirm, for one practice. */
 export function needsAttention(overview: OverviewResponse, repo: string, practiceId: string) {
   return !SETTLED.has(cellState(overview, repo, practiceId));
 }

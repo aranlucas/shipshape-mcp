@@ -1,10 +1,24 @@
-import type { PracticeOrigin, PracticeSummary } from "../api/contract";
 import type { AppEnv } from "../env";
 import { installationClient } from "../github/app";
 import { octokitGet } from "../github/client";
 import { z } from "zod";
 import { bundledBuiltIns, type BuiltInSet } from "./built-in";
-import { parsePractice, type ParsedPractice } from "./schema";
+import { parsePractice } from "./schema";
+import {
+  parseCatalogSources,
+  type CatalogPractice,
+  type CatalogLayer,
+  type EffectiveCatalog,
+} from "./catalog-definition";
+
+export {
+  practiceSummary,
+  type Catalog,
+  type CatalogPractice,
+  type CatalogLayer,
+  type EffectiveCatalog,
+} from "./catalog-definition";
+
 import { getRepository, readCatalogRow, writeCatalog } from "./store";
 
 const MAX_BLOBS = 200;
@@ -20,48 +34,15 @@ export class CatalogUnavailableError extends Error {
   }
 }
 
-export interface CatalogPractice {
-  id: string;
-  folder: string;
-  yaml: string;
-  instructions: string | null;
-  files: Record<string, string>;
-  parsed: ParsedPractice;
-  /** Absent on catalog-repository practices that don't shadow a built-in. */
-  origin?: PracticeOrigin;
-  /** An override whose files are identical to the built-in it shadows. */
-  matchesBuiltIn?: boolean;
-}
-
-export interface Catalog {
-  repo: string;
-  /** Version of the practice set; results recorded against another version are stale. */
-  sha: string;
-  practices: CatalogPractice[];
-}
-
-/** What the catalog repository contributes; stored in D1 as loaded. */
-export interface CatalogLayer extends Catalog {
-  /** Built-in practice ids the repository turns off with a `disabled` marker. */
-  disabled: string[];
-}
-
-/** Built-in practices overlaid by the catalog repository. */
-export interface EffectiveCatalog extends Catalog {
-  /** Catalog repository commit the set was composed from. */
-  commit: string;
-  /** Built-in practices the catalog repository turns off. */
-  disabled: CatalogPractice[];
+function definitionFiles(practice: CatalogPractice): string {
+  return JSON.stringify(Object.entries(practice.files).toSorted(([a], [b]) => a.localeCompare(b)));
 }
 
 function sameDefinition(left: CatalogPractice, right: CatalogPractice): boolean {
-  const files = (practice: CatalogPractice) =>
-    JSON.stringify(Object.entries(practice.files).toSorted(([a], [b]) => a.localeCompare(b)));
-
   return (
     left.yaml === right.yaml &&
     left.instructions === right.instructions &&
-    files(left) === files(right)
+    definitionFiles(left) === definitionFiles(right)
   );
 }
 
@@ -130,38 +111,6 @@ function decodeBlob(content: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function summaryForPractice(practice: CatalogPractice): PracticeSummary {
-  if (practice.parsed.ok) {
-    return {
-      id: practice.id,
-      title: practice.parsed.practice.title,
-      summary: practice.parsed.practice.summary,
-      kind: practice.parsed.practice.kind,
-      valid: true,
-      error: null,
-      origin: practice.origin ?? "custom",
-      matchesBuiltIn: practice.matchesBuiltIn ?? false,
-    };
-  }
-
-  const issue = practice.parsed.issues[0];
-
-  return {
-    id: practice.id,
-    title: "",
-    summary: "",
-    kind: "files",
-    valid: false,
-    error: `${issue?.path ?? ""}: ${issue?.message ?? "invalid practice"}`,
-    origin: practice.origin ?? "custom",
-    matchesBuiltIn: practice.matchesBuiltIn ?? false,
-  };
-}
-
-export function practiceSummary(practice: CatalogPractice): PracticeSummary {
-  return summaryForPractice(practice);
-}
-
 export async function loadCatalog(env: AppEnv): Promise<EffectiveCatalog> {
   const repoName = env.CATALOG_REPO;
   const repository = await getRepository(env.DB, repoName);
@@ -177,7 +126,6 @@ export async function loadCatalog(env: AppEnv): Promise<EffectiveCatalog> {
     client,
     "GET /repos/{owner}/{repo}",
     coordinates,
-    // GitHub's repository response is intentionally narrowed at this boundary.
     z.object({ default_branch: z.string() }),
   );
 
@@ -264,32 +212,7 @@ export async function loadCatalog(env: AppEnv): Promise<EffectiveCatalog> {
   // A `disabled` marker turns the folder's built-in off, whatever else the folder holds.
   const disabled = folderOf(/^practices\/[^/]+\/disabled$/u);
 
-  const folders = [...folderOf(/^practices\/[^/]+\/practice\.yml$/u)].filter(
-    (folder) => !disabled.has(folder),
-  );
-
-  const practices = folders.map((folder): CatalogPractice => {
-    const prefix = `practices/${folder}/`;
-    const yaml = contents.get(`${prefix}practice.yml`) ?? "";
-    const files: Record<string, string> = {};
-
-    for (const [path, content] of contents) {
-      if (path.startsWith(`${prefix}files/`)) {
-        files[path.slice(prefix.length)] = content;
-      }
-    }
-
-    return {
-      id: folder,
-      folder,
-      yaml,
-      instructions: contents.get(`${prefix}instructions.md`) ?? null,
-      files,
-      parsed: parsePractice(yaml, folder),
-    };
-  });
-
-  practices.sort((left, right) => left.id.localeCompare(right.id));
+  const practices = parseCatalogSources(Object.fromEntries(contents));
 
   const layer: CatalogLayer = {
     repo: repoName,

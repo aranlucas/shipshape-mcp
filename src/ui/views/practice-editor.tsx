@@ -208,7 +208,6 @@ function PracticeForm({ overview, id, detail }: FormProps) {
 
     resetMutation.mutate(id, {
       onSuccess: () => {
-        // The mutation refetched the practice; start the draft from the built-in.
         setDraft(draftFrom(client.getQueryData(practiceQuery(id).queryKey) ?? null));
         setConfirming(null);
         setResult(null);

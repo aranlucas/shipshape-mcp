@@ -1,26 +1,5 @@
+import { hasFileEvidence } from "../practices/check-evidence";
 import type { CheckResult, RepoSummary } from "../api/contract";
-
-const FILE_CHECKS = new Set([
-  "portless-dev",
-  "cloudflare-cf-cli",
-  "ci-required-checks",
-  "ci-test-script",
-  "pr-workflow-efficiency",
-  "required-package-scripts",
-  "file-exists",
-  "file-matches",
-  "file-contains",
-  "json-path",
-  "yaml-path",
-  "dependency",
-  "workflow",
-  "oxforge",
-  "oxforge-format",
-  "dependabot-grouped",
-  "husky-lint-staged",
-  "preferred-package-manager",
-  "pnpm-setup",
-]);
 
 /** Evidence must point at the evaluated commit, never the moving default branch. */
 export function evidenceLink(
@@ -28,7 +7,7 @@ export function evidenceLink(
   sha: string | null,
   check: CheckResult,
 ): string | null {
-  if (!sha || !/^[a-f0-9]{40}$/u.test(sha) || !FILE_CHECKS.has(check.type) || !check.path) {
+  if (!sha || !/^[a-f0-9]{40}$/u.test(sha) || !hasFileEvidence(check.type) || !check.path) {
     return null;
   }
 
