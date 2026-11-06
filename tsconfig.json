@@ -25,6 +25,8 @@
   "include": [
     "src",
     "test",
+    "e2e",
+    "e2e.config.ts",
     "scripts",
     "cloudflare.config.ts",
     "vite.config.ts",

@@ -391,6 +391,35 @@ describe("website companion", () => {
     expect((await webHandler(new Request(`${ORIGIN}/app/review`), env)).status).toBe(404);
   });
 
+  it.each(["https://evil.example", "https://sibling.aranlucas.workers.dev", null])(
+    "refuses unsafe authenticated API requests from %s",
+    async (origin) => {
+      const { env, kv } = environment();
+      const secret = await createSession(kv, { login: "aranlucas", userId: 1001 });
+
+      const headers = new Headers({
+        Cookie: `__Host-shipshape-session=${secret}`,
+        "Content-Type": "text/plain",
+      });
+
+      if (origin !== null) {
+        headers.set("Origin", origin);
+      }
+
+      const response = await webHandler(
+        new Request(`${ORIGIN}/app/api/refresh`, {
+          method: "POST",
+          headers,
+          body: "{}",
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Cross-origin request refused." });
+    },
+  );
+
   it("keeps sign-out same-origin protected and deletes the local session on success", async () => {
     const { env, kv } = environment();
     const secret = await createSession(kv, { login: "aranlucas", userId: 1001 });

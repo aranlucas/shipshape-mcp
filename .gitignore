@@ -15,3 +15,6 @@ coverage/
 
 # Dashboard bundle built by `pnpm ui:build`, served as static assets
 public/app/
+
+# Browser regression reports and failure recordings
+.e2e/

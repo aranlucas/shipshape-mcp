@@ -1,3 +1,5 @@
+import { parseDocument } from "yaml";
+import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type {
@@ -50,7 +52,26 @@ function draftFrom(detail: PracticeDetailResponse | null): Draft {
 }
 
 function yamlId(yaml: string): string | null {
-  return /^id:\s*["']?([a-z0-9]+(?:-[a-z0-9]+)*)["']?\s*$/mu.exec(yaml)?.[1] ?? null;
+  const document = parseDocument(yaml);
+
+  if (document.errors.length > 0) {
+    return null;
+  }
+
+  try {
+    return (
+      z
+        .object({
+          id: z
+            .string()
+            .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+            .max(64),
+        })
+        .safeParse(document.toJS({ maxAliasCount: 20 })).data?.id ?? null
+    );
+  } catch {
+    return null;
+  }
 }
 
 /** Tab inserts two spaces so YAML can be indented without leaving the editor. */
