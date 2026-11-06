@@ -1,4 +1,4 @@
-import { DAILY_SWEEP_CRON, GITHUB_API_VERSION } from "./src/deployment-settings";
+import { DAILY_SWEEP_CRON, GITHUB_API_VERSION } from "./src/deployment-settings.ts";
 import { bindings, defineConfig, triggers } from "cf/config";
 import manifest from "./package.json" with { type: "json" };
 import * as entrypoint from "./src/index" with { type: "cf-worker" };
