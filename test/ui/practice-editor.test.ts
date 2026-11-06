@@ -177,9 +177,11 @@ describe("practice editor queries and mutations", () => {
     "creates a practice using a valid YAML ID (%s)",
     async (yaml) => {
       window.history.replaceState(null, "", "/app/practices/new");
+
       const save = vi
         .spyOn(api, "savePractice")
         .mockRejectedValue(new ApiError("Synthetic failure", 500));
+
       await mount();
       await editYaml(yaml);
       await clickButton("Add practice");

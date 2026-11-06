@@ -219,12 +219,11 @@ describe("catalog write allowlist and Git Data commits", () => {
     const tree = requests.find(
       ({ method, path }) => method === "POST" && path.endsWith("/git/trees"),
     );
-    expect(gitTreeEntries(tree)).toEqual([
-      expect.objectContaining({
-        path: "practices/new-practice/practice.yml",
-        sha: expect.any(String),
-      }),
-    ]);
+
+    const entries = gitTreeEntries(tree);
+
+    expect(entries.map((entry) => entry.path)).toEqual(["practices/new-practice/practice.yml"]);
+    expect(entries[0]?.sha).toBeTruthy();
   });
 
   it("commits an update through Git Data in order and never forces the ref", async () => {

@@ -16,6 +16,7 @@ checks:
   - type: file-exists
     path: README.md
 `;
+
   await app.open("/app/practices/new");
   await screen.getByRole("textbox", "practice.yml").fill(yaml);
   await screen.getByRole("button", "Add practice").click();

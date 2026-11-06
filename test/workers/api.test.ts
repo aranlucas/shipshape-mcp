@@ -766,6 +766,7 @@ describe("dashboard API", () => {
 
     const response = await request("/app/api/refresh", {
       method: "POST",
+      headers: { origin: ORIGIN },
       body: JSON.stringify({ repo: "aranlucas/alpha" }),
     });
 
@@ -869,7 +870,7 @@ describe("dashboard API", () => {
   it.each(["PATCH", "OPTIONS"])(
     "returns a JSON 404 for unsupported %s requests",
     async (method) => {
-      const response = await request("/app/api/overview", { method });
+      const response = await request("/app/api/overview", { method, headers: { origin: ORIGIN } });
 
       expect(response.status).toBe(404);
       expect(response.headers.get("cache-control")).toBe("no-store");

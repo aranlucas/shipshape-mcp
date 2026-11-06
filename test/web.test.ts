@@ -396,11 +396,16 @@ describe("website companion", () => {
     async (origin) => {
       const { env, kv } = environment();
       const secret = await createSession(kv, { login: "aranlucas", userId: 1001 });
+
       const headers = new Headers({
         Cookie: `__Host-shipshape-session=${secret}`,
         "Content-Type": "text/plain",
       });
-      if (origin !== null) headers.set("Origin", origin);
+
+      if (origin !== null) {
+        headers.set("Origin", origin);
+      }
+
       const response = await webHandler(
         new Request(`${ORIGIN}/app/api/refresh`, {
           method: "POST",
@@ -409,6 +414,7 @@ describe("website companion", () => {
         }),
         env,
       );
+
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: "Cross-origin request refused." });
     },
