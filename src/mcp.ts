@@ -2,12 +2,22 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import type { AppEnv } from "./env";
-import type { OverviewResponse, PracticeDetailResponse, RepoDetailResponse } from "./api/contract";
+import type {
+  OverviewResponse,
+  PracticeDetailResponse,
+  PrioritiesResponse,
+  RepoDetailResponse,
+} from "./api/contract";
 import { githubErrorStatus } from "./github/client";
 import { GitHubInputError } from "./github/input-error";
 import { GitHubPayloadError } from "./github/payload-error";
 import { GitHubOwnerInputSchema } from "./github/schemas";
-import { buildOverview, buildPracticeDetail, buildRepoDetail } from "./practices/views";
+import {
+  buildOverview,
+  buildPracticeDetail,
+  buildPriorities,
+  buildRepoDetail,
+} from "./practices/views";
 import { listRepositories } from "./practices/store";
 
 const READ_ONLY_ANNOTATIONS = {
@@ -17,7 +27,11 @@ const READ_ONLY_ANNOTATIONS = {
   openWorldHint: true,
 } as const;
 
-type PracticePayload = OverviewResponse | RepoDetailResponse | PracticeDetailResponse;
+type PracticePayload =
+  | OverviewResponse
+  | RepoDetailResponse
+  | PracticeDetailResponse
+  | PrioritiesResponse;
 
 function jsonResult(payload: PracticePayload) {
   return {
@@ -158,6 +172,29 @@ export function createPracticesServer(env: AppEnv): McpServer {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     ({ id }) => safely(() => buildPracticeDetail(env, id)),
+  );
+
+  server.registerTool(
+    "maintenance_priorities",
+    {
+      title: "Maintenance priorities",
+      description:
+        "Rank the practices active repositories fail, most repositories affected first, with the failing checks as evidence. Checks Shipshape couldn't run are listed separately and never ranked. Forks and archived repositories are left out.",
+      inputSchema: z
+        .object({
+          owner: GitHubOwnerInputSchema.optional().describe("Filter by repository owner"),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(50)
+            .default(5)
+            .describe("Maximum number of ranked actions to return"),
+        })
+        .strict(),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    ({ owner, limit }) => safely(() => buildPriorities(env, { owner, limit })),
   );
 
   return server;

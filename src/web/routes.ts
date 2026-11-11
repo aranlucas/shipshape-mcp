@@ -82,7 +82,7 @@ function isDashboardApiPath(pathname: string): boolean {
   const parts = pathname.split("/").filter(Boolean).slice(2);
 
   return (
-    (parts.length === 1 && (parts[0] === "overview" || parts[0] === "refresh")) ||
+    (parts.length === 1 && ["overview", "priorities", "refresh"].includes(parts[0] ?? "")) ||
     (parts.length === 3 && parts[0] === "repos") ||
     (parts.length === 2 && parts[0] === "practices") ||
     (parts.length === 3 && parts[0] === "practices" && parts[2] === "reset")

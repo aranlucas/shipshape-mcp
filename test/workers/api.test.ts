@@ -25,6 +25,7 @@ import {
   CatalogWriteResponseSchema,
   OverviewResponseSchema,
   PracticeDetailResponseSchema,
+  PrioritiesResponseSchema,
   RefreshResponseSchema,
   RepoDetailResponseSchema,
 } from "@test/helpers/contract-schemas";
@@ -452,6 +453,58 @@ describe("dashboard API", () => {
     expect(
       detail.practices.every((entry) => entry.checks.length === 0 && entry.headSha === null),
     ).toBe(true);
+  });
+
+  it("ranks failing practices with their stored failing checks as evidence", async () => {
+    const response = await request("/app/api/priorities");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+
+    const body = PrioritiesResponseSchema.parse(await parseJson(response));
+    expect(body.catalog).toEqual({ sha: catalogSha, loadedAt: "2026-10-15T12:00:00.000Z" });
+    expect(body.actions.map((action) => action.practice.id)).toEqual(["husky"]);
+    expect(body.actions[0]?.repos).toEqual([
+      {
+        fullName: "aranlucas/alpha",
+        url: "https://github.com/aranlucas/alpha",
+        checkedAt: "2026-10-15T12:30:00.000Z",
+        checks: [
+          {
+            type: "file-exists",
+            label: "File exists",
+            state: "fail",
+            path: ".husky/pre-commit",
+            expected: "present",
+            actual: "missing",
+            detail: null,
+          },
+        ],
+      },
+    ]);
+    expect(body).toMatchObject({ remaining: 0, unknown: [], unchecked: 2, excluded: 0 });
+  });
+
+  it("does not rank failures recorded against a previous catalog revision", async () => {
+    await appEnv.DB.prepare("UPDATE results SET catalog_sha = ?").bind("d".repeat(40)).run();
+
+    const body = PrioritiesResponseSchema.parse(
+      await parseJson(await request("/app/api/priorities")),
+    );
+
+    expect(body.actions).toEqual([]);
+    expect(body.unchecked).toBe(3);
+  });
+
+  it("filters priorities by owner and rejects an out-of-range limit", async () => {
+    const other = PrioritiesResponseSchema.parse(
+      await parseJson(await request("/app/api/priorities?owner=octo")),
+    );
+
+    expect(other.actions).toEqual([]);
+
+    const invalid = await request("/app/api/priorities?limit=0");
+    expect(invalid.status).toBe(400);
+    expect(ApiErrorResponseSchema.parse(await parseJson(invalid)).issues?.[0]?.path).toBe("limit");
   });
 
   it("returns repository detail and a contract 404 for an unknown repository", async () => {

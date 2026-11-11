@@ -5,12 +5,13 @@ import type {
   ApiErrorResponse,
   OverviewResponse,
   PracticeDetailResponse,
+  PrioritiesResponse,
   RepoDetailResponse,
 } from "./contract";
 import type { AppEnv } from "../env";
 import { syncInventory } from "../inventory/sync";
 import { CatalogWriteRefusedError, commitCatalogChange } from "../github/catalog-write";
-import { RepositoryCoordinatesSchema } from "../github/schemas";
+import { GitHubOwnerInputSchema, RepositoryCoordinatesSchema } from "../github/schemas";
 import { enqueueRepositories, requeueIfBuiltInsChanged } from "../queue";
 import {
   loadCatalog,
@@ -21,6 +22,7 @@ import {
 import {
   buildOverview,
   buildPracticeDetail,
+  buildPriorities,
   buildRepoDetail,
   PracticeNotFoundError,
 } from "../practices/views";
@@ -52,6 +54,13 @@ const RefreshRepositorySchema = z
 
 const RefreshSchema = z.object({ repo: RefreshRepositorySchema.optional() }).strict();
 
+const PrioritiesQuerySchema = z
+  .object({
+    owner: GitHubOwnerInputSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
 interface ApiEnv {
   Bindings: AppEnv;
 }
@@ -67,6 +76,7 @@ type ApiResponseBody =
   | OverviewResponse
   | RepoDetailResponse
   | PracticeDetailResponse
+  | PrioritiesResponse
   | { catalogSha: string }
   | { queued: number };
 
@@ -254,6 +264,10 @@ api.get("/overview", async (c) => {
   await requeueIfBuiltInsChanged(c.env);
 
   return json(await buildOverview(c.env));
+});
+
+api.get("/priorities", async (c) => {
+  return json(await buildPriorities(c.env, PrioritiesQuerySchema.parse(c.req.query())));
 });
 
 api.get("/repos/:owner/:name", async (c) => {

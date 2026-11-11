@@ -116,3 +116,29 @@ export const ApiErrorResponseSchema = z
 
 export const CatalogWriteResponseSchema = z.object({ catalogSha: z.string() }).strict();
 export const RefreshResponseSchema = z.object({ queued: z.number() }).strict();
+
+const priorityRepo = z
+  .object({
+    fullName: z.string(),
+    url: z.string(),
+    checkedAt: z.string(),
+    checks: z.array(checkResult),
+  })
+  .strict();
+
+export const PrioritiesResponseSchema = z
+  .object({
+    catalog: z.object({ sha: z.string().nullable(), loadedAt: z.string().nullable() }).strict(),
+    actions: z.array(
+      z
+        .object({ practice: practiceSummary, repos: z.array(priorityRepo), evaluated: z.number() })
+        .strict(),
+    ),
+    remaining: z.number(),
+    unknown: z.array(
+      z.object({ practice: practiceSummary, repos: z.array(priorityRepo) }).strict(),
+    ),
+    unchecked: z.number(),
+    excluded: z.number(),
+  })
+  .strict();
