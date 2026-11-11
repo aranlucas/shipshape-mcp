@@ -433,6 +433,24 @@ export async function readResultSummaries(db: D1Database): Promise<StoredResultS
   }));
 }
 
+/** Current-catalog results; detailed evidence is transferred only for fail and unknown cells. */
+export async function readAttentionResults(
+  db: D1Database,
+  catalogSha: string,
+): Promise<StoredResult[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT repo_full_name, practice_id, state, failing, unknown,
+              CASE WHEN state IN ('fail', 'unknown') THEN checks_json ELSE '[]' END AS checks_json,
+              head_sha, catalog_sha, checked_at, retrying, evaluation_key
+       FROM results WHERE catalog_sha = ? ORDER BY repo_full_name, practice_id`,
+    )
+    .bind(catalogSha)
+    .all<ResultRow>();
+
+  return results.map(resultFromRow);
+}
+
 const unknownCheck = (detail: string): CheckResult => ({
   type: "evaluation",
   label: "Evaluation availability",

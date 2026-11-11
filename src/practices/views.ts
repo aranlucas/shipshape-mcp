@@ -2,13 +2,16 @@ import type {
   CellResult,
   OverviewResponse,
   PracticeDetailResponse,
+  PrioritiesResponse,
   RepoDetailResponse,
   RepoSummary,
 } from "../api/contract";
 import type { AppEnv } from "../env";
 import { practiceSummary, readStoredCatalog } from "./catalog";
+import { rankPriorities } from "./priorities";
 import {
   listRepositories,
+  readAttentionResults,
   readCatalogRow,
   readResults,
   readResultSummaries,
@@ -110,6 +113,34 @@ export async function buildRepoDetail(
           catalogSha: result?.catalogSha ?? null,
         };
       }),
+  };
+}
+
+export interface PriorityOptions {
+  owner?: string;
+  limit?: number;
+}
+
+export async function buildPriorities(
+  env: AppEnv,
+  options: PriorityOptions = {},
+): Promise<PrioritiesResponse> {
+  const [catalog, row, repos] = await Promise.all([
+    readStoredCatalog(env.DB),
+    readCatalogRow(env.DB),
+    listRepositories(env.DB),
+  ]);
+
+  const results = catalog ? await readAttentionResults(env.DB, catalog.sha) : [];
+
+  return {
+    catalog: { sha: catalog?.sha ?? null, loadedAt: catalog ? (row?.loaded_at ?? null) : null },
+    ...rankPriorities({
+      practices: (catalog?.practices ?? []).map(practiceSummary),
+      repos: repos.map(repoSummary),
+      results,
+      ...options,
+    }),
   };
 }
 

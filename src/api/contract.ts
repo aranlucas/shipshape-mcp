@@ -95,6 +95,38 @@ export interface PracticeDetailResponse {
   counts: Record<PracticeState, number>;
 }
 
+/** One repository behind a priority, with the stored checks that put it there. */
+export interface PriorityRepo {
+  fullName: string;
+  url: string;
+  checkedAt: string; // ISO; when the evidence was recorded
+  checks: CheckResult[]; // only checks in the finding's state (fail or unknown)
+}
+
+/** A practice that active repositories fail, grouped across the portfolio. */
+export interface PriorityAction {
+  practice: PracticeSummary;
+  repos: PriorityRepo[]; // active repositories failing it, by name
+  evaluated: number; // active repositories with a definite pass or fail result
+}
+
+/** A practice Shipshape couldn't check; never ranked against failures. */
+export interface UnknownFinding {
+  practice: PracticeSummary;
+  repos: PriorityRepo[];
+}
+
+// GET /app/api/priorities?owner=&limit=
+export interface PrioritiesResponse {
+  catalog: Pick<OverviewResponse["catalog"], "sha" | "loadedAt">;
+  // Most active repositories affected first; settings before file changes on a tie.
+  actions: PriorityAction[];
+  remaining: number; // ranked actions left out by the limit
+  unknown: UnknownFinding[];
+  unchecked: number; // active repositories not yet checked against every valid practice
+  excluded: number; // forks and archived repositories left out of the ranking
+}
+
 // PUT /app/api/practices/:id   body: { yaml, instructions?, files? }
 // → 200 { catalogSha } | 400 { error, issues?: Array<{path: string; message: string}> }
 // DELETE /app/api/practices/:id → 200 { catalogSha }

@@ -16,7 +16,10 @@ codex mcp add shipshape \
   --oauth-client-registration auto
 ```
 
-The MCP tools are `practices_overview`, `repo_practices`, and `practice_detail`.
+The MCP tools are `maintenance_priorities`, `practices_overview`, `repo_practices`,
+and `practice_detail`. `maintenance_priorities` (also `GET /app/api/priorities`)
+groups failing results by practice and ranks them by how many active repositories
+fail. It includes the failing checks as evidence and lists unknown results separately.
 The [dashboard](https://shipshape-mcp.aranlucas.workers.dev/app) and MCP use
 [central Auth](https://auth.aranlucas.workers.dev/). Connect GitHub on its
 [account page](https://auth.aranlucas.workers.dev/account) before signing in.

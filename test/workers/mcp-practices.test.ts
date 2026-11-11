@@ -17,6 +17,7 @@ import {
 import {
   OverviewResponseSchema,
   PracticeDetailResponseSchema,
+  PrioritiesResponseSchema,
   RepoDetailResponseSchema,
 } from "@test/helpers/contract-schemas";
 
@@ -140,12 +141,13 @@ function jsonPayload(result: Awaited<ReturnType<Client["callTool"]>>) {
 describe("practice MCP tools", () => {
   beforeEach(seed);
 
-  it("lists exactly three read-only tools with structured JSON text results", async () => {
+  it("lists exactly four read-only tools with structured JSON text results", async () => {
     const { client, server } = await connect();
 
     try {
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).toSorted()).toEqual([
+        "maintenance_priorities",
         "practice_detail",
         "practices_overview",
         "repo_practices",
@@ -186,6 +188,51 @@ describe("practice MCP tools", () => {
       expect(payload.repos.map((repo) => repo.fullName)).toEqual(["aranlucas/alpha"]);
       expect(Object.keys(payload.results)).toEqual(["aranlucas/alpha"]);
       expect(payload.results["aranlucas/alpha"]?.husky?.state).toBe("fail");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("ranks failing practices across repositories and scopes them by owner and limit", async () => {
+    await writeResults(appEnv.DB, [
+      {
+        repo: "other/repo",
+        practiceId: "husky",
+        cell: { state: "fail", checkedAt: "2026-10-15T12:40:00.000Z", failing: 1, unknown: 0 },
+        checks: [],
+        headSha: "o".repeat(40),
+        catalogSha,
+      },
+    ]);
+    const { client, server } = await connect();
+
+    try {
+      const all = PrioritiesResponseSchema.parse(
+        jsonPayload(await client.callTool({ name: "maintenance_priorities", arguments: {} })),
+      );
+      expect(all.catalog.sha).toBe(catalogSha);
+      expect(all.actions.map((action) => action.practice.id)).toEqual(["husky"]);
+      expect(all.actions[0]?.repos.map((repo) => repo.fullName)).toEqual([
+        "aranlucas/alpha",
+        "other/repo",
+      ]);
+
+      const scoped = PrioritiesResponseSchema.parse(
+        jsonPayload(
+          await client.callTool({
+            name: "maintenance_priorities",
+            arguments: { owner: "ARANLUCAS" },
+          }),
+        ),
+      );
+      expect(scoped.actions[0]?.repos.map((repo) => repo.fullName)).toEqual(["aranlucas/alpha"]);
+
+      const invalid = await client.callTool({
+        name: "maintenance_priorities",
+        arguments: { limit: 0 },
+      });
+      expect(invalid.isError).toBe(true);
     } finally {
       await client.close();
       await server.close();
