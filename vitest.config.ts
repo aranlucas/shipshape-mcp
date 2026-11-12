@@ -22,7 +22,7 @@ export default defineConfig({
         extends: true,
         plugins: [
           cloudflareTest({
-            experimental: { newConfig: true },
+            config: true,
             miniflare: {
               bindings: {
                 GITHUB_APP_ID: "12345",
