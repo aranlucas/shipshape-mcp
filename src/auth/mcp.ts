@@ -82,6 +82,7 @@ export async function protectedMcp(request: Request, env: AppEnv, ctx: Execution
   }
 
   const options = accessTokenOptions(env, resource);
+  const authorization = parseAccessTokenAuthorization(request.headers.get("Authorization"));
 
   const handler = createMcpProtectedRequestHandler(
     {
@@ -92,15 +93,17 @@ export async function protectedMcp(request: Request, env: AppEnv, ctx: Execution
       requiredScopes: options.requiredScopes,
     },
     (verifiedRequest, claims) => {
+      if (claims.github_id === undefined && claims.github_login === undefined) {
+        return new Response("Link your GitHub account in central Auth, then reconnect Shipshape.", {
+          status: 403,
+        });
+      }
+
       const identity = accessIdentity(claims);
 
       if (!identity || !isOwner(env, identity.identity)) {
         return new Response("Forbidden", { status: 403 });
       }
-
-      const authorization = parseAccessTokenAuthorization(
-        verifiedRequest.headers.get("Authorization"),
-      );
 
       if (!authorization?.token) {
         return new Response("Unauthorized", { status: 401 });
@@ -126,5 +129,18 @@ export async function protectedMcp(request: Request, env: AppEnv, ctx: Execution
     },
   );
 
-  return withCors(await handler(request), corsOrigin, methods);
+  const response = await handler(request);
+  const challenge = response.headers.get("WWW-Authenticate");
+
+  // Better Auth uses the same Bearer challenge for absent and rejected credentials.
+  if (
+    authorization?.scheme === "Bearer" &&
+    response.status === 401 &&
+    challenge?.startsWith("Bearer ") &&
+    !challenge.includes('error="')
+  ) {
+    response.headers.set("WWW-Authenticate", `${challenge}, error="invalid_token"`);
+  }
+
+  return withCors(response, corsOrigin, methods);
 }

@@ -23,6 +23,10 @@ beforeAll(async () => {
       return Response.json(auth.jwks);
     }
 
+    if (request.url === `${auth.issuer}/unavailable-jwks`) {
+      return Response.json({ error: "unavailable" }, { status: 503 });
+    }
+
     if (request.url === `${auth.issuer}/oauth2/register`) {
       assert.equal(request.method, "POST");
 
@@ -175,20 +179,23 @@ describe("external Auth resource server", () => {
     expect(authorize.searchParams.get("resource")).toBe(`${origin}/mcp`);
   });
 
-  it.each([undefined, "not-a-jwt"])(
-    "challenges a missing or invalid bearer token %j",
-    async (token) => {
-      const response = await dispatch(MCP_RESOURCE, mcpRequest(token));
-      expect(response.status).toBe(401);
-      expect(response.headers.get("WWW-Authenticate")).toContain("Bearer ");
-      expect(response.headers.get("WWW-Authenticate")).toContain(`scope="${AUTH_SCOPE}"`);
-      expect(response.headers.get("WWW-Authenticate")).toContain(
-        `resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", MCP_RESOURCE).href}"`,
-      );
-      expect(response.headers.get("Access-Control-Expose-Headers")).toContain("WWW-Authenticate");
-      expect(response.headers.get("Cache-Control")).toBe("no-store");
-    },
-  );
+  it.each([
+    ["no credentials", undefined, undefined],
+    ["an invalid bearer token", "not-a-jwt", 'error="invalid_token"'],
+  ])("challenges a request with %s", async (_label, token, expectedError) => {
+    const response = await dispatch(MCP_RESOURCE, mcpRequest(token));
+    expect(response.status).toBe(401);
+    const challenge = response.headers.get("WWW-Authenticate");
+    expect(challenge).toMatch(/^Bearer /u);
+
+    expect(challenge?.match(/\berror="[^"]+"/u)?.[0]).toBe(expectedError);
+    expect(challenge).toContain(`scope="${AUTH_SCOPE}"`);
+    expect(challenge).toContain(
+      `resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", MCP_RESOURCE).href}"`,
+    );
+    expect(response.headers.get("Access-Control-Expose-Headers")).toContain("WWW-Authenticate");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
 
   it("accepts a signed owner token and reaches the real MCP server", async () => {
     const token = await auth.sign({ aud: MCP_RESOURCE });
@@ -222,10 +229,25 @@ describe("external Auth resource server", () => {
     const response = await dispatch(MCP_RESOURCE, mcpRequest(token));
     expect(response.status).toBe(403);
     expect(await response.text()).toBe("Forbidden");
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+  });
+
+  it("directs an unlinked account to central Auth without issuing a scope challenge", async () => {
+    const token = await auth.sign({
+      aud: MCP_RESOURCE,
+      github_id: undefined,
+      github_login: undefined,
+    });
+    const response = await dispatch(MCP_RESOURCE, mcpRequest(token));
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+    expect(await response.text()).toBe(
+      "Link your GitHub account in central Auth, then reconnect Shipshape.",
+    );
   });
 
   it.each([
-    ["unlinked account", { github_id: undefined, github_login: undefined }],
     [
       "legacy provider identity props",
       { github_id: undefined, github_login: undefined, login: "aranlucas", userId: 1001 },
@@ -251,13 +273,20 @@ describe("external Auth resource server", () => {
     ["missing issued-at", { iat: undefined }],
     ["missing subject", { sub: undefined }],
     ["missing client id", { client_id: undefined }],
+    ["missing scope claim", { scope: undefined }],
   ])("challenges a JWT with %s", async (_label, claims) => {
     const response = await dispatch(
       MCP_RESOURCE,
       mcpRequest(await auth.sign({ aud: MCP_RESOURCE, ...claims })),
     );
     expect(response.status).toBe(401);
-    expect(response.headers.get("WWW-Authenticate")).toContain("Bearer ");
+    const challenge = response.headers.get("WWW-Authenticate");
+    expect(challenge).toMatch(/^Bearer /u);
+    expect(challenge).toContain('error="invalid_token"');
+    expect(challenge).toContain(`scope="${AUTH_SCOPE}"`);
+    expect(challenge).toContain(
+      `resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", MCP_RESOURCE).href}"`,
+    );
   });
 
   it("rejects a proof-bound token presented without its DPoP proof", async () => {
@@ -266,6 +295,16 @@ describe("external Auth resource server", () => {
 
     expect(response.status).toBe(401);
     expect(response.headers.get("WWW-Authenticate")).toContain('DPoP error="invalid_token"');
+  });
+
+  it("returns a service error without a reconnect challenge when Auth JWKS is unavailable", async () => {
+    const token = await auth.sign({ aud: MCP_RESOURCE });
+    const response = await dispatch(MCP_RESOURCE, mcpRequest(token), {
+      BETTER_AUTH_JWKS_URL: `${auth.issuer}/unavailable-jwks`,
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
   });
 
   it("rejects a JWT signed by an untrusted key", async () => {
@@ -304,6 +343,9 @@ describe("external Auth resource server", () => {
       expect(response.status).toBe(403);
       expect(response.headers.get("WWW-Authenticate")).toContain('error="insufficient_scope"');
       expect(response.headers.get("WWW-Authenticate")).toContain(`scope="${AUTH_SCOPE}"`);
+      expect(response.headers.get("WWW-Authenticate")).toContain(
+        `resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", MCP_RESOURCE).href}"`,
+      );
     },
   );
 
