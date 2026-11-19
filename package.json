@@ -55,7 +55,7 @@
     "@modelcontextprotocol/client": "2.4.0",
     "@preact/preset-vite": "^2.10.6",
     "@types/node": "^26.6.6",
-    "cf": "1.0.0-beta.32",
+    "cf": "1.0.0-rc.0",
     "e2e": "0.23.1",
     "happy-dom": "^21.0.4",
     "husky": "^9.1.7",
